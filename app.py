@@ -489,8 +489,6 @@ def init_session_state():
         st.session_state.initialized = True
         for k, v in DEFAULT_PARAMS.items():
             st.session_state[k] = v
-        # 启动时自动拉取实时汇率（缓存1h）/ Auto-fetch live forex on startup (1h cache)
-        st.session_state.forex_usd_zar = _fetch_forex_cached()
         st.session_state.stashed_params = None
         st.session_state.results = None
         st.session_state.hourly_df = None
@@ -527,6 +525,13 @@ def fetch_forex_rate() -> float:
 def _fetch_forex_cached() -> float:
     """启动时自动拉取，缓存 1 小时避免频繁请求 / Auto-fetch on startup, cached 1h"""
     return fetch_forex_rate()
+
+
+# 启动时自动拉取实时汇率（函数已定义，安全调用）
+# Auto-fetch live forex rate on startup — functions are now defined, safe to call
+if "forex_auto_fetched" not in st.session_state:
+    st.session_state.forex_usd_zar = _fetch_forex_cached()
+    st.session_state.forex_auto_fetched = True
 
 
 def get_capex_zar() -> tuple[float, float]:
