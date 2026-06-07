@@ -999,6 +999,7 @@ def check_auto_pvgis():
 def generate_excel_report() -> bytes:
     """
     生成 6-sheet 专业级 Excel 报告（session_state 快照，不重新计算）
+    Sheet 3 使用工作表内绝对引用（$B$5 等），确保 Excel 公式正常运算。
     Returns raw bytes for st.download_button.
     """
     import datetime as _dt
@@ -1016,6 +1017,7 @@ def generate_excel_report() -> bytes:
     pvg     = res["pvgis_data"]
     soh_arr = get_soh_by_year(res["annual_cycles"])
     pv_zar, bess_zar = get_capex_zar()
+    bess_zero = (ss.bess_kwh == 0)   # flag: hide BESS charts/columns when no BESS
 
     # ── Colour palette ────────────────────────────────────────
     C_NAVY   = "1F3864"
@@ -1293,21 +1295,87 @@ def generate_excel_report() -> bytes:
 
     # ════════════════════════════════════════════════════════════
     # SHEET 3 — 财务模型 25Y Model
+    # 所有公式使用工作表内绝对引用（$B$5 等），不跨表，确保 Excel 正常计算
     # ════════════════════════════════════════════════════════════
     ws3 = wb.create_sheet("财务模型 25Y Model")
     ws3.sheet_view.showGridLines = False
-    ws3.freeze_panes = "A3"
-    for ci, w in enumerate([6,10,10,14,14,14,12,12,14,13,12,12,12,14,13,14,12], 1):
+    ws3.freeze_panes = "A8"    # freeze title + param section + header
+    for ci, w in enumerate([6,14,10,14,14,14,12,12,14,13,12,12,12,14,13,14,12], 1):
         ws3.column_dimensions[get_column_letter(ci)].width = w
 
+    # ── Title row 1 ───────────────────────────────────────────
     ws3.merge_cells("A1:Q1")
     c = ws3.cell(row=1, column=1,
                  value="25年财务模型 / 25-Year Financial Model  "
-                       "(公式联动参数页 · Formula-linked to 参数 Parameters)")
-    c.font = Font("Calibri", size=11, bold=True, color="FFFFFF")
+                       "— 修改第5行黄色参数单元格，所有公式自动重算")
+    c.font = Font("Calibri", size=12, bold=True, color="FFFFFF")
     c.fill = _fill(C_NAVY); c.alignment = _align("center")
-    ws3.row_dimensions[1].height = 26
+    ws3.row_dimensions[1].height = 28
 
+    # ── Parameter Section header row 2 ───────────────────────
+    ws3.merge_cells("A2:Q2")
+    c = ws3.cell(row=2, column=1,
+                 value="⚙️  可调财务参数 / Adjustable Parameters — 直接修改下方绿色单元格数值，右侧财务公式自动更新")
+    c.font = Font("Calibri", size=9, bold=True, color="FFFFFF")
+    c.fill = _fill(C_MID); c.alignment = _align("left")
+    ws3.row_dimensions[2].height = 18
+
+    # ── Parameter labels row 3 & values row 4 ────────────────
+    # Parameters mapped to columns B-L (2-12)
+    # B5: Base PV Save  C5: Base BESS Save  D5: Esc%  E5: Disc%  F5: Tax%
+    # G5: PV Deg%  H5: Total CAPEX  I5: PV kWp  J5: BESS kWh
+    # K5: PV O&M  L5: BESS O&M
+    param_meta = [
+        # (col_idx, label, value, editable, fmt)
+        (2,  "PV节省基期\nYr1 PV Save\n(ZAR)",       d1["annual_pv_saving_ZAR"],   False, "#,##0"),
+        (3,  "BESS节省基期\nYr1 BESS Save\n(ZAR)",   d1["annual_bess_saving_ZAR"], False, "#,##0"),
+        (4,  "电费增速\nEsc (%/yr)\n🟢可调",          ss.tariff_escalation,         True,  "0.0"),
+        (5,  "折现率\nDisc (%)\n🟢可调",              ss.discount_rate,             True,  "0.0"),
+        (6,  "税率\nTax (%)\n🟢可调",                 ss.tax_rate,                  True,  "0.0"),
+        (7,  "PV衰减\nDeg (%/yr)\n🟢可调",           ss.pv_degradation,            True,  "0.00"),
+        (8,  "总投资\nCAPEX (ZAR)\n🔒",               res["total_capex"],           False, "#,##0"),
+        (9,  "PV (kWp)\n🔒",                          ss.pv_kwp,                    False, "#,##0.0"),
+        (10, "BESS (kWh)\n🔒",                        ss.bess_kwh,                  False, "#,##0.0"),
+        (11, "PV运维\nOM ZAR/kWp\n🟢可调",           ss.pv_opex_per_kwp,           True,  "0.00"),
+        (12, "BESS运维\nOM ZAR/kWh\n🟢可调",         ss.bess_opex_per_kwh,         True,  "0.00"),
+    ]
+    ws3.row_dimensions[3].height = 34
+    ws3.row_dimensions[4].height = 20
+    ws3.row_dimensions[5].height = 6   # thin divider
+    for ci_p, lbl_p, val_p, edit_p, fmt_p in param_meta:
+        # Label row 3
+        lc3 = ws3.cell(row=3, column=ci_p, value=lbl_p)
+        lc3.font = _font(sz=8, bold=True)
+        lc3.fill = _fill(C_LTBLUE)
+        lc3.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        lc3.border = _bdr()
+        # Value row 4
+        vc4 = ws3.cell(row=4, column=ci_p, value=val_p)
+        vc4.font = _font(sz=10, bold=True,
+                         color=C_DARK if not edit_p else "1B5E20")
+        # Green bg = editable; yellow bg = locked simulation result
+        vc4.fill = _fill("E8F5E9" if edit_p else C_LOCKED)
+        vc4.alignment = _align("center")
+        vc4.border = _bdr()
+        vc4.number_format = fmt_p
+
+    # Label col A rows 3-4
+    for r_ in (3, 4):
+        ac = ws3.cell(row=r_, column=1,
+                      value=("参数名" if r_ == 3 else "参数值"))
+        ac.font = _font(sz=8, bold=True, color="FFFFFF")
+        ac.fill = _fill(C_NAVY); ac.alignment = _align("center"); ac.border = _bdr()
+    # Fill cols M-Q rows 3-4 as spacers
+    for r_ in (3, 4):
+        for ci_sp in range(13, 18):
+            ws3.cell(row=r_, column=ci_sp).fill = _fill(C_ALT)
+            ws3.cell(row=r_, column=ci_sp).border = _bdr()
+
+    # Divider row 5
+    ws3.merge_cells("A5:Q5")
+    ws3.cell(row=5, column=1).fill = _fill(C_NAVY)
+
+    # ── Column headers row 6 ─────────────────────────────────
     hdrs3 = ["年份\nYear", "BESS\n状态", "SOH\n%",
              "PV节省\nZAR", "BESS节省\nZAR", "总节省\nZAR",
              "PV运维\nZAR", "BESS运维\nZAR", "EBITDA\nZAR",
@@ -1315,18 +1383,16 @@ def generate_excel_report() -> bytes:
              "现金税\nZAR", "净现金流\nNCF ZAR", "折现CF\nPV ZAR",
              "累计CF\nZAR", "净利润\nZAR"]
     for ci, hdr in enumerate(hdrs3, 1):
-        hc = ws3.cell(row=2, column=ci, value=hdr)
+        hc = ws3.cell(row=6, column=ci, value=hdr)
         hc.font = Font("Calibri", size=8, bold=True, color="FFFFFF")
         hc.fill = _fill(C_NAVY)
         hc.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         hc.border = _bdr()
-    ws3.row_dimensions[2].height = 32
+    ws3.row_dimensions[6].height = 32
 
-    # Parameters sheet reference prefix
-    P = "'参数 Parameters'"
-
-    # ── Year 0 row (row 3) ────────────────────────────────────
-    r0 = 3
+    # ── Year 0 row (row 7) ────────────────────────────────────
+    # $H$4 = Total CAPEX (parameter value cell)
+    r0 = 7
     y0 = ws3.cell(row=r0, column=1, value=0)
     y0.font = _font(bold=True, sz=10); y0.fill = _fill(C_ALT)
     y0.alignment = _align("center"); y0.border = _bdr()
@@ -1334,23 +1400,28 @@ def generate_excel_report() -> bytes:
     lc = ws3.cell(row=r0, column=2, value="初始投资 / Initial Investment")
     lc.font = Font("Calibri", size=10, bold=True, color=C_RED)
     lc.fill = _fill(C_ALT); lc.alignment = _align("center"); lc.border = _bdr()
-    for col_y0, formula_y0 in [(14, f"={P}!C24*-1"),
-                                (15, f"={P}!C24*-1"),
-                                (16, f"={P}!C24*-1")]:
+    for col_y0, formula_y0 in [
+        (14, "=$H$4*-1"),   # NCF yr0 = -CAPEX
+        (15, "=$H$4*-1"),   # DiscCF yr0
+        (16, "=$H$4*-1"),   # CumCF yr0
+    ]:
         cc = ws3.cell(row=r0, column=col_y0, value=formula_y0)
         cc.font = Font("Calibri", size=10, bold=True, color=C_RED)
         cc.fill = _fill("FFF0F0"); cc.alignment = _align("center")
         cc.number_format = "#,##0"; cc.border = _bdr()
     ws3.row_dimensions[r0].height = 20
 
-    # ── Years 1-25 (rows 4-28) ────────────────────────────────
+    # ── Years 1-25 (rows 8-32) ───────────────────────────────
+    # Parameter absolute refs:  $B$4=BasePVSave  $C$4=BaseBESSSave
+    #   $D$4=Esc%  $E$4=Disc%  $F$4=Tax%  $G$4=PVDeg%
+    #   $H$4=CAPEX  $I$4=PVkWp  $J$4=BESSCkWh  $K$4=PVOM  $L$4=BESSOM
+
     for yr in range(1, 26):
-        r = r0 + yr          # rows 4..28
-        sv   = soh_arr[yr] if yr < len(soh_arr) else 0.0
+        r = r0 + yr          # rows 8..32
+        sv    = soh_arr[yr] if yr < len(soh_arr) else 0.0
         alive = sv >= BESS_EOL_SOH
         alt_bg = C_ALT if yr % 2 == 0 else "FFFFFF"
         dep_pct = SECTION_12B.get(yr, 0.0)
-        soh_row = 68 + yr    # SOH row in Parameters: yr1→69, yr25→93
 
         def _wc(col, val=None, formula=None, fmt="#,##0",
                 bg=None, bold=False, color="1A1A2E"):
@@ -1363,79 +1434,86 @@ def generate_excel_report() -> bytes:
             cell.border = _bdr()
             return cell
 
-        # Col A: Year
+        # Col A: Year number
         _wc(1, val=yr, fmt="0", bold=True, bg=C_LTBLUE)
+
         # Col B: BESS status
-        bs = ws3.cell(row=r, column=2,
-                      value="✓ Active" if alive else "✗ EoL")
-        bs.font = Font("Calibri", size=9, bold=True,
-                       color=C_GREEN if alive else C_RED)
+        if bess_zero:
+            b_label, b_color = "— N/A", "888888"
+        elif alive:
+            b_label, b_color = "✓ Active", C_GREEN
+        else:
+            b_label, b_color = "✗ EoL", C_RED
+        bs = ws3.cell(row=r, column=2, value=b_label)
+        bs.font = Font("Calibri", size=9, bold=True, color=b_color)
         bs.fill = _fill(alt_bg); bs.alignment = _align("center"); bs.border = _bdr()
-        # Col C: SOH%
-        _wc(3, val=round(sv * 100, 2), fmt="0.0",
-            color=C_GREEN if alive else C_RED, bold=True)
 
-        # Col D: PV Saving = BasePV × (1+esc)^(yr-1) × (1-deg)^(yr-1)
-        esc_f = f"(1+{P}!C31/100)^({yr}-1)"
-        deg_f = f"(1-{P}!C9/100)^({yr}-1)"
-        _wc(4, formula=f"={P}!C62*{esc_f}*{deg_f}")
+        # Col C: SOH% (static from computation, not formula)
+        soh_pct = round(sv * 100, 2) if not bess_zero else 0.0
+        soh_color = (C_GREEN if alive else C_RED) if not bess_zero else "888888"
+        _wc(3, val=soh_pct, fmt="0.0", color=soh_color, bold=True)
 
-        # Col E: BESS Saving = BaseBESS × (1+esc)^(yr-1) × SOH/100
-        soh_ref = f"{P}!C{soh_row}/100"
-        _wc(5, formula=f"={P}!C63*{esc_f}*{soh_ref}")
+        # Col D: PV Saving = $B$4 × (1+$D$4/100)^(yr-1) × (1-$G$4/100)^(yr-1)
+        _wc(4, formula=f"=$B$4*(1+$D$4/100)^(A{r}-1)*(1-$G$4/100)^(A{r}-1)")
+
+        # Col E: BESS Saving (0 when no BESS installed)
+        if bess_zero:
+            _wc(5, val=0)
+        else:
+            # IF(SOH% >= 60, BaseBESS × esc_factor × SOH/100, 0)
+            _wc(5, formula=f"=IF(C{r}>=60,$C$4*(1+$D$4/100)^(A{r}-1)*C{r}/100,0)")
 
         # Col F: Total Saving = D + E
         _wc(6, formula=f"=D{r}+E{r}", bold=True)
 
-        # Col G: PV O&M = kWp × rate × (1+esc×0.5)^(yr-1)
-        om_esc = f"(1+{P}!C31/200)^({yr}-1)"
-        _wc(7, formula=f"={P}!C4*{P}!C27*{om_esc}")
+        # Col G: PV O&M = PV_kWp × rate × (1 + esc×0.5)^(yr-1)
+        _wc(7, formula=f"=$I$4*$K$4*(1+$D$4/200)^(A{r}-1)")
 
-        # Col H: BESS O&M (zero post-EoL)
-        if alive:
-            _wc(8, formula=f"={P}!C5*{P}!C28*{om_esc}")
+        # Col H: BESS O&M (0 if no BESS or past EoL)
+        if bess_zero or not alive:
+            _wc(8, val=0, bg=("FFEEEE" if (not bess_zero and not alive) else alt_bg))
         else:
-            _wc(8, val=0, bg="FFEEEE")
+            _wc(8, formula=f"=$J$4*$L$4*(1+$D$4/200)^(A{r}-1)")
 
         # Col I: EBITDA = F - G - H
         _wc(9, formula=f"=F{r}-G{r}-H{r}", bold=True)
 
-        # Col J: 12B Depreciation
+        # Col J: Section 12B Depreciation
         if dep_pct > 0:
-            _wc(10, formula=f"={P}!C24*{dep_pct}")
+            _wc(10, formula=f"=$H$4*{dep_pct}")
         else:
             _wc(10, val=0)
 
         # Col K: Tax Shield = Dep × Tax%
         if dep_pct > 0:
-            _wc(11, formula=f"=J{r}*{P}!C33/100")
+            _wc(11, formula=f"=J{r}*$F$4/100")
         else:
             _wc(11, val=0)
 
-        # Col L: EBIT = EBITDA - Dep
+        # Col L: EBIT = EBITDA - Depreciation
         _wc(12, formula=f"=I{r}-J{r}")
 
         # Col M: Cash Tax = MAX(0, EBIT × Tax%)
-        _wc(13, formula=f"=MAX(0,L{r}*{P}!C33/100)")
+        _wc(13, formula=f"=MAX(0,L{r}*$F$4/100)")
 
-        # Col N: NCF = EBITDA - CashTax (depreciation is non-cash)
+        # Col N: Net Cash Flow = EBITDA - Cash Tax (depreciation is non-cash)
         ncf_val = float(fin_df["净现金流 NCF (ZAR)"].iloc[yr - 1])
         _wc(14, formula=f"=I{r}-M{r}", bold=True,
             color=C_GREEN if ncf_val > 0 else C_RED)
 
-        # Col O: Discounted CF
-        _wc(15, formula=f"=N{r}/(1+{P}!C32/100)^{yr}")
+        # Col O: Discounted CF = NCF / (1 + disc%)^yr
+        _wc(15, formula=f"=N{r}/(1+$E$4/100)^A{r}")
 
         # Col P: Cumulative CF
         cum_prev = f"P{r - 1}" if yr > 1 else f"P{r0}"
         _wc(16, formula=f"={cum_prev}+N{r}", bold=True)
 
-        # Col Q: Net Profit = EBIT - CashTax
+        # Col Q: Net Profit = EBIT - Cash Tax
         _wc(17, formula=f"=L{r}-M{r}")
         ws3.row_dimensions[r].height = 16
 
-    # ── Totals row (row 29) ───────────────────────────────────
-    r_tot = r0 + 26  # = 29
+    # ── Totals row (row 33) ───────────────────────────────────
+    r_tot = r0 + 26   # = 33
     ws3.merge_cells(start_row=r_tot, start_column=1, end_row=r_tot, end_column=3)
     tc_lbl = ws3.cell(row=r_tot, column=1, value="25年合计 / 25Y Total")
     tc_lbl.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
@@ -1443,7 +1521,7 @@ def generate_excel_report() -> bytes:
     for ci_s, cl_s in {4:"D",5:"E",6:"F",7:"G",8:"H",9:"I",
                         10:"J",11:"K",12:"L",13:"M",14:"N",15:"O",17:"Q"}.items():
         ts = ws3.cell(row=r_tot, column=ci_s,
-                      value=f"=SUM({cl_s}4:{cl_s}{r_tot-1})")
+                      value=f"=SUM({cl_s}8:{cl_s}{r_tot-1})")
         ts.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
         ts.fill = _fill(C_NAVY); ts.alignment = _align("center")
         ts.number_format = "#,##0"; ts.border = _bdr()
@@ -1519,58 +1597,77 @@ def generate_excel_report() -> bytes:
 
     # ════════════════════════════════════════════════════════════
     # SHEET 5 — 图表 Charts
+    # Sheet3 data: header row 6, Year0 row 7, Years 1-25 rows 8-32, totals row 33
+    # Chart data range: rows 6-32 (includes header for title), categories rows 7-32
+    # BESS charts skipped when bess_zero=True
     # ════════════════════════════════════════════════════════════
     ws5 = wb.create_sheet("图表 Charts")
     ws5.sheet_view.showGridLines = False
     ws5.column_dimensions["A"].width = 2
 
     ws5.merge_cells("A1:R1")
+    bess_chart_note = "" if not bess_zero else "  (BESS=0, BESS图表已省略)"
     c = ws5.cell(row=1, column=1,
-                 value="图表 / Charts — 数据联动 Sheet3 & Sheet4 (参数修改后自动更新)")
+                 value=f"图表 / Charts — 数据联动 Sheet3 & Sheet4 (参数修改后自动更新){bess_chart_note}")
     c.font = Font("Calibri", size=11, bold=True, color="FFFFFF")
     c.fill = _fill(C_NAVY); c.alignment = _align("center")
     ws5.row_dimensions[1].height = 24
 
-    # Chart 1: Cumulative CF line (col P=16, rows 3-28)
+    # Shared category reference: col A rows 7-32 (year 0..25)
+    _cat = Reference(ws3, min_col=1, max_col=1, min_row=7, max_row=32)
+    # Shared category reference for years 1-25 only
+    _cat_yr1 = Reference(ws3, min_col=1, max_col=1, min_row=8, max_row=32)
+
+    # Chart 1: Cumulative CF line (col P=16, rows 6-32)
     ch1 = LineChart()
     ch1.title = "25年累计现金流 / Cumulative Cash Flow (ZAR)"
     ch1.style = 10; ch1.width = 17; ch1.height = 11
     ch1.y_axis.title = "ZAR"; ch1.x_axis.title = "Year"
-    ch1.add_data(Reference(ws3, min_col=16, max_col=16, min_row=2, max_row=28),
+    ch1.add_data(Reference(ws3, min_col=16, max_col=16, min_row=6, max_row=32),
                  titles_from_data=True)
-    ch1.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ch1.set_categories(_cat)
     ws5.add_chart(ch1, "B3")
 
-    # Chart 2: Annual NCF bar (col N=14, rows 3-28)
+    # Chart 2: Annual NCF bar (col N=14, rows 6-32)
     ch2 = BarChart()
     ch2.type = "col"
     ch2.title = "年度净现金流 / Annual Net Cash Flow (ZAR)"
     ch2.style = 10; ch2.width = 17; ch2.height = 11
     ch2.y_axis.title = "ZAR"; ch2.x_axis.title = "Year"
-    ch2.add_data(Reference(ws3, min_col=14, max_col=14, min_row=2, max_row=28),
+    ch2.add_data(Reference(ws3, min_col=14, max_col=14, min_row=6, max_row=32),
                  titles_from_data=True)
-    ch2.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ch2.set_categories(_cat)
     ws5.add_chart(ch2, "L3")
 
-    # Chart 3: SOH degradation line (col C=3, rows 3-28)
-    ch3 = LineChart()
-    ch3.title = "BESS SOH 衰减 / Battery SOH Degradation (%)"
-    ch3.style = 10; ch3.width = 17; ch3.height = 11
-    ch3.y_axis.title = "SOH (%)"; ch3.x_axis.title = "Year"
-    ch3.add_data(Reference(ws3, min_col=3, max_col=3, min_row=2, max_row=28),
-                 titles_from_data=True)
-    ch3.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
-    ws5.add_chart(ch3, "B24")
+    # Chart 3: BESS SOH degradation — only when BESS installed
+    chart3_anchor = "B24"
+    if not bess_zero:
+        ch3 = LineChart()
+        ch3.title = "BESS SOH 衰减 / Battery SOH Degradation (%)"
+        ch3.style = 10; ch3.width = 17; ch3.height = 11
+        ch3.y_axis.title = "SOH (%)"; ch3.x_axis.title = "Year"
+        ch3.add_data(Reference(ws3, min_col=3, max_col=3, min_row=6, max_row=32),
+                     titles_from_data=True)
+        ch3.set_categories(_cat_yr1)
+        ws5.add_chart(ch3, chart3_anchor)
 
-    # Chart 4: Stacked PV + BESS savings (cols D=4, E=5, rows 3-28)
+    # Chart 4: Annual savings breakdown
     ch4 = BarChart()
-    ch4.type = "col"; ch4.grouping = "stacked"
-    ch4.title = "PV & BESS 年度节省 / Annual Savings Breakdown (ZAR)"
+    ch4.type = "col"
+    if not bess_zero:
+        ch4.grouping = "stacked"
+        ch4.title = "PV & BESS 年度节省 / Annual Savings Breakdown (ZAR)"
+        # D=PV savings, E=BESS savings — both series
+        ch4.add_data(Reference(ws3, min_col=4, max_col=5, min_row=6, max_row=32),
+                     titles_from_data=True)
+    else:
+        ch4.title = "PV 年度节省 / Annual PV Savings (ZAR)"
+        # Only D=PV savings when no BESS
+        ch4.add_data(Reference(ws3, min_col=4, max_col=4, min_row=6, max_row=32),
+                     titles_from_data=True)
     ch4.style = 10; ch4.width = 17; ch4.height = 11
     ch4.y_axis.title = "ZAR"; ch4.x_axis.title = "Year"
-    ch4.add_data(Reference(ws3, min_col=4, max_col=5, min_row=2, max_row=28),
-                 titles_from_data=True)
-    ch4.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ch4.set_categories(_cat_yr1)
     ws5.add_chart(ch4, "L24")
 
     # Chart 5: Monthly PV generation bar (ws4 col C=3, rows 2-14)
@@ -1582,7 +1679,8 @@ def generate_excel_report() -> bytes:
     ch5.add_data(Reference(ws4, min_col=3, max_col=3, min_row=2, max_row=14),
                  titles_from_data=True)
     ch5.set_categories(Reference(ws4, min_col=2, max_col=2, min_row=3, max_row=14))
-    ws5.add_chart(ch5, "B45")
+    chart5_anchor = "B45" if not bess_zero else "B24"
+    ws5.add_chart(ch5, chart5_anchor)
 
     # ════════════════════════════════════════════════════════════
     # SHEET 6 — 原始数据 Raw Data (8760h)
