@@ -993,6 +993,621 @@ def check_auto_pvgis():
 
 
 # ─────────────────────────────────────────────────────────────
+# Excel 专业报告生成器 / Professional Excel Report Generator
+# 6 sheets: Cover · Parameters · 25Y Model · Monthly · Charts · Raw Data
+# ─────────────────────────────────────────────────────────────
+def generate_excel_report() -> bytes:
+    """
+    生成 6-sheet 专业级 Excel 报告（session_state 快照，不重新计算）
+    Returns raw bytes for st.download_button.
+    """
+    import datetime as _dt
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.chart import BarChart, LineChart, Reference
+
+    # ── Session-state snapshot ────────────────────────────────
+    ss      = st.session_state
+    res     = ss.results
+    fin_df  = ss.fin_df
+    h_df    = ss.hourly_df
+    d1      = res["dispatch_yr1"]
+    pvg     = res["pvgis_data"]
+    soh_arr = get_soh_by_year(res["annual_cycles"])
+    pv_zar, bess_zar = get_capex_zar()
+
+    # ── Colour palette ────────────────────────────────────────
+    C_NAVY   = "1F3864"
+    C_DARK   = "2E4057"
+    C_MID    = "2E5F8A"
+    C_LTBLUE = "D6E4F0"
+    C_LOCKED = "FFF9C4"
+    C_ALT    = "F2F6FC"
+    C_GREEN  = "196F3D"
+    C_RED    = "922B21"
+
+    _thin = Side(style="thin", color="BDBDBD")
+
+    def _fill(hex_c):
+        return PatternFill("solid", fgColor=hex_c)
+
+    def _font(bold=False, sz=10, color="1A1A2E", italic=False):
+        return Font(name="Calibri", size=sz, bold=bold, color=color, italic=italic)
+
+    def _align(h="left", v="center", wrap=False):
+        return Alignment(horizontal=h, vertical=v, wrap_text=wrap)
+
+    def _bdr():
+        return Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+
+    wb = Workbook()
+
+    # ════════════════════════════════════════════════════════════
+    # SHEET 1 — 封面 Cover
+    # ════════════════════════════════════════════════════════════
+    ws1 = wb.active
+    ws1.title = "封面 Cover"
+    ws1.sheet_view.showGridLines = False
+    for ci, w in enumerate([2, 28, 20, 20, 20, 20, 2], 1):
+        ws1.column_dimensions[get_column_letter(ci)].width = w
+
+    # Title banner
+    ws1.merge_cells("B2:G2")
+    c = ws1["B2"]
+    c.value = "BTM 光储财务测算报告  /  BTM PV+BESS Financial Feasibility Report"
+    c.font = Font("Calibri", size=16, bold=True, color="FFFFFF")
+    c.fill = _fill(C_NAVY); c.alignment = _align("center")
+    ws1.row_dimensions[2].height = 42
+
+    ws1.merge_cells("B3:G3")
+    c = ws1["B3"]
+    c.value = "Powered by Huawei SA Digital Power  ·  South Africa C&I BTM Solar + Storage"
+    c.font = Font("Calibri", size=9, color="D6E4F0")
+    c.fill = _fill(C_NAVY); c.alignment = _align("center")
+    ws1.row_dimensions[3].height = 16
+
+    # Project overview header
+    ws1.merge_cells("B5:G5")
+    c = ws1["B5"]
+    c.value = "  项目概览 / Project Overview"
+    c.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+    c.fill = _fill(C_DARK); c.alignment = _align("left")
+    ws1.row_dimensions[5].height = 20
+
+    payback_str = f"{res['payback']} yr" if res['payback'] else "25yr+"
+    info_rows = [
+        ("地点 Location",             f"Lat {ss.lat:.3f}°  /  Lon {ss.lon:.3f}°"),
+        ("系统规模 System Size",       f"PV  {ss.pv_kwp:,.0f} kWp  +  BESS  {ss.bess_kwh:,.0f} kWh"),
+        ("电价模式 Tariff Mode",       ss.get("tariff_mode", "—")),
+        ("汇率 Forex Rate",            f"1 USD = {ss.forex_usd_zar:.2f} ZAR"),
+        ("电价增速 Tariff Escalation", f"{ss.tariff_escalation:.1f}% / yr"),
+        ("折现率 Discount Rate",       f"{ss.discount_rate:.1f}%"),
+        ("PVGIS 年发电量 PV Gen",      f"{pvg.get('annual_kwh', 0):,.0f} kWh/yr"),
+        ("导出时间 Export Time",        _dt.datetime.now().strftime("%Y-%m-%d  %H:%M")),
+    ]
+    for i, (lbl, val) in enumerate(info_rows):
+        r = 6 + i
+        ws1.merge_cells(start_row=r, start_column=2, end_row=r, end_column=3)
+        cl = ws1.cell(row=r, column=2, value=lbl)
+        cl.font = _font(bold=True, sz=10); cl.fill = _fill(C_LTBLUE)
+        cl.alignment = _align(); cl.border = _bdr()
+        ws1.merge_cells(start_row=r, start_column=4, end_row=r, end_column=6)
+        cv = ws1.cell(row=r, column=4, value=val)
+        cv.font = _font(sz=10); cv.fill = _fill("FFFFFF")
+        cv.alignment = _align(); cv.border = _bdr()
+        ws1.row_dimensions[r].height = 18
+
+    # KPI section header
+    ws1.merge_cells("B15:G15")
+    c = ws1["B15"]
+    c.value = "  关键财务指标 / Key Financial Metrics"
+    c.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+    c.fill = _fill(C_DARK); c.alignment = _align("left")
+    ws1.row_dimensions[15].height = 20
+
+    kpis = [
+        ("总投资 CAPEX",       f"R {res['total_capex']/1e6:.2f} M",      "ZAR"),
+        ("净现值 NPV 25yr",    f"R {res['npv']/1e6:.2f} M",              "ZAR"),
+        ("内部回报率 IRR",      f"{res['irr']:.2f}%",                     "Project IRR"),
+        ("回收期 Payback",     payback_str,                              "Simple Payback"),
+        ("年1节省 Yr1 Save",   f"R {d1['annual_saving_ZAR']/1e6:.2f} M", "ZAR/yr"),
+        ("BESS寿命 EoL",       f"Year {res['eol_years']:.1f}",           "SOH < 60%"),
+    ]
+    # 3 cols × 2 rows layout
+    kpi_layout = [
+        ((16, 17), (2, 3)), ((16, 17), (4, 5)), ((16, 17), (6, 6)),
+        ((19, 20), (2, 3)), ((19, 20), (4, 5)), ((19, 20), (6, 6)),
+    ]
+    for idx, ((r_top, r_bot), (c_l, c_r)) in enumerate(kpi_layout):
+        if idx >= len(kpis):
+            break
+        lbl_k, val_k, _ = kpis[idx]
+        for r_ in (r_top, r_bot):
+            if c_l != c_r:
+                ws1.merge_cells(start_row=r_, start_column=c_l,
+                                end_row=r_, end_column=c_r)
+            ws1.row_dimensions[r_].height = 22 if r_ == r_top else 26
+        cl_k = ws1.cell(row=r_top, column=c_l, value=lbl_k)
+        cl_k.font = _font(sz=8, bold=True, color="555555")
+        cl_k.fill = _fill(C_LTBLUE); cl_k.alignment = _align("center"); cl_k.border = _bdr()
+        cv_k = ws1.cell(row=r_bot, column=c_l, value=val_k)
+        kpi_color = (C_GREEN if res["npv"] > 0 else C_RED) if idx == 1 else C_NAVY
+        cv_k.font = Font("Calibri", size=13, bold=True, color=kpi_color)
+        cv_k.fill = _fill(C_LTBLUE); cv_k.alignment = _align("center"); cv_k.border = _bdr()
+    ws1.row_dimensions[18].height = 6  # gap row
+
+    # Instructions
+    ws1.merge_cells("B22:G22")
+    c = ws1["B22"]
+    c.value = "  使用说明 / Instructions"
+    c.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+    c.fill = _fill(C_MID); c.alignment = _align("left")
+    ws1.row_dimensions[22].height = 20
+
+    notes_text = (
+        "● 黄色单元格为导出时锁定值（PVGIS/调度结果），请勿修改\n"
+        "● 白色单元格为可调参数，Sheet3 财务模型含 Excel 公式，修改参数后自动重算\n"
+        "● 图表在 Sheet5，与 Sheet3/Sheet4 数据联动，参数修改后图表自动更新\n"
+        "● Sheet6 为 8760h 原始调度数据快照，不随参数联动\n"
+        "● 参数可调项：电价增速、折现率、税率、PV/BESS 造价、运维费等"
+    )
+    ws1.merge_cells("B23:G26")
+    cn = ws1.cell(row=23, column=2, value=notes_text)
+    cn.font = Font("Calibri", size=9, color="444444")
+    cn.alignment = Alignment(wrap_text=True, vertical="top")
+    cn.fill = _fill("F9F9F9"); cn.border = _bdr()
+    for r_ in range(23, 27):
+        ws1.row_dimensions[r_].height = 15
+
+    # ════════════════════════════════════════════════════════════
+    # SHEET 2 — 参数 Parameters
+    # ════════════════════════════════════════════════════════════
+    ws2 = wb.create_sheet("参数 Parameters")
+    ws2.sheet_view.showGridLines = False
+    for ci, w in enumerate([3, 34, 18, 14, 30], 1):
+        ws2.column_dimensions[get_column_letter(ci)].width = w
+
+    ws2.merge_cells("B1:E1")
+    c = ws2.cell(row=1, column=2,
+                 value="参数设置 / Parameters  ——  白色可调 · 黄色已锁定")
+    c.font = Font("Calibri", size=12, bold=True, color="FFFFFF")
+    c.fill = _fill(C_NAVY); c.alignment = _align("center")
+    ws2.row_dimensions[1].height = 30
+
+    def _p_sec(r, title, bg=C_DARK):
+        ws2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
+        c_ = ws2.cell(row=r, column=1, value=title)
+        c_.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+        c_.fill = _fill(bg); c_.alignment = _align("left")
+        ws2.row_dimensions[r].height = 18
+
+    def _p_row(r, label, value, unit="", locked=False, fmt=None, formula=None):
+        lk = ws2.cell(row=r, column=1, value="🔒" if locked else "")
+        lk.font = _font(sz=9); lk.alignment = _align("center")
+        lb = ws2.cell(row=r, column=2, value=label)
+        lb.font = _font(sz=10); lb.fill = _fill(C_ALT)
+        lb.alignment = _align(); lb.border = _bdr()
+        vc = ws2.cell(row=r, column=3, value=(formula if formula else value))
+        vc.fill = _fill(C_LOCKED if locked else "FFFFFF")
+        vc.alignment = _align("center"); vc.border = _bdr()
+        if fmt:
+            vc.number_format = fmt
+        un = ws2.cell(row=r, column=4, value=unit)
+        un.font = _font(sz=9, italic=True, color="666666")
+        un.fill = _fill(C_ALT); un.alignment = _align(); un.border = _bdr()
+        ws2.row_dimensions[r].height = 17
+        return vc
+
+    # ── System Parameters (rows 3-12) ─────────────────────────
+    _p_sec(3, "▌ 系统参数 / System Parameters")
+    _p_row(4,  "光伏容量 PV Capacity",          ss.pv_kwp,           "kWp",        fmt="#,##0.0")
+    _p_row(5,  "储能容量 BESS Capacity",         ss.bess_kwh,         "kWh",        fmt="#,##0.0")
+    _p_row(6,  "C倍率 C-rate",                  ss.c_rate_label,     "—")
+    _p_row(7,  "往返效率 RTE",                   ss.rte,              "%",          fmt="0.0")
+    _p_row(8,  "放电深度 DoD",                   ss.dod,              "%",          fmt="0.0")
+    _p_row(9,  "PV 年衰减率 PV Degradation",     ss.pv_degradation,   "%/yr",       fmt="0.00")
+    _p_row(10, "光伏倾角 Tilt",                 ss.tilt,             "°",          fmt="0.0")
+    _p_row(11, "方位角 Azimuth",               ss.azimuth,          "° (180=N)",  fmt="0.0")
+
+    # ── Load Parameters (rows 13-17) ──────────────────────────
+    _p_sec(13, "▌ 负载参数 / Load Profile")
+    _p_row(14, "高峰负载 Peak Load",              ss.load_peak_kw,     "kW",         fmt="#,##0.0")
+    _p_row(15, "平期负载 Standard Load",           ss.load_std_kw,      "kW",         fmt="#,##0.0")
+    _p_row(16, "谷期负载 Off-peak Load",           ss.load_offpeak_kw,  "kW",         fmt="#,##0.0")
+
+    # ── CAPEX & Forex (rows 18-25) ─────────────────────────────
+    _p_sec(18, "▌ 投资造价 / CAPEX & Forex")
+    _p_row(19, "光伏单价 PV Cost",               ss.pv_usd_per_w,     "USD/W",      fmt="0.000")
+    _p_row(20, "储能单价 BESS Cost",              ss.bess_usd_per_wh,  "USD/Wh",     fmt="0.000")
+    _p_row(21, "汇率 Forex Rate",               ss.forex_usd_zar,    "USD/ZAR",    fmt="0.00")
+    _p_row(22, "PV 造价 ZAR/kWp",               pv_zar,              "ZAR/kWp",    fmt="#,##0.00",
+           formula="=C19*1000*C21")
+    _p_row(23, "BESS 造价 ZAR/kWh",             bess_zar,            "ZAR/kWh",    fmt="#,##0.00",
+           formula="=C20*1000*C21")
+    _p_row(24, "总投资 Total CAPEX",             res["total_capex"],  "ZAR",        fmt="#,##0",
+           formula="=C4*C22+C5*C23")
+
+    # ── OPEX (rows 26-29) ─────────────────────────────────────
+    _p_sec(26, "▌ 运维费用 / OPEX")
+    _p_row(27, "PV 运维 PV O&M",                ss.pv_opex_per_kwp,   "ZAR/kWp/yr", fmt="0.00")
+    _p_row(28, "BESS 运维 BESS O&M",            ss.bess_opex_per_kwh, "ZAR/kWh/yr", fmt="0.00")
+
+    # ── Financial Assumptions (rows 30-34) ────────────────────
+    _p_sec(30, "▌ 财务假设 / Financial Assumptions")
+    _p_row(31, "电费增速 Tariff Escalation",      ss.tariff_escalation, "%/yr",        fmt="0.0")
+    _p_row(32, "折现率 Discount Rate",            ss.discount_rate,     "%",           fmt="0.0")
+    _p_row(33, "企业税率 Corp Tax Rate",           ss.tax_rate,          "%",           fmt="0.0")
+
+    # ── Tariff Rates (rows 35-43) ─────────────────────────────
+    _p_sec(35, "▌ 电价 / Tariff Rates (ZAR/kWh incl VAT)")
+    _p_row(36, "电价模式 Tariff Mode",             ss.get("tariff_mode", "—"), "—", locked=True)
+    _p_row(37, "冬季高峰 Winter Peak",             ss.get("w_morning_peak", 0), "ZAR/kWh", fmt="0.0000")
+    _p_row(38, "冬季平期 Winter Std",              ss.get("w_standard", 0),    "ZAR/kWh",  fmt="0.0000")
+    _p_row(39, "冬季谷期 Winter Off-peak",         ss.get("w_off_peak", 0),    "ZAR/kWh",  fmt="0.0000")
+    _p_row(40, "夏季高峰 Summer Peak",             ss.get("s_morning_peak", 0),"ZAR/kWh",  fmt="0.0000")
+    _p_row(41, "夏季平期 Summer Std",              ss.get("s_standard", 0),    "ZAR/kWh",  fmt="0.0000")
+    _p_row(42, "夏季谷期 Summer Off-peak",         ss.get("s_off_peak", 0),    "ZAR/kWh",  fmt="0.0000")
+
+    # ── PVGIS Data LOCKED (rows 44-60) ────────────────────────
+    _p_sec(44, "▌ PVGIS 数据（锁定 LOCKED — 导出时快照）", bg=C_MID)
+    monthly_kwh = pvg.get("monthly_kwh", [0] * 12)
+    _p_row(45, "纬度 Latitude",       ss.lat,                     "°",       locked=True, fmt="0.000")
+    _p_row(46, "经度 Longitude",      ss.lon,                     "°",       locked=True, fmt="0.000")
+    _p_row(47, "年发电量 Annual PV",  pvg.get("annual_kwh", 0),   "kWh/yr",  locked=True, fmt="#,##0")
+    for mi, mn in enumerate(["Jan","Feb","Mar","Apr","May","Jun",
+                              "Jul","Aug","Sep","Oct","Nov","Dec"]):
+        val_m = monthly_kwh[mi] if mi < len(monthly_kwh) else 0
+        _p_row(48 + mi, f"{mn} 发电量 PV Gen", val_m, "kWh",
+               locked=True, fmt="#,##0")
+
+    # ── Dispatch Results LOCKED (rows 61-66) ──────────────────
+    _p_sec(61, "▌ 年1调度结果（锁定 LOCKED）", bg=C_MID)
+    _p_row(62, "年1 PV 节省 Yr1 PV Saving",    d1["annual_pv_saving_ZAR"],   "ZAR/yr", locked=True, fmt="#,##0")
+    _p_row(63, "年1 BESS 节省 Yr1 BESS Save",  d1["annual_bess_saving_ZAR"], "ZAR/yr", locked=True, fmt="#,##0")
+    _p_row(64, "年等效循环 Annual Cycles",       res["annual_cycles"],          "/yr",    locked=True, fmt="0.00")
+    _p_row(65, "BESS 寿命 BESS EoL",           res["eol_years"],              "years",  locked=True, fmt="0.0")
+
+    # ── SOH Table LOCKED (rows 67-93) ─────────────────────────
+    _p_sec(67, "▌ BESS SOH 衰减表 — 华为 LUNA2000-2236-1S（锁定 LOCKED）", bg=C_MID)
+    for ci_h, hdr_h in enumerate(["年份 Year", "SOH (%)", "状态 Status"], start=2):
+        hc = ws2.cell(row=68, column=ci_h, value=hdr_h)
+        hc.font = _font(bold=True, sz=9, color="FFFFFF")
+        hc.fill = _fill(C_DARK); hc.alignment = _align("center"); hc.border = _bdr()
+    ws2.row_dimensions[68].height = 15
+    for yr_i in range(1, 26):          # years 1..25 → Parameters rows 69..93
+        sr = 68 + yr_i
+        sv = soh_arr[yr_i] if yr_i < len(soh_arr) else 0.0
+        alive_s = sv >= BESS_EOL_SOH
+        yc = ws2.cell(row=sr, column=2, value=yr_i)
+        yc.font = _font(sz=9); yc.fill = _fill(C_LOCKED)
+        yc.alignment = _align("center"); yc.border = _bdr()
+        sc = ws2.cell(row=sr, column=3, value=round(sv * 100, 2))
+        sc.font = _font(sz=9, color=C_GREEN if alive_s else C_RED)
+        sc.fill = _fill(C_LOCKED); sc.alignment = _align("center")
+        sc.number_format = "0.00"; sc.border = _bdr()
+        stc = ws2.cell(row=sr, column=4, value="✓ Active" if alive_s else "✗ EoL")
+        stc.font = _font(sz=9, bold=True, color=C_GREEN if alive_s else C_RED)
+        stc.fill = _fill(C_LOCKED); stc.alignment = _align("center"); stc.border = _bdr()
+        ws2.row_dimensions[sr].height = 15
+
+    # ════════════════════════════════════════════════════════════
+    # SHEET 3 — 财务模型 25Y Model
+    # ════════════════════════════════════════════════════════════
+    ws3 = wb.create_sheet("财务模型 25Y Model")
+    ws3.sheet_view.showGridLines = False
+    ws3.freeze_panes = "A3"
+    for ci, w in enumerate([6,10,10,14,14,14,12,12,14,13,12,12,12,14,13,14,12], 1):
+        ws3.column_dimensions[get_column_letter(ci)].width = w
+
+    ws3.merge_cells("A1:Q1")
+    c = ws3.cell(row=1, column=1,
+                 value="25年财务模型 / 25-Year Financial Model  "
+                       "(公式联动参数页 · Formula-linked to 参数 Parameters)")
+    c.font = Font("Calibri", size=11, bold=True, color="FFFFFF")
+    c.fill = _fill(C_NAVY); c.alignment = _align("center")
+    ws3.row_dimensions[1].height = 26
+
+    hdrs3 = ["年份\nYear", "BESS\n状态", "SOH\n%",
+             "PV节省\nZAR", "BESS节省\nZAR", "总节省\nZAR",
+             "PV运维\nZAR", "BESS运维\nZAR", "EBITDA\nZAR",
+             "12B折旧\nZAR", "税盾\nZAR", "EBIT\nZAR",
+             "现金税\nZAR", "净现金流\nNCF ZAR", "折现CF\nPV ZAR",
+             "累计CF\nZAR", "净利润\nZAR"]
+    for ci, hdr in enumerate(hdrs3, 1):
+        hc = ws3.cell(row=2, column=ci, value=hdr)
+        hc.font = Font("Calibri", size=8, bold=True, color="FFFFFF")
+        hc.fill = _fill(C_NAVY)
+        hc.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        hc.border = _bdr()
+    ws3.row_dimensions[2].height = 32
+
+    # Parameters sheet reference prefix
+    P = "'参数 Parameters'"
+
+    # ── Year 0 row (row 3) ────────────────────────────────────
+    r0 = 3
+    y0 = ws3.cell(row=r0, column=1, value=0)
+    y0.font = _font(bold=True, sz=10); y0.fill = _fill(C_ALT)
+    y0.alignment = _align("center"); y0.border = _bdr()
+    ws3.merge_cells(start_row=r0, start_column=2, end_row=r0, end_column=13)
+    lc = ws3.cell(row=r0, column=2, value="初始投资 / Initial Investment")
+    lc.font = Font("Calibri", size=10, bold=True, color=C_RED)
+    lc.fill = _fill(C_ALT); lc.alignment = _align("center"); lc.border = _bdr()
+    for col_y0, formula_y0 in [(14, f"={P}!C24*-1"),
+                                (15, f"={P}!C24*-1"),
+                                (16, f"={P}!C24*-1")]:
+        cc = ws3.cell(row=r0, column=col_y0, value=formula_y0)
+        cc.font = Font("Calibri", size=10, bold=True, color=C_RED)
+        cc.fill = _fill("FFF0F0"); cc.alignment = _align("center")
+        cc.number_format = "#,##0"; cc.border = _bdr()
+    ws3.row_dimensions[r0].height = 20
+
+    # ── Years 1-25 (rows 4-28) ────────────────────────────────
+    for yr in range(1, 26):
+        r = r0 + yr          # rows 4..28
+        sv   = soh_arr[yr] if yr < len(soh_arr) else 0.0
+        alive = sv >= BESS_EOL_SOH
+        alt_bg = C_ALT if yr % 2 == 0 else "FFFFFF"
+        dep_pct = SECTION_12B.get(yr, 0.0)
+        soh_row = 68 + yr    # SOH row in Parameters: yr1→69, yr25→93
+
+        def _wc(col, val=None, formula=None, fmt="#,##0",
+                bg=None, bold=False, color="1A1A2E"):
+            cell = ws3.cell(row=r, column=col,
+                            value=(formula if formula else val))
+            cell.fill = _fill(bg or alt_bg)
+            cell.font = Font("Calibri", size=9, bold=bold, color=color)
+            cell.alignment = _align("center")
+            cell.number_format = fmt
+            cell.border = _bdr()
+            return cell
+
+        # Col A: Year
+        _wc(1, val=yr, fmt="0", bold=True, bg=C_LTBLUE)
+        # Col B: BESS status
+        bs = ws3.cell(row=r, column=2,
+                      value="✓ Active" if alive else "✗ EoL")
+        bs.font = Font("Calibri", size=9, bold=True,
+                       color=C_GREEN if alive else C_RED)
+        bs.fill = _fill(alt_bg); bs.alignment = _align("center"); bs.border = _bdr()
+        # Col C: SOH%
+        _wc(3, val=round(sv * 100, 2), fmt="0.0",
+            color=C_GREEN if alive else C_RED, bold=True)
+
+        # Col D: PV Saving = BasePV × (1+esc)^(yr-1) × (1-deg)^(yr-1)
+        esc_f = f"(1+{P}!C31/100)^({yr}-1)"
+        deg_f = f"(1-{P}!C9/100)^({yr}-1)"
+        _wc(4, formula=f"={P}!C62*{esc_f}*{deg_f}")
+
+        # Col E: BESS Saving = BaseBESS × (1+esc)^(yr-1) × SOH/100
+        soh_ref = f"{P}!C{soh_row}/100"
+        _wc(5, formula=f"={P}!C63*{esc_f}*{soh_ref}")
+
+        # Col F: Total Saving = D + E
+        _wc(6, formula=f"=D{r}+E{r}", bold=True)
+
+        # Col G: PV O&M = kWp × rate × (1+esc×0.5)^(yr-1)
+        om_esc = f"(1+{P}!C31/200)^({yr}-1)"
+        _wc(7, formula=f"={P}!C4*{P}!C27*{om_esc}")
+
+        # Col H: BESS O&M (zero post-EoL)
+        if alive:
+            _wc(8, formula=f"={P}!C5*{P}!C28*{om_esc}")
+        else:
+            _wc(8, val=0, bg="FFEEEE")
+
+        # Col I: EBITDA = F - G - H
+        _wc(9, formula=f"=F{r}-G{r}-H{r}", bold=True)
+
+        # Col J: 12B Depreciation
+        if dep_pct > 0:
+            _wc(10, formula=f"={P}!C24*{dep_pct}")
+        else:
+            _wc(10, val=0)
+
+        # Col K: Tax Shield = Dep × Tax%
+        if dep_pct > 0:
+            _wc(11, formula=f"=J{r}*{P}!C33/100")
+        else:
+            _wc(11, val=0)
+
+        # Col L: EBIT = EBITDA - Dep
+        _wc(12, formula=f"=I{r}-J{r}")
+
+        # Col M: Cash Tax = MAX(0, EBIT × Tax%)
+        _wc(13, formula=f"=MAX(0,L{r}*{P}!C33/100)")
+
+        # Col N: NCF = EBITDA - CashTax (depreciation is non-cash)
+        ncf_val = float(fin_df["净现金流 NCF (ZAR)"].iloc[yr - 1])
+        _wc(14, formula=f"=I{r}-M{r}", bold=True,
+            color=C_GREEN if ncf_val > 0 else C_RED)
+
+        # Col O: Discounted CF
+        _wc(15, formula=f"=N{r}/(1+{P}!C32/100)^{yr}")
+
+        # Col P: Cumulative CF
+        cum_prev = f"P{r - 1}" if yr > 1 else f"P{r0}"
+        _wc(16, formula=f"={cum_prev}+N{r}", bold=True)
+
+        # Col Q: Net Profit = EBIT - CashTax
+        _wc(17, formula=f"=L{r}-M{r}")
+        ws3.row_dimensions[r].height = 16
+
+    # ── Totals row (row 29) ───────────────────────────────────
+    r_tot = r0 + 26  # = 29
+    ws3.merge_cells(start_row=r_tot, start_column=1, end_row=r_tot, end_column=3)
+    tc_lbl = ws3.cell(row=r_tot, column=1, value="25年合计 / 25Y Total")
+    tc_lbl.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+    tc_lbl.fill = _fill(C_NAVY); tc_lbl.alignment = _align("center"); tc_lbl.border = _bdr()
+    for ci_s, cl_s in {4:"D",5:"E",6:"F",7:"G",8:"H",9:"I",
+                        10:"J",11:"K",12:"L",13:"M",14:"N",15:"O",17:"Q"}.items():
+        ts = ws3.cell(row=r_tot, column=ci_s,
+                      value=f"=SUM({cl_s}4:{cl_s}{r_tot-1})")
+        ts.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+        ts.fill = _fill(C_NAVY); ts.alignment = _align("center")
+        ts.number_format = "#,##0"; ts.border = _bdr()
+    tc_cum = ws3.cell(row=r_tot, column=16, value=f"=P{r_tot-1}")
+    tc_cum.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+    tc_cum.fill = _fill(C_NAVY); tc_cum.alignment = _align("center")
+    tc_cum.number_format = "#,##0"; tc_cum.border = _bdr()
+    ws3.row_dimensions[r_tot].height = 20
+
+    # ════════════════════════════════════════════════════════════
+    # SHEET 4 — 月度汇总 Monthly
+    # ════════════════════════════════════════════════════════════
+    ws4 = wb.create_sheet("月度汇总 Monthly")
+    ws4.sheet_view.showGridLines = False
+    for ci, w in enumerate([2, 16, 14, 14, 14, 14, 14, 14, 14], 1):
+        ws4.column_dimensions[get_column_letter(ci)].width = w
+
+    ws4.merge_cells("B1:I1")
+    c = ws4.cell(row=1, column=2,
+                 value="月度调度汇总 / Monthly Dispatch Summary — Year 1")
+    c.font = Font("Calibri", size=12, bold=True, color="FFFFFF")
+    c.fill = _fill(C_NAVY); c.alignment = _align("center")
+    ws4.row_dimensions[1].height = 26
+
+    for ci, hdr in enumerate(
+        ["月份\nMonth", "PV发电\nkWh", "PV→负载\nkWh", "BESS放电\nkWh",
+         "购电量\nGrid kWh", "PV节省\nZAR", "BESS节省\nZAR", "总节省\nZAR"], 2
+    ):
+        hc = ws4.cell(row=2, column=ci, value=hdr)
+        hc.font = Font("Calibri", size=9, bold=True, color="FFFFFF")
+        hc.fill = _fill(C_DARK)
+        hc.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        hc.border = _bdr()
+    ws4.row_dimensions[2].height = 28
+
+    mon_grp = h_df.groupby("month").agg(
+        pv_gen=("pv_gen_kWh", "sum"),
+        pv_to_load=("pv_to_load_kWh", "sum"),
+        discharge=("discharge_kWh", "sum"),
+        grid_buy=("grid_buy_kWh", "sum"),
+        pv_save=("pv_saving_ZAR", "sum"),
+        bess_save=("bess_net_saving_ZAR", "sum"),
+        total_save=("net_saving_ZAR", "sum"),
+    ).reset_index().sort_values("month")
+
+    mon_names_full = {
+        1:"January",2:"February",3:"March",4:"April",5:"May",6:"June",
+        7:"July",8:"August",9:"September",10:"October",11:"November",12:"December"
+    }
+    for _, mrow in mon_grp.iterrows():
+        mr = int(mrow["month"]) + 2      # rows 3-14
+        alt_m = C_ALT if int(mrow["month"]) % 2 == 0 else "FFFFFF"
+        mc = ws4.cell(row=mr, column=2, value=mon_names_full.get(int(mrow["month"]), ""))
+        mc.font = _font(bold=True, sz=10); mc.fill = _fill(C_LTBLUE)
+        mc.alignment = _align(); mc.border = _bdr()
+        for ci, key in enumerate(["pv_gen","pv_to_load","discharge","grid_buy",
+                                   "pv_save","bess_save","total_save"], 3):
+            vc = ws4.cell(row=mr, column=ci, value=round(float(mrow[key]), 0))
+            vc.fill = _fill(alt_m); vc.alignment = _align("center")
+            vc.number_format = "#,##0"; vc.border = _bdr(); vc.font = _font(sz=10)
+        ws4.row_dimensions[mr].height = 17
+
+    # Totals row 15
+    mtt = ws4.cell(row=15, column=2, value="全年合计 / Annual Total")
+    mtt.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+    mtt.fill = _fill(C_NAVY); mtt.alignment = _align("center"); mtt.border = _bdr()
+    for ci, cl in enumerate(["C","D","E","F","G","H","I"], 3):
+        tc = ws4.cell(row=15, column=ci, value=f"=SUM({cl}3:{cl}14)")
+        tc.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
+        tc.fill = _fill(C_NAVY); tc.alignment = _align("center")
+        tc.number_format = "#,##0"; tc.border = _bdr()
+    ws4.row_dimensions[15].height = 20
+
+    # ════════════════════════════════════════════════════════════
+    # SHEET 5 — 图表 Charts
+    # ════════════════════════════════════════════════════════════
+    ws5 = wb.create_sheet("图表 Charts")
+    ws5.sheet_view.showGridLines = False
+    ws5.column_dimensions["A"].width = 2
+
+    ws5.merge_cells("A1:R1")
+    c = ws5.cell(row=1, column=1,
+                 value="图表 / Charts — 数据联动 Sheet3 & Sheet4 (参数修改后自动更新)")
+    c.font = Font("Calibri", size=11, bold=True, color="FFFFFF")
+    c.fill = _fill(C_NAVY); c.alignment = _align("center")
+    ws5.row_dimensions[1].height = 24
+
+    # Chart 1: Cumulative CF line (col P=16, rows 3-28)
+    ch1 = LineChart()
+    ch1.title = "25年累计现金流 / Cumulative Cash Flow (ZAR)"
+    ch1.style = 10; ch1.width = 17; ch1.height = 11
+    ch1.y_axis.title = "ZAR"; ch1.x_axis.title = "Year"
+    ch1.add_data(Reference(ws3, min_col=16, max_col=16, min_row=2, max_row=28),
+                 titles_from_data=True)
+    ch1.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ws5.add_chart(ch1, "B3")
+
+    # Chart 2: Annual NCF bar (col N=14, rows 3-28)
+    ch2 = BarChart()
+    ch2.type = "col"
+    ch2.title = "年度净现金流 / Annual Net Cash Flow (ZAR)"
+    ch2.style = 10; ch2.width = 17; ch2.height = 11
+    ch2.y_axis.title = "ZAR"; ch2.x_axis.title = "Year"
+    ch2.add_data(Reference(ws3, min_col=14, max_col=14, min_row=2, max_row=28),
+                 titles_from_data=True)
+    ch2.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ws5.add_chart(ch2, "L3")
+
+    # Chart 3: SOH degradation line (col C=3, rows 3-28)
+    ch3 = LineChart()
+    ch3.title = "BESS SOH 衰减 / Battery SOH Degradation (%)"
+    ch3.style = 10; ch3.width = 17; ch3.height = 11
+    ch3.y_axis.title = "SOH (%)"; ch3.x_axis.title = "Year"
+    ch3.add_data(Reference(ws3, min_col=3, max_col=3, min_row=2, max_row=28),
+                 titles_from_data=True)
+    ch3.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ws5.add_chart(ch3, "B24")
+
+    # Chart 4: Stacked PV + BESS savings (cols D=4, E=5, rows 3-28)
+    ch4 = BarChart()
+    ch4.type = "col"; ch4.grouping = "stacked"
+    ch4.title = "PV & BESS 年度节省 / Annual Savings Breakdown (ZAR)"
+    ch4.style = 10; ch4.width = 17; ch4.height = 11
+    ch4.y_axis.title = "ZAR"; ch4.x_axis.title = "Year"
+    ch4.add_data(Reference(ws3, min_col=4, max_col=5, min_row=2, max_row=28),
+                 titles_from_data=True)
+    ch4.set_categories(Reference(ws3, min_col=1, max_col=1, min_row=3, max_row=28))
+    ws5.add_chart(ch4, "L24")
+
+    # Chart 5: Monthly PV generation bar (ws4 col C=3, rows 2-14)
+    ch5 = BarChart()
+    ch5.type = "col"
+    ch5.title = "月度 PV 发电量 / Monthly PV Generation (kWh)"
+    ch5.style = 10; ch5.width = 17; ch5.height = 11
+    ch5.y_axis.title = "kWh"; ch5.x_axis.title = "Month"
+    ch5.add_data(Reference(ws4, min_col=3, max_col=3, min_row=2, max_row=14),
+                 titles_from_data=True)
+    ch5.set_categories(Reference(ws4, min_col=2, max_col=2, min_row=3, max_row=14))
+    ws5.add_chart(ch5, "B45")
+
+    # ════════════════════════════════════════════════════════════
+    # SHEET 6 — 原始数据 Raw Data (8760h)
+    # ════════════════════════════════════════════════════════════
+    ws6 = wb.create_sheet("原始数据 Raw Data")
+    ws6.freeze_panes = "A2"
+    h_cols = list(h_df.columns)
+    ws6.auto_filter.ref = f"A1:{get_column_letter(len(h_cols))}1"
+    for ci, hdr in enumerate(h_cols, 1):
+        hc = ws6.cell(row=1, column=ci, value=hdr)
+        hc.font = Font("Calibri", size=9, bold=True, color="FFFFFF")
+        hc.fill = _fill(C_NAVY); hc.alignment = _align("center"); hc.border = _bdr()
+        ws6.column_dimensions[get_column_letter(ci)].width = max(10, len(str(hdr)) + 2)
+    ws6.row_dimensions[1].height = 18
+    for record in h_df.round(3).itertuples(index=False):
+        ws6.append(list(record))
+
+    # ── Serialize ─────────────────────────────────────────────
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+# ─────────────────────────────────────────────────────────────
 # 页头 / Header
 # ─────────────────────────────────────────────────────────────
 st.markdown("""
@@ -1616,6 +2231,64 @@ with col_content:
                                        file_name="BTM_Pure_Data_Export.xlsx",
                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                        use_container_width=True)
+
+            # ── 专业 Excel 报告（密码保护）/ Professional Excel Report ──
+            st.markdown("---")
+            st.markdown(
+                '<div class="section-header">📊 专业 Excel 报告 / Professional Excel Report</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("""<div class="info-box">
+                6-sheet 完整报告：封面 · 参数（含 Excel 公式）· 25年财务模型 · 月度汇总 · 图表 · 8760h 原始数据
+                &nbsp;|&nbsp; 参数页白色单元格可调，Sheet3 财务模型自动重算 &nbsp;|&nbsp; 需密码授权
+            </div>""", unsafe_allow_html=True)
+
+            xpwd_col, xbtn_col, xdl_col = st.columns([2, 1.5, 2])
+            with xpwd_col:
+                entered_pwd = st.text_input(
+                    "🔑 报告密码 Report Password",
+                    type="password",
+                    key="excel_export_pwd",
+                    placeholder="输入密码 Enter password...",
+                )
+            with xbtn_col:
+                st.markdown("<br>", unsafe_allow_html=True)
+                gen_excel_btn = st.button(
+                    "📊 生成报告 Generate",
+                    key="gen_excel_report_btn",
+                    use_container_width=True,
+                )
+
+            if gen_excel_btn:
+                if entered_pwd == "9999":
+                    with st.spinner("📊 正在生成 6-sheet 专业 Excel 报告，请稍候..."):
+                        try:
+                            _xlsx_bytes = generate_excel_report()
+                            st.session_state["_excel_rpt_bytes"] = _xlsx_bytes
+                            import datetime as _edt
+                            _loc = (f"{st.session_state.lat:.1f}_{st.session_state.lon:.1f}"
+                                    .replace("-", "S").replace(".", "p"))
+                            st.session_state["_excel_rpt_fname"] = (
+                                f"BTM_Report_{_loc}_{_edt.datetime.now():%Y%m%d}.xlsx"
+                            )
+                            st.success("✅ 报告已生成，点击下方按钮下载 / Report ready — click to download")
+                        except Exception as _e:
+                            st.error(f"❌ 生成失败 Generation failed: {_e}")
+                elif entered_pwd:
+                    st.error("❌ 密码错误 Wrong password")
+
+            if "_excel_rpt_bytes" in st.session_state:
+                with xdl_col:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.download_button(
+                        "⬇ 下载专业报告 / Download Excel Report",
+                        data=st.session_state["_excel_rpt_bytes"],
+                        file_name=st.session_state.get(
+                            "_excel_rpt_fname", "BTM_Report.xlsx"),
+                        mime=("application/vnd.openxmlformats-"
+                              "officedocument.spreadsheetml.sheet"),
+                        use_container_width=True,
+                    )
 
     # ──────────────────────────────────────────────────────────
     # Tab 2: 25年财务报表
