@@ -41,7 +41,7 @@ except ImportError:
 # 页面配置 / Page Configuration
 # ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="BTM 光储财务测算系统",
+    page_title="BTM PV+BESS Financial Modelling System",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -1148,11 +1148,11 @@ def generate_excel_report() -> bytes:
     ws1.row_dimensions[22].height = 20
 
     notes_text = (
-        "● 黄色单元格为导出时锁定值（PVGIS/调度结果），请勿修改\n"
-        "● 白色单元格为可调参数，Sheet3 财务模型含 Excel 公式，修改参数后自动重算\n"
-        "● 图表在 Sheet5，与 Sheet3/Sheet4 数据联动，参数修改后图表自动更新\n"
-        "● Sheet6 为 8760h 原始调度数据快照，不随参数联动\n"
-        "● 参数可调项：电价增速、折现率、税率、PV/BESS 造价、运维费等"
+        "● Yellow cells are locked export snapshots (PVGIS / dispatch results) — do not edit  /  黄色单元格为锁定快照，请勿修改\n"
+        "● Green cells in Sheet 3 Row 4 are editable — all financial formulas recalculate automatically  /  Sheet3 第4行绿色单元格可调，公式自动更新\n"
+        "● Charts (Sheet 5) are linked to Sheet 3 & 4 — they update automatically when you change parameters  /  图表与数据联动\n"
+        "● Sheet 6 is a static 8,760-hour dispatch snapshot — it does not update with parameter changes  /  Sheet6 为原始调度数据快照\n"
+        "● Adjustable: tariff escalation, discount rate, tax rate, PV/BESS unit costs, O&M rates  /  可调项：电价增速、折现率、税率、造价、运维费"
     )
     ws1.merge_cells("B23:G26")
     cn = ws1.cell(row=23, column=2, value=notes_text)
@@ -1264,14 +1264,14 @@ def generate_excel_report() -> bytes:
                locked=True, fmt="#,##0")
 
     # ── Dispatch Results LOCKED (rows 61-66) ──────────────────
-    _p_sec(61, "▌ 年1调度结果（锁定 LOCKED）", bg=C_MID)
+    _p_sec(61, "▌ Yr1 Dispatch Results / 年1调度结果 (Locked)", bg=C_MID)
     _p_row(62, "年1 PV 节省 Yr1 PV Saving",    d1["annual_pv_saving_ZAR"],   "ZAR/yr", locked=True, fmt="#,##0")
     _p_row(63, "年1 BESS 节省 Yr1 BESS Save",  d1["annual_bess_saving_ZAR"], "ZAR/yr", locked=True, fmt="#,##0")
     _p_row(64, "年等效循环 Annual Cycles",       res["annual_cycles"],          "/yr",    locked=True, fmt="0.00")
     _p_row(65, "BESS 寿命 BESS EoL",           res["eol_years"],              "years",  locked=True, fmt="0.0")
 
     # ── SOH Table LOCKED (rows 67-93) ─────────────────────────
-    _p_sec(67, "▌ BESS SOH 衰减表 — 华为 LUNA2000-2236-1S（锁定 LOCKED）", bg=C_MID)
+    _p_sec(67, "▌ BESS SOH Degradation Table — Huawei LUNA2000-2236-1S (Locked)", bg=C_MID)
     for ci_h, hdr_h in enumerate(["年份 Year", "SOH (%)", "状态 Status"], start=2):
         hc = ws2.cell(row=68, column=ci_h, value=hdr_h)
         hc.font = _font(bold=True, sz=9, color="FFFFFF")
@@ -1306,8 +1306,8 @@ def generate_excel_report() -> bytes:
     # ── Title row 1 ───────────────────────────────────────────
     ws3.merge_cells("A1:Q1")
     c = ws3.cell(row=1, column=1,
-                 value="25年财务模型 / 25-Year Financial Model  "
-                       "— 修改第5行黄色参数单元格，所有公式自动重算")
+                 value="25-Year Financial Model / 25年财务模型  "
+                       "—  Edit green cells in Row 4 · All formulas auto-recalculate / 修改第4行绿色单元格，公式自动更新")
     c.font = Font("Calibri", size=12, bold=True, color="FFFFFF")
     c.fill = _fill(C_NAVY); c.alignment = _align("center")
     ws3.row_dimensions[1].height = 28
@@ -1315,7 +1315,7 @@ def generate_excel_report() -> bytes:
     # ── Parameter Section header row 2 ───────────────────────
     ws3.merge_cells("A2:Q2")
     c = ws3.cell(row=2, column=1,
-                 value="⚙️  可调财务参数 / Adjustable Parameters — 直接修改下方绿色单元格数值，右侧财务公式自动更新")
+                 value="⚙️  Adjustable Parameters / 可调财务参数 — Edit green cells below · Formulas auto-update on change / 修改绿色单元格，右侧公式自动重算")
     c.font = Font("Calibri", size=9, bold=True, color="FFFFFF")
     c.fill = _fill(C_MID); c.alignment = _align("left")
     ws3.row_dimensions[2].height = 18
@@ -1327,17 +1327,17 @@ def generate_excel_report() -> bytes:
     # K5: PV O&M  L5: BESS O&M
     param_meta = [
         # (col_idx, label, value, editable, fmt)
-        (2,  "PV节省基期\nYr1 PV Save\n(ZAR)",       d1["annual_pv_saving_ZAR"],   False, "#,##0"),
-        (3,  "BESS节省基期\nYr1 BESS Save\n(ZAR)",   d1["annual_bess_saving_ZAR"], False, "#,##0"),
-        (4,  "电费增速\nEsc (%/yr)\n🟢可调",          ss.tariff_escalation,         True,  "0.0"),
-        (5,  "折现率\nDisc (%)\n🟢可调",              ss.discount_rate,             True,  "0.0"),
-        (6,  "税率\nTax (%)\n🟢可调",                 ss.tax_rate,                  True,  "0.0"),
-        (7,  "PV衰减\nDeg (%/yr)\n🟢可调",           ss.pv_degradation,            True,  "0.00"),
-        (8,  "总投资\nCAPEX (ZAR)\n🔒",               res["total_capex"],           False, "#,##0"),
-        (9,  "PV (kWp)\n🔒",                          ss.pv_kwp,                    False, "#,##0.0"),
-        (10, "BESS (kWh)\n🔒",                        ss.bess_kwh,                  False, "#,##0.0"),
-        (11, "PV运维\nOM ZAR/kWp\n🟢可调",           ss.pv_opex_per_kwp,           True,  "0.00"),
-        (12, "BESS运维\nOM ZAR/kWh\n🟢可调",         ss.bess_opex_per_kwh,         True,  "0.00"),
+        (2,  "Yr1 PV Save\nPV节省基期\n(ZAR) 🔒",       d1["annual_pv_saving_ZAR"],   False, "#,##0"),
+        (3,  "Yr1 BESS Save\nBESS节省基期\n(ZAR) 🔒",   d1["annual_bess_saving_ZAR"], False, "#,##0"),
+        (4,  "Tariff Esc.\n电费增速\n(%/yr) 🟢 Adj.",    ss.tariff_escalation,         True,  "0.0"),
+        (5,  "Discount Rate\n折现率\n(%) 🟢 Adj.",       ss.discount_rate,             True,  "0.0"),
+        (6,  "Tax Rate\n税率\n(%) 🟢 Adj.",              ss.tax_rate,                  True,  "0.0"),
+        (7,  "PV Degrad.\nPV衰减\n(%/yr) 🟢 Adj.",      ss.pv_degradation,            True,  "0.00"),
+        (8,  "Total CAPEX\n总投资\n(ZAR) 🔒",            res["total_capex"],           False, "#,##0"),
+        (9,  "PV Capacity\n光伏容量\n(kWp) 🔒",         ss.pv_kwp,                    False, "#,##0.0"),
+        (10, "BESS Capacity\n储能容量\n(kWh) 🔒",       ss.bess_kwh,                  False, "#,##0.0"),
+        (11, "PV O&M\nPV运维\n(ZAR/kWp) 🟢 Adj.",      ss.pv_opex_per_kwp,           True,  "0.00"),
+        (12, "BESS O&M\nBESS运维\n(ZAR/kWh) 🟢 Adj.",  ss.bess_opex_per_kwh,         True,  "0.00"),
     ]
     ws3.row_dimensions[3].height = 34
     ws3.row_dimensions[4].height = 20
@@ -1606,9 +1606,9 @@ def generate_excel_report() -> bytes:
     ws5.column_dimensions["A"].width = 2
 
     ws5.merge_cells("A1:R1")
-    bess_chart_note = "" if not bess_zero else "  (BESS=0, BESS图表已省略)"
+    bess_chart_note = "" if not bess_zero else "  (BESS=0 — BESS charts omitted / BESS图表已省略)"
     c = ws5.cell(row=1, column=1,
-                 value=f"图表 / Charts — 数据联动 Sheet3 & Sheet4 (参数修改后自动更新){bess_chart_note}")
+                 value=f"Charts / 图表 — Linked to Sheet3 & Sheet4 · Auto-updates on parameter change / 参数修改后自动更新{bess_chart_note}")
     c.font = Font("Calibri", size=11, bold=True, color="FFFFFF")
     c.fill = _fill(C_NAVY); c.alignment = _align("center")
     ws5.row_dimensions[1].height = 24
@@ -1712,7 +1712,7 @@ st.markdown("""
 <div class="main-header">
     <div style="font-size:1.8rem">⚡</div>
     <div>
-        <div class="main-title">专业级 BTM 光储财务测算系统</div>
+        <div class="main-title">BTM 光储财务测算系统 · PV+BESS Financial Modelling</div>
         <div class="sub-title">PROFESSIONAL BTM PV+BESS · SA MEGAFLEX TARIFF · 8760H DISPATCH ENGINE · HUAWEI SA DIGITAL POWER</div>
     </div>
 </div>
@@ -1732,17 +1732,17 @@ with col_params:
     # ── 参数管理 / Parameter Management ──
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("💾 暂存", use_container_width=True):
+        if st.button("💾 暂存 / Save", use_container_width=True):
             st.session_state.stashed_params = {k: st.session_state[k] for k in DEFAULT_PARAMS}
-            st.toast("✓ 已暂存参数")
+            st.toast("✓ 已暂存 / Params saved")
     with c2:
-        if st.button("📤 恢复", use_container_width=True):
+        if st.button("📤 恢复 / Restore", use_container_width=True):
             if st.session_state.stashed_params:
                 for k, v in st.session_state.stashed_params.items():
                     st.session_state[k] = v
-                st.toast("✓ 已恢复参数")
+                st.toast("✓ 已恢复 / Params restored")
             else:
-                st.toast("⚠️ 无暂存数据")
+                st.toast("⚠️ 无暂存数据 / Nothing saved yet")
 
     st.markdown("---")
 
@@ -1777,7 +1777,7 @@ with col_params:
                     st.session_state.azimuth = 180.0 if _tmp_lat < 0 else 0.0
                     st.rerun()
         else:
-            st.info("安装 folium+streamlit-folium 启用地图")
+            st.info("Install folium + streamlit-folium to enable the map / 安装后重启即可启用地图")
 
         ca, cb = st.columns(2)
         with ca:
@@ -1863,7 +1863,7 @@ with col_params:
         bess_kw_max = bess_kwh * c_rate_val   # 硬件最大功率 = C率 × 容量
         st.markdown(
             f'<div class="derived-value">⚡ 最大功率 Max Power: <b>{bess_kw_max:.0f} kW</b> '
-            f'({c_rate_label}) — 调度引擎按需自动优化输出</div>',
+            f'({c_rate_label}) — dispatch engine auto-optimises output</div>',
             unsafe_allow_html=True
         )
 
@@ -1906,7 +1906,7 @@ with col_params:
         # 高峰: 5h(07-10 3h + 18-20 2h), 谷: 8h(22-06), 平: 11h
         est_daily = load_peak * 5 + load_std * 11 + load_offpeak * 8
         st.markdown(
-            f'<div class="derived-value">📊 估算日用电 ≈ {est_daily:.0f} kWh/day'
+            f'<div class="derived-value">📊 Est. daily load ≈ {est_daily:.0f} kWh/day'
             f' ({est_daily*365/1000:.0f} MWh/yr)</div>',
             unsafe_allow_html=True
         )
@@ -2088,7 +2088,7 @@ with col_content:
 
         if run_calc:
             if st.session_state.pv_kwp == 0 and st.session_state.bess_kwh == 0:
-                st.error("❌ PV 和 BESS 容量均为0，请至少配置一项")
+                st.error("❌ PV and BESS are both 0 — please configure at least one / PV 和 BESS 均为零，请至少配置一项")
             else:
                 # 获取或复用 PVGIS 数据
                 if "pvgis_data" not in st.session_state or st.session_state.pv_kwp == 0:
@@ -2240,7 +2240,7 @@ with col_content:
             with o4:
                 self_pct = min(d['annual_pv_gen_kWh'] / max(d['annual_load_kWh'], 1) * 100, 100)
                 st.markdown(f"""<div class="metric-card">
-                    <div class="metric-label">PV 自消纳率</div>
+                    <div class="metric-label">PV 自消纳率 / Self-Use</div>
                     <div class="metric-value">{self_pct:.1f}%</div>
                     <div class="metric-unit">PV vs Annual Load</div>
                 </div>""", unsafe_allow_html=True)
@@ -2396,8 +2396,8 @@ with col_content:
 
         if st.session_state.fin_df is not None:
             st.markdown("""<div class="info-box">
-                📌 Section 12B: 第1年50%, 第2年25%, 第3年25% 加速折旧 |
-                PV节省 / BESS套利 分项独立展示 | EoL后BESS储能收益&运维强制归零
+                📌 <b>Section 12B</b> accelerated depreciation: Yr1 50% · Yr2 25% · Yr3 25% (SA Income Tax Act) &nbsp;|&nbsp;
+                PV &amp; BESS savings shown separately &nbsp;|&nbsp; BESS revenue &amp; OPEX zeroed after EoL (SOH &lt; 60%)
             </div>""", unsafe_allow_html=True)
 
             eol_yr = int(st.session_state.results["eol_years"]) if st.session_state.results else 999
@@ -2417,7 +2417,7 @@ with col_content:
             st.dataframe(styled, use_container_width=True, height=580)
 
         else:
-            st.markdown('<div class="warning-box">⚠️ 请先在"计算与结果"运行计算</div>',
+            st.markdown('<div class="warning-box">⚠️ Please run the simulation first in "Run &amp; Results" tab / 请先在"计算与结果"中运行计算</div>',
                         unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────
@@ -2475,7 +2475,7 @@ with col_content:
             # 典型日剖面
             st.markdown('<div class="section-header">📈 典型日调度剖面 / Typical Day Profile</div>',
                         unsafe_allow_html=True)
-            sel_month = st.selectbox("选择月份", range(1, 13),
+            sel_month = st.selectbox("选择月份 / Select Month", range(1, 13),
                                       format_func=lambda x: mnames[x-1], index=6)
 
             mdata = df_h[df_h["month"] == sel_month]
@@ -2517,7 +2517,7 @@ with col_content:
             st.dataframe(df_h.head(100), use_container_width=True, height=380)
 
         else:
-            st.markdown('<div class="warning-box">⚠️ 请先运行计算</div>', unsafe_allow_html=True)
+            st.markdown('<div class="warning-box">⚠️ Run simulation first / 请先运行计算</div>', unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────
     # Tab 4: AI 寻优
@@ -2526,8 +2526,9 @@ with col_content:
         st.markdown("### 🔍 max(NPV) 全局容量寻优 / Global Capacity Optimization")
 
         st.markdown("""<div class="info-box">
-            🤖 遍历当前配置 60%~150% 范围内的所有 PV × BESS 组合，寻找使 NPV 最大化的最优配置。
-            BESS 步长固定 5 MWh；PV 步长可调。
+            🤖 Sweeps all PV × BESS combinations within 60%–150% of current sizing to find the NPV-maximising configuration.
+            BESS step fixed at 5 MWh; PV step is user-adjustable. &nbsp;|&nbsp;
+            遍历当前配置 60%~150% 范围内的所有 PV × BESS 组合，寻找最优 NPV。BESS 步长固定 5 MWh，PV 步长可调。
         </div>""", unsafe_allow_html=True)
 
         # ── 自动计算寻优范围（当前设定值的 60%~150%）──────────────────────────
@@ -2546,18 +2547,18 @@ with col_content:
 
         oc1, oc2 = st.columns(2)
         with oc1:
-            st.markdown(f"**PV 范围** (当前 {cur_pv:.0f} kWp × 60~150%)")
+            st.markdown(f"**PV Range / PV 范围** (current {cur_pv:.0f} kWp × 60–150%)")
             pv_min = st.number_input("PV Min (kWp)", value=auto_pv_min, min_value=100.0, step=100.0)
             pv_max = st.number_input("PV Max (kWp)", value=auto_pv_max, min_value=100.0, step=100.0)
             pv_stp = st.number_input("PV Step (kWp)", value=200.0, min_value=100.0, step=100.0)
         with oc2:
-            st.markdown(f"**BESS 范围** (当前 {cur_bess/1000:.0f} MWh × 60~150%，步长固定 5 MWh)")
+            st.markdown(f"**BESS Range / BESS 范围** (current {cur_bess/1000:.0f} MWh × 60–150%, fixed 5 MWh step)")
             bess_min = st.number_input("BESS Min (kWh)", value=auto_bess_min,
                                         min_value=_BESS_STEP, step=_BESS_STEP)
             bess_max = st.number_input("BESS Max (kWh)", value=auto_bess_max,
                                         min_value=_BESS_STEP, step=_BESS_STEP)
             # BESS step 固定 5 MWh，不可修改
-            st.markdown(f'<div class="derived-value">BESS Step 固定 5 MWh (5000 kWh)</div>',
+            st.markdown(f'<div class="derived-value">BESS Step fixed at 5 MWh (5,000 kWh) / BESS步长固定</div>',
                         unsafe_allow_html=True)
             bess_stp = _BESS_STEP
 
@@ -2574,12 +2575,12 @@ with col_content:
             f"(PV {len(pv_range)} × BESS {len(bess_range)})"
         )
         if n_combos > 200:
-            st.markdown('<div class="warning-box">⚠️ >200 组合耗时较长，建议增大 PV 步长</div>',
+            st.markdown('<div class="warning-box">⚠️ >200 combinations — may be slow. Increase PV step size to reduce / 建议增大 PV 步长</div>',
                         unsafe_allow_html=True)
 
         if st.button("🚀 开始寻优 / Start Optimization", type="primary", use_container_width=True):
             if n_combos > 500:
-                st.error("❌ 超过500组合上限，请增大 PV 步长")
+                st.error("❌ Exceeds 500-combination limit — please increase PV step size / 超过500组合上限，请增大 PV 步长")
             else:
                 opt_pvgis = get_pvgis_data(
                     st.session_state.lat, st.session_state.lon,
@@ -2652,7 +2653,7 @@ with col_content:
                             stat.text(f"⚙️ {done}/{n_combos}")
 
                 prog.progress(1.0)
-                stat.text("✅ 寻优完成!")
+                stat.text("✅ Optimisation complete! / 寻优完成")
 
                 if results_opt:
                     import plotly.graph_objects as go
