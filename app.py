@@ -1,8 +1,8 @@
 """
 专业级 BTM 光储财务测算系统 v3.0
-Professional BTM PV+BESS Financial Modeling System
-South Africa C&I Megaflex Tariff | 8760-Hour Physical Dispatch Engine
-Powered by Huawei SA Digital Power
+Professional BTM PV+BESS Financial Modelling System
+South Africa C&I Megaflex / Miniflex Tariff 2025/26 | 8760-Hour Physical Dispatch Engine
+Section 12B Accelerated Depreciation | Huawei SA Digital Power
 """
 
 import streamlit as st
@@ -1712,8 +1712,8 @@ st.markdown("""
 <div class="main-header">
     <div style="font-size:1.8rem">⚡</div>
     <div>
-        <div class="main-title">BTM 光储财务测算系统 · PV+BESS Financial Modelling</div>
-        <div class="sub-title">PROFESSIONAL BTM PV+BESS · SA MEGAFLEX TARIFF · 8760H DISPATCH ENGINE · HUAWEI SA DIGITAL POWER</div>
+        <div class="main-title">专业级 BTM 光储财务测算系统 &nbsp;·&nbsp; Professional BTM PV+BESS Financial Modelling System</div>
+        <div class="sub-title">SA MEGAFLEX / MINIFLEX TARIFF 2025/26 &nbsp;·&nbsp; 8760H PHYSICAL DISPATCH ENGINE &nbsp;·&nbsp; SECTION 12B &nbsp;·&nbsp; HUAWEI SA DIGITAL POWER</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
