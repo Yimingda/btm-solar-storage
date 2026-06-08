@@ -661,6 +661,7 @@ def run_8760_dispatch(
       1. 光伏余电 PV excess           → 始终接收，任何时段，免费
       2. 谷期电网 Off-peak grid       → 最小功率×最长时段，平摊8h谷期窗口（22-06h）
       3. 日间平期电网 Daytime std grid → 仅 09-16h，peak ≥ (std/RTE)×1.2 时允许
+                                         目标 SOC = 3h×min(bess_kw, load_peak)（晚高峰正好放完）
                                          最小功率×平摊剩余平期小时（09h→8h，16h→1h）
       4. 傍晚平期 Evening std 20-21h  → 【绝不充电】谷期 ≤2h 后开始，等待更便宜电价
       5. 高峰电网 Peak grid           → 【禁止】绝不在高峰时段从电网充电
@@ -704,6 +705,13 @@ def run_8760_dispatch(
     soc = usable * 0.5
     tot_throughput = 0.0
     records = []
+
+    # 日间平期充电目标：只充到足以在晚高峰（17-19h，3小时）放完的 SOC 量
+    # 正好在晚间高峰期放完电是 0 —— 不多充，不浪费谷期充电空间
+    # Evening target: exactly enough to drain SOC to 0 over 3 evening-peak hours.
+    # Formula: 3h × min(C-rate power, peak load), capped at usable capacity.
+    _EVE_HRS = 3   # Eskom 2025/26: evening peak 17:00-19:59
+    std_charge_target = min(usable, _EVE_HRS * min(bess_kw, load_peak_kw))
 
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     g = 0  # global hour index
@@ -823,10 +831,12 @@ def run_8760_dispatch(
                     std_effective_cost = tariff_price / rte_dec
                     if (grid_charge_viable
                             and season_peak >= std_effective_cost * 1.2
-                            and soc < usable
-                            and 9 <= h < 17):            # 日间平期专用，傍晚平期排除
-                        hrs_left = 17 - h                # 09h→8h，10h→7h … 16h→1h
-                        need = usable - soc
+                            and soc < std_charge_target   # 目标：晚高峰正好放完（不充满）
+                            and 9 <= h < 17):             # 日间平期专用，傍晚平期排除
+                        hrs_left = 17 - h                 # 09h→8h，10h→7h … 16h→1h
+                        # 目标 SOC = std_charge_target（正好够晚高峰放完），而非 usable
+                        # Target = evening-peak target, not full usable capacity
+                        need = max(0.0, std_charge_target - soc)
                         c = min(bess_kw, need / hrs_left / rte_dec)
                         if c > 0.01:
                             charge_grid = c
@@ -1355,7 +1365,7 @@ def generate_excel_report() -> bytes:
     ws3.merge_cells("A1:Q1")
     c = ws3.cell(row=1, column=1,
                  value="25-Year Financial Model / 25年财务模型  "
-                       "—  Edit green cells in Row 4 · All formulas auto-recalculate / 修改第4行绿色单元格，公式自动更新")
+                       "—  Edit white cells in '参数 Parameters' sheet · Row 4 formulas auto-pull & recalculate / 在参数页修改白色单元格，第4行自动联动，全表重算")
     c.font = Font("Calibri", size=12, bold=True, color="FFFFFF")
     c.fill = _fill(C_NAVY); c.alignment = _align("center")
     ws3.row_dimensions[1].height = 28
@@ -1363,7 +1373,7 @@ def generate_excel_report() -> bytes:
     # ── Parameter Section header row 2 ───────────────────────
     ws3.merge_cells("A2:Q2")
     c = ws3.cell(row=2, column=1,
-                 value="⚙️  Adjustable Parameters / 可调财务参数 — Edit green cells below · Formulas auto-update on change / 修改绿色单元格，右侧公式自动重算")
+                 value="⚙️  Row 4 = cross-sheet links to '参数 Parameters' / 第4行跨表引用参数页 — 🟢 在参数页修改白色单元格 → 自动更新 · 🔒 锁定值须重新运行模拟 / Edit white cells in Parameters sheet → auto-update · Locked = re-run simulation")
     c.font = Font("Calibri", size=9, bold=True, color="FFFFFF")
     c.fill = _fill(C_MID); c.alignment = _align("left")
     ws3.row_dimensions[2].height = 18
@@ -1373,35 +1383,42 @@ def generate_excel_report() -> bytes:
     # B5: Base PV Save  C5: Base BESS Save  D5: Esc%  E5: Disc%  F5: Tax%
     # G5: PV Deg%  H5: Total CAPEX  I5: PV kWp  J5: BESS kWh
     # K5: PV O&M  L5: BESS O&M
+    # 跨表引用：参数值行（Row 4）用公式链接到 Sheet 2，Sheet 2 白色单元格改动后
+    # 财务模型所有列（D列起用 $X$4 绝对引用）自动重算，实现一页参数驱动全表
+    # Cross-sheet links: Row 4 cells reference '参数 Parameters' sheet.
+    # Changing any white cell in Sheet 2 propagates to the full 25Y model instantly.
+    _P2 = "'参数 Parameters'"
     param_meta = [
-        # (col_idx, label, value, editable, fmt)
-        (2,  "Yr1 PV Save\nPV节省基期\n(ZAR) 🔒",       d1["annual_pv_saving_ZAR"],   False, "#,##0"),
-        (3,  "Yr1 BESS Save\nBESS节省基期\n(ZAR) 🔒",   d1["annual_bess_saving_ZAR"], False, "#,##0"),
-        (4,  "Tariff Esc.\n电费增速\n(%/yr) 🟢 Adj.",    ss.tariff_escalation,         True,  "0.0"),
-        (5,  "Discount Rate\n折现率\n(%) 🟢 Adj.",       ss.discount_rate,             True,  "0.0"),
-        (6,  "Tax Rate\n税率\n(%) 🟢 Adj.",              ss.tax_rate,                  True,  "0.0"),
-        (7,  "PV Degrad.\nPV衰减\n(%/yr) 🟢 Adj.",      ss.pv_degradation,            True,  "0.00"),
-        (8,  "Total CAPEX\n总投资\n(ZAR) 🔒",            res["total_capex"],           False, "#,##0"),
-        (9,  "PV Capacity\n光伏容量\n(kWp) 🔒",         ss.pv_kwp,                    False, "#,##0.0"),
-        (10, "BESS Capacity\n储能容量\n(kWh) 🔒",       ss.bess_kwh,                  False, "#,##0.0"),
-        (11, "PV O&M\nPV运维\n(ZAR/kWp) 🟢 Adj.",      ss.pv_opex_per_kwp,           True,  "0.00"),
-        (12, "BESS O&M\nBESS运维\n(ZAR/kWh) 🟢 Adj.",  ss.bess_opex_per_kwh,         True,  "0.00"),
+        # (col_idx, label, value_fallback, editable, fmt, sheet2_formula)
+        (2,  "Yr1 PV Save\nPV节省基期\n(ZAR) 🔒",       d1["annual_pv_saving_ZAR"],   False, "#,##0",   f"={_P2}!C62"),
+        (3,  "Yr1 BESS Save\nBESS节省基期\n(ZAR) 🔒",   d1["annual_bess_saving_ZAR"], False, "#,##0",   f"={_P2}!C63"),
+        (4,  "Tariff Esc.\n电费增速\n(%/yr) 🟢 Sheet2",  ss.tariff_escalation,         True,  "0.0",     f"={_P2}!C31"),
+        (5,  "Discount Rate\n折现率\n(%) 🟢 Sheet2",     ss.discount_rate,             True,  "0.0",     f"={_P2}!C32"),
+        (6,  "Tax Rate\n税率\n(%) 🟢 Sheet2",            ss.tax_rate,                  True,  "0.0",     f"={_P2}!C33"),
+        (7,  "PV Degrad.\nPV衰减\n(%/yr) 🟢 Sheet2",    ss.pv_degradation,            True,  "0.00",    f"={_P2}!C9"),
+        (8,  "Total CAPEX\n总投资\n(ZAR) 🔗 Sheet2",     res["total_capex"],           False, "#,##0",   f"={_P2}!C24"),
+        (9,  "PV Capacity\n光伏容量\n(kWp) 🔗 Sheet2",  ss.pv_kwp,                    False, "#,##0.0", f"={_P2}!C4"),
+        (10, "BESS Capacity\n储能容量\n(kWh) 🔗 Sheet2", ss.bess_kwh,                  False, "#,##0.0", f"={_P2}!C5"),
+        (11, "PV O&M\nPV运维\n(ZAR/kWp) 🟢 Sheet2",    ss.pv_opex_per_kwp,           True,  "0.00",    f"={_P2}!C27"),
+        (12, "BESS O&M\nBESS运维\n(ZAR/kWh) 🟢 Sheet2", ss.bess_opex_per_kwh,         True,  "0.00",    f"={_P2}!C28"),
     ]
     ws3.row_dimensions[3].height = 34
     ws3.row_dimensions[4].height = 20
     ws3.row_dimensions[5].height = 6   # thin divider
-    for ci_p, lbl_p, val_p, edit_p, fmt_p in param_meta:
+    for ci_p, lbl_p, val_p, edit_p, fmt_p, formula_ref in param_meta:
         # Label row 3
         lc3 = ws3.cell(row=3, column=ci_p, value=lbl_p)
         lc3.font = _font(sz=8, bold=True)
         lc3.fill = _fill(C_LTBLUE)
         lc3.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         lc3.border = _bdr()
-        # Value row 4
-        vc4 = ws3.cell(row=4, column=ci_p, value=val_p)
+        # Value row 4 — cross-sheet formula linking to '参数 Parameters' sheet
+        # 🟢 = edit in Sheet 2 (white cell) to drive this model
+        # 🔗 = driven by Sheet 2 formula (CAPEX, capacity)
+        # 🔒 = locked simulation result (Yr1 savings — re-run to update)
+        vc4 = ws3.cell(row=4, column=ci_p, value=formula_ref)
         vc4.font = _font(sz=10, bold=True,
-                         color=C_DARK if not edit_p else "1B5E20")
-        # Green bg = editable; yellow bg = locked simulation result
+                         color="1B5E20" if edit_p else C_DARK)
         vc4.fill = _fill("E8F5E9" if edit_p else C_LOCKED)
         vc4.alignment = _align("center")
         vc4.border = _bdr()
