@@ -1862,7 +1862,7 @@ with col_params:
     # ══════════════════════════════════════════════════════════
     with st.expander("☀️ 光伏系统 / PV System", expanded=False):
         pv_kwp = st.number_input("容量 Capacity (kWp)", value=st.session_state.pv_kwp,
-                                  min_value=0.0, max_value=50000.0, step=50.0)
+                                  min_value=0.0, step=50.0)
         st.session_state.pv_kwp = pv_kwp
         pv_dis = pv_kwp == 0.0
 
@@ -1894,7 +1894,7 @@ with col_params:
     # ══════════════════════════════════════════════════════════
     with st.expander("🔋 储能系统 / BESS System", expanded=False):
         bess_kwh = st.number_input("容量 Capacity (kWh)", value=st.session_state.bess_kwh,
-                                    min_value=0.0, max_value=100000.0, step=50.0)
+                                    min_value=0.0, step=50.0)
         st.session_state.bess_kwh = bess_kwh
 
         # C倍率选择器（参考值）/ C-rate selector (reference only)
@@ -1931,17 +1931,17 @@ with col_params:
         st.markdown('<div class="param-label">高峰时段负载 Peak hours (07-10, 18-20h)</div>',
                     unsafe_allow_html=True)
         load_peak = st.number_input("高峰 Peak Load (kW)", value=st.session_state.load_peak_kw,
-                                     min_value=0.0, max_value=50000.0, step=10.0,
+                                     min_value=0.0, step=10.0,
                                      label_visibility="collapsed")
         st.markdown('<div class="param-label">平期负载 Standard hours (06-07, 10-18, 20-22h)</div>',
                     unsafe_allow_html=True)
         load_std = st.number_input("平期 Standard Load (kW)", value=st.session_state.load_std_kw,
-                                    min_value=0.0, max_value=50000.0, step=10.0,
+                                    min_value=0.0, step=10.0,
                                     label_visibility="collapsed")
         st.markdown('<div class="param-label">谷期负载 Off-peak hours (22-06h)</div>',
                     unsafe_allow_html=True)
         load_offpeak = st.number_input("谷期 Off-Peak Load (kW)", value=st.session_state.load_offpeak_kw,
-                                        min_value=0.0, max_value=50000.0, step=5.0,
+                                        min_value=0.0, step=5.0,
                                         label_visibility="collapsed")
 
         st.session_state.load_peak_kw    = load_peak
