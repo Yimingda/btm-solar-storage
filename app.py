@@ -790,7 +790,8 @@ def run_8760_dispatch(
                     # This naturally keeps power constant and as low as possible.
                     if grid_charge_viable and soc < usable:
                         # 22:00-06:00 窗口内含当前小时的剩余小时数
-                        op_hrs_left = ((24 - h) + 6) if h >= 22 else (6 - h)
+                        # max(1,...) 防止 h=6 周六/超大电池低C率场景除零
+                        op_hrs_left = max(1, ((24 - h) + 6) if h >= 22 else (6 - h))
                         need = usable - soc
                         c = min(bess_kw, need / op_hrs_left / rte_dec)
                         if c > 0.01:
@@ -867,6 +868,7 @@ def run_8760_dispatch(
                     "charge_grid_kWh": round(charge_grid, 4),
                     "discharge_kWh": round(discharge, 4),
                     "soc_kWh": round(soc, 4),
+                    "soc_pct": round(soc / usable * 100, 1) if usable > 0 else 0.0,
                     "grid_buy_kWh": round(grid_buy, 4),
                     "pv_saving_ZAR": round(pv_saving, 4),
                     "bess_net_saving_ZAR": round(dis_saving - grid_charge_cost, 4),
