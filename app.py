@@ -658,23 +658,30 @@ def run_8760_dispatch(
     ████████ 8760小时物理调度引擎 / 8760-Hour Physical Dispatch Engine ████████
 
     充电优先级 Charging Priority (strict order):
-      1. 光伏余电 PV excess      → 始终接收，任何时段，免费
-      2. 谷期电网 Off-peak grid  → 充至 100% DoD 上限（满额C率），最低成本
-      3. 平期电网 Standard grid  → 仅当 peak ≥ (standard/RTE)×1.2 时允许，限速 0.5C
-      4. 高峰电网 Peak grid      → 【禁止】绝不在高峰时段从电网充电
+      1. 光伏余电 PV excess           → 始终接收，任何时段，免费
+      2. 谷期电网 Off-peak grid       → 最小功率×最长时段，平摊8h谷期窗口（22-06h）
+      3. 日间平期电网 Daytime std grid → 仅 09-16h，peak ≥ (std/RTE)×1.2 时允许
+                                         最小功率×平摊剩余平期小时（09h→8h，16h→1h）
+      4. 傍晚平期 Evening std 20-21h  → 【绝不充电】谷期 ≤2h 后开始，等待更便宜电价
+      5. 高峰电网 Peak grid           → 【禁止】绝不在高峰时段从电网充电
 
     放电优先级 Discharge Priority:
       高峰时段全力放电 → 平期/谷期保留 SOC，不放电
 
+    最小功率原则 Min-Power Principle:
+      功率 = min(bess_kw, need / remaining_hours / RTE)
+      → 谷期：need / op_hrs_left（最多8h），功率天然最低
+      → 日间平期：need / (17-h)，09h时最多8h，逐时收敛
+      → 上限始终为用户设定 bess_kw（配置 C 率为硬上限，任何时段不超过）
+
+    收益最大化 Revenue-First Logic:
+      充电总是选最便宜电价：谷期(off_peak) < 日间平期(standard) < 傍晚平期(等谷期)
+      傍晚平期（20-21h）距谷期仅 ≤2h，主动等待更便宜谷期，确保套利收益最大
+
     平期充电经济门槛:
       peak_price ≥ (standard_price / RTE) × 1.2
-      → 确保套利利润在覆盖充电成本+RTE损耗后仍有≥20%安全裕量
-      → Megaflex/Miniflex TOU：冬/夏季均满足，允许补充充电
+      → Megaflex/Miniflex TOU 冬/夏均满足，允许日间补充充电
       → Nightsave / PPA 平价电率：不满足，自动禁用
-
-    谷期优先保障:
-      - 谷期使用满额 C率 充至100%，平期限速0.5C，确保谷期是主充电窗口
-      - 若谷期已充满，平期仅起"锦上添花"补充作用
 
     物理约束:
       - SOC 充电增量 = 充入电量 × RTE（充电损耗计入 RTE）
@@ -765,7 +772,7 @@ def run_8760_dispatch(
                         tot_throughput += c * rte_dec
 
                 elif period == "off_peak":
-                    # 先用余电充
+                    # ── 1. 光伏余电优先（免费，始终接收）
                     if pv_excess > 0 and soc < usable:
                         space = usable - soc
                         c = min(pv_excess, space / rte_dec, bess_kw)
@@ -773,12 +780,20 @@ def run_8760_dispatch(
                         soc += c * rte_dec
                         tot_throughput += c * rte_dec
 
-                    # 电网充电：仅当 peak > off_peak 时才有预充价值
-                    # Grid charge only when arbitrage spread is positive
-                    if grid_charge_viable:
-                        remaining = usable - soc
-                        if remaining > 0.01:
-                            c = min(bess_kw, remaining / rte_dec)
+                    # ── 2. 电网充电：最小功率 × 最长时段
+                    # 公式：c = min(bess_kw, need / op_hrs_left / RTE)
+                    # 谷期窗口 22:00-06:00（共 8h），每小时自动计算最低所需功率
+                    # 结果：恒功率充满整个窗口，不在短时间内高功率冲满
+                    # 上限：用户设定的 bess_kw（配置 C 率为硬上限，任何时段不超过）
+                    # Grid charge at minimum power spread over remaining off-peak window:
+                    #   c = min(bess_kw, need / op_hrs_left / RTE)
+                    # This naturally keeps power constant and as low as possible.
+                    if grid_charge_viable and soc < usable:
+                        # 22:00-06:00 窗口内含当前小时的剩余小时数
+                        op_hrs_left = ((24 - h) + 6) if h >= 22 else (6 - h)
+                        need = usable - soc
+                        c = min(bess_kw, need / op_hrs_left / rte_dec)
+                        if c > 0.01:
                             charge_grid = c
                             soc += c * rte_dec
                             tot_throughput += c * rte_dec
@@ -792,25 +807,30 @@ def run_8760_dispatch(
                         soc += c * rte_dec
                         tot_throughput += c * rte_dec
 
-                    # ── 2. 电网充电：在谷期优先的前提下，平期满足经济门槛时允许补充
-                    # 条件：peak_price ≥ (standard_price / RTE) × 1.2
-                    #   即放电收益需覆盖充电成本（含RTE损耗）并留有 ≥20% 安全裕量
-                    # 作用：对 Megaflex/Miniflex TOU 套利价差足够大时启用；
-                    #       对 Nightsave / PPA 平价电率自动禁用（价差不足1.2倍）
-                    # Grid charge during standard only when economic margin is ≥ 20%:
-                    #   peak_price ≥ (charge_price / RTE) × 1.2
-                    std_effective_cost = tariff_price / rte_dec   # effective delivered cost
-                    std_charge_viable  = (grid_charge_viable
-                                          and season_peak >= std_effective_cost * 1.2
-                                          and soc < usable)
-                    if std_charge_viable:
-                        space = usable - soc
-                        # 限速 0.5C：平期充电速率不超过谷期（谷期用满额C率）
-                        # Half C-rate during standard so off-peak remains the dominant window
-                        c = min(bess_kw * 0.5, space / rte_dec)
-                        charge_grid = c
-                        soc += c * rte_dec
-                        tot_throughput += c * rte_dec
+                    # ── 2. 电网充电：仅日间平期 09:00-16:59，经济门槛 + 最小功率
+                    # 【收益最大化原则】傍晚平期（20-21h）绝不从电网充电：
+                    #   谷期在 ≤2h 后开始（22:00），谷期电价比平期便宜 ~29%
+                    #   等待谷期充电始终更经济 → 20-21h 不充，等 22h 谷期
+                    # 日间平期（09-16h）允许补充充电：
+                    #   经济条件：peak ≥ (std/RTE) × 1.2（Megaflex 冬/夏均满足）
+                    #   功率：min(bess_kw, need / hrs_remaining / RTE)
+                    #   → 最低恒功率平摊到 17:00 前；上限为用户设定 bess_kw
+                    # Grid charge ONLY during daytime standard (09:00-16:59).
+                    # Evening standard (20-21h): NEVER charge — off-peak starts ≤2h later
+                    # at ~29% lower cost. Revenue-maximising rule: always wait for cheapest.
+                    # Power = min(bess_kw, need / hrs_remaining / RTE) — min-power spread.
+                    std_effective_cost = tariff_price / rte_dec
+                    if (grid_charge_viable
+                            and season_peak >= std_effective_cost * 1.2
+                            and soc < usable
+                            and 9 <= h < 17):            # 日间平期专用，傍晚平期排除
+                        hrs_left = 17 - h                # 09h→8h，10h→7h … 16h→1h
+                        need = usable - soc
+                        c = min(bess_kw, need / hrs_left / rte_dec)
+                        if c > 0.01:
+                            charge_grid = c
+                            soc += c * rte_dec
+                            tot_throughput += c * rte_dec
 
                     # 平期不放电——保留 SOC 给高峰 / No discharge; preserve SOC for peaks
                     # discharge remains 0
