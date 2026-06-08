@@ -11,7 +11,7 @@ import numpy as np
 import requests
 import io
 import warnings
-from datetime import date as _date
+from datetime import date as _date, timedelta
 warnings.filterwarnings("ignore")
 
 # SA 2025 公众假期 / SA 2025 Public Holidays (off-peak all day like weekends)
@@ -448,16 +448,16 @@ DEFAULT_PARAMS = {
     "lon": 28.0,
     "pv_kwp": 4000.0,              # 4 MWp
     "bess_kwh": 10000.0,           # 10 MWh
-    "c_rate_label": "0.5C (2h)",
+    "c_rate_label": "0.25C (4h)",
     "load_peak_kw": 2500.0,        # 高峰时段负载 kW
     "load_std_kw": 2500.0,         # 平期负载 kW
-    "load_offpeak_kw": 500.0,      # 谷期（夜间）负载 kW
+    "load_offpeak_kw": 2500.0,     # 谷期（夜间）负载 kW
     "pv_loss": 14.0,
     "tilt": 26.0,                  # abs(lat) for SA
     "azimuth": 180.0,              # 南半球正北朝赤道 = 180° in PVGIS convention
     "rte": 88.2,
     "bess_cycles": 6000,
-    "dod": 90.0,
+    "dod": 100.0,
     "forex_usd_zar": FOREX_FALLBACK,
     "pv_usd_per_w": 0.75,
     "bess_usd_per_wh": 0.20,
@@ -791,21 +791,39 @@ def run_8760_dispatch(
                     # ── 2. 电网充电：最小功率 × 最长时段
                     # 公式：c = min(bess_kw, need / op_hrs_left / RTE)
                     # 谷期窗口 22:00-06:00（共 8h），每小时自动计算最低所需功率
-                    # 结果：恒功率充满整个窗口，不在短时间内高功率冲满
-                    # 上限：用户设定的 bess_kw（配置 C 率为硬上限，任何时段不超过）
-                    # Grid charge at minimum power spread over remaining off-peak window:
-                    #   c = min(bess_kw, need / op_hrs_left / RTE)
-                    # This naturally keeps power constant and as low as possible.
+                    # 【周末逻辑】只有在下一个早高峰是工作日时才从电网充电：
+                    #   周五夜间/周六凌晨 → 周六无峰期 → 不充电
+                    #   周六夜间/周日凌晨 → 周日无峰期 → 不充电
+                    #   周日夜间/周一凌晨 → 周一有峰期 → 充电 ✓
+                    #   公共假日同周日处理（无峰期）
+                    # Grid charge ONLY when the next morning has weekday peaks.
+                    # Fri/Sat night → Sat (no peaks) → skip.
+                    # Sat/Sun night → Sun (no peaks) → skip.
+                    # Sun/Mon night → Mon (weekday) → charge. ✓
                     if grid_charge_viable and soc < usable:
-                        # 22:00-06:00 窗口内含当前小时的剩余小时数
-                        # max(1,...) 防止 h=6 周六/超大电池低C率场景除零
-                        op_hrs_left = max(1, ((24 - h) + 6) if h >= 22 else (6 - h))
-                        need = usable - soc
-                        c = min(bess_kw, need / op_hrs_left / rte_dec)
-                        if c > 0.01:
-                            charge_grid = c
-                            soc += c * rte_dec
-                            tot_throughput += c * rte_dec
+                        # 判断"下一个早高峰日"的类型
+                        _next_dt = cal_date + timedelta(days=1) if h >= 22 else cal_date
+                        _nwd     = _next_dt.weekday()
+                        if _next_dt in SA_PUBLIC_HOLIDAYS_2025:
+                            _next_type = "sunday"
+                        elif _nwd == 5:
+                            _next_type = "saturday"
+                        elif _nwd == 6:
+                            _next_type = "sunday"
+                        else:
+                            _next_type = "weekday"
+                        next_day_has_peak = (_next_type == "weekday")
+
+                        if next_day_has_peak:
+                            # 22:00-06:00 窗口内含当前小时的剩余小时数
+                            # max(1,...) 防止 h=6 周六/超大电池低C率场景除零
+                            op_hrs_left = max(1, ((24 - h) + 6) if h >= 22 else (6 - h))
+                            need = usable - soc
+                            c = min(bess_kw, need / op_hrs_left / rte_dec)
+                            if c > 0.01:
+                                charge_grid = c
+                                soc += c * rte_dec
+                                tot_throughput += c * rte_dec
 
                 else:  # standard 平期
                     # ── 1. 光伏余电优先（免费，始终接收）
