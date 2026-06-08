@@ -657,13 +657,23 @@ def run_8760_dispatch(
     """
     ████████ 8760小时物理调度引擎 / 8760-Hour Physical Dispatch Engine ████████
 
-    调度优先级（死逻辑）:
-    1. 光伏余电优先免费给电池充电
-    2. 早晚高峰，电池全力放电
-    3. 夜间谷期，从电网满充
-    4. 平期防反噬盈亏线充电（峰价-平价/RTE > 0 才充）
+    充电优先级 Charging Priority (strict order):
+      1. 光伏余电 PV excess      → 始终接收，任何时段，免费
+      2. 谷期电网 Off-peak grid  → 充至 100% DoD 上限，最低成本
+      3. 平期电网 Standard grid  → 【禁止】不从电网充电，等下一个谷期
+      4. 高峰电网 Peak grid      → 【禁止】绝不在高峰时段充电
 
-    物理修正: SOC 充电增量 = 充入电量 × RTE（不是充入电量本身）
+    放电优先级 Discharge Priority:
+      高峰时段全力放电 → 平期/谷期保留 SOC，不放电
+
+    设计原则:
+    - 谷期（22:00-06:00，共 8h）一次性充满，供当天早晚两个高峰使用
+    - 平期不从电网充电：若容量不足以覆盖两个高峰，电网按实时电价补足差额
+    - 禁止平期套利充电：平期充电价格高于谷期，应等待下一谷期窗口
+
+    物理约束:
+    - SOC 充电增量 = 充入电量 × RTE（充电损耗计入 RTE）
+    - SOC 放电减量 = 放出电量（放电直接减 SOC）
     """
     rte_dec   = rte / 100.0
     dod_dec   = dod / 100.0
@@ -769,7 +779,11 @@ def run_8760_dispatch(
                             tot_throughput += c * rte_dec
 
                 else:  # standard 平期
-                    # 1. 光伏余电免费充电（始终接收）
+                    # 仅接收光伏余电（免费）——绝不从电网充电
+                    # Only accept PV excess (free) — NEVER charge from grid during standard
+                    # Reason: off-peak (22:00-06:00) is always cheaper; wait for that window.
+                    # If battery runs short before evening peak, grid covers the gap at
+                    # prevailing rate — this is CORRECT behaviour for an undersized BESS.
                     if pv_excess > 0 and soc < usable:
                         space = usable - soc
                         c = min(pv_excess, space / rte_dec, bess_kw)
@@ -777,16 +791,7 @@ def run_8760_dispatch(
                         soc += c * rte_dec
                         tot_throughput += c * rte_dec
 
-                    # 2. 防反噬盈亏线：peak > standard/RTE 且 peak > off_peak 才从电网充
-                    eco_gain = season_peak - (tariff_price / rte_dec)
-                    if eco_gain > 0 and grid_charge_viable and soc < usable:
-                        space = usable - soc
-                        c = min(bess_kw * 0.5, space / rte_dec)
-                        charge_grid = c
-                        soc += c * rte_dec
-                        tot_throughput += c * rte_dec
-
-                    # 3. 平期【不放电】——保留 SOC 给即将到来的晚高峰
+                    # 平期不放电——保留 SOC 给高峰 / No discharge; preserve SOC for peaks
                     # discharge remains 0
 
                 # 放电累加吞吐量
