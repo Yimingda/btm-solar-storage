@@ -277,6 +277,27 @@ st.markdown("""
 
     /* Hide default sidebar toggle */
     [data-testid="collapsedControl"] { display: none; }
+
+    /* ── Right parameter panel scroll container — styled scrollbar ── */
+    /* st.container(height=900) renders as stVerticalBlockBorderWrapper  */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        scrollbar-width: thin;
+        scrollbar-color: #4ECDC4 #1A2035;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar {
+        width: 4px;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-track {
+        background: #1A2035;
+        border-radius: 2px;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-thumb {
+        background: #4ECDC4;
+        border-radius: 2px;
+    }
+    div[data-testid="stVerticalBlockBorderWrapper"]::-webkit-scrollbar-thumb:hover {
+        background: #3ab5ad;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1811,6 +1832,10 @@ col_content, col_params = st.columns([7, 3], gap="large")
 # 右侧参数面板 / RIGHT SIDE — Parameter Panel
 # ══════════════════════════════════════════════════════════════
 with col_params:
+    # Native Streamlit scrollable container — fixed height, own scrollbar
+    _scroll = st.container(height=900, border=False)
+
+with _scroll:
 
     # ── 参数管理 / Parameter Management ──
     c1, c2 = st.columns(2)
@@ -2446,7 +2471,7 @@ with col_content:
             with xbtn_col:
                 st.markdown("<br>", unsafe_allow_html=True)
                 gen_excel_btn = st.button(
-                    "📊 生成报告 Generate",
+                    "📊 Export Financial Report · 导出财务分析报告",
                     key="gen_excel_report_btn",
                     use_container_width=True,
                 )
