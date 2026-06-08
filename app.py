@@ -1123,7 +1123,7 @@ def generate_excel_report() -> bytes:
     c.fill = _fill(C_DARK); c.alignment = _align("left")
     ws1.row_dimensions[5].height = 20
 
-    payback_str = f"{res['payback']} yr" if res['payback'] else "25yr+"
+    payback_str = f"{res['payback']:.2f} yr" if res['payback'] else "25yr+"
     info_rows = [
         ("地点 Location",             f"Lat {ss.lat:.3f}°  /  Lon {ss.lon:.3f}°"),
         ("系统规模 System Size",       f"PV  {ss.pv_kwp:,.0f} kWp  +  BESS  {ss.bess_kwh:,.0f} kWh"),
@@ -2199,7 +2199,18 @@ with col_content:
                 npv, irr = compute_npv_irr(fin_df, total_capex, params["discount_rate"])
 
                 cum = fin_df["累计CF (ZAR)"].tolist()
-                payback = next((fin_df["年份 Year"].iloc[i] for i, v in enumerate(cum) if v >= 0), None)
+                # 线性插值：精确计算回收期（小数年）
+                # Linear interpolation for fractional payback year
+                payback = None
+                for _i, _v in enumerate(cum):
+                    if _v >= 0:
+                        if _i == 0:
+                            payback = float(fin_df["年份 Year"].iloc[0])
+                        else:
+                            _v0 = cum[_i - 1]          # negative
+                            _y0 = float(fin_df["年份 Year"].iloc[_i - 1])
+                            payback = _y0 + (-_v0) / (_v - _v0)   # interpolate
+                        break
 
                 st.session_state.results = {
                     "dispatch_yr1": dispatch_yr1, "eol_years": eol_years,
@@ -2242,7 +2253,7 @@ with col_content:
                 </div>""", unsafe_allow_html=True)
 
             with m4:
-                pb = f"{res['payback']}yr" if res['payback'] else "25yr+"
+                pb = f"{res['payback']:.2f}yr" if res['payback'] else "25yr+"
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">回收期 Payback</div>
                     <div class="metric-value">{pb}</div>
