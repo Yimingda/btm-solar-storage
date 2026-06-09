@@ -214,6 +214,22 @@ def count_snapshots(user_id: str) -> int:
 
 # ── Admin Operations ─────────────────────────────────────────────────────────
 
+def create_user(email: str, password: str, full_name: str, company: str):
+    """Create a new fully-verified user via GoTrue Admin API.
+    Returns the created user object, or raises on failure."""
+    db = get_admin_db()
+    resp = db.auth.admin.create_user({
+        "email":         email,
+        "password":      password,
+        "email_confirm": True,
+        "user_metadata": {
+            "full_name": full_name,
+            "company":   company,
+        },
+    })
+    return resp.user
+
+
 def get_all_users() -> list[dict]:
     try:
         db = get_admin_db()

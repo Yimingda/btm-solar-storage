@@ -12,7 +12,10 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from db import (get_all_users, update_user_tier, set_user_active,
+import secrets as _secrets
+import string as _string
+
+from db import (create_user, get_all_users, update_user_tier, set_user_active,
                 get_audit_log, get_system_stats)
 from auth import get_current_user
 
@@ -33,8 +36,9 @@ def render_admin_panel() -> None:
 
     st.markdown("## 🔴 管理员面板 / Admin Panel")
 
-    t_users, t_stats, t_log = st.tabs([
+    t_users, t_create, t_stats, t_log = st.tabs([
         "👥 用户管理 Users",
+        "➕ 创建用户 Create",
         "📊 统计 Stats",
         "📋 操作日志 Audit Log",
     ])
@@ -42,11 +46,130 @@ def render_admin_panel() -> None:
     with t_users:
         _render_users(actor_id)
 
+    with t_create:
+        _render_create_user(actor_id)
+
     with t_stats:
         _render_stats()
 
     with t_log:
         _render_audit_log()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Create User tab
+# ════════════════════════════════════════════════════════════════════════════
+
+_TIER_LIMITS = {"free": 3, "pro": 50, "admin": 999999}
+_PW_CHARS    = _string.ascii_letters + _string.digits + "!@#$%"
+
+
+def _gen_password(length: int = 12) -> str:
+    return "".join(_secrets.choice(_PW_CHARS) for _ in range(length))
+
+
+def _render_create_user(actor_id: str) -> None:
+    st.markdown("### ➕ 创建新用户 / Create New User")
+
+    # ── 初始化生成的密码 ──
+    if "cu_gen_pw" not in st.session_state:
+        st.session_state["cu_gen_pw"] = _gen_password()
+
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("**账号信息 Account Info**")
+        email     = st.text_input("📧 邮箱 Email *",        key="cu_email",
+                                   placeholder="user@company.com")
+        full_name = st.text_input("👤 姓名 Full Name *",    key="cu_name",
+                                   placeholder="张三 / Zhang San")
+        company   = st.text_input("🏢 公司 Company *",     key="cu_company",
+                                   placeholder="Company Ltd")
+
+    with right:
+        st.markdown("**权限 & 密码 Tier & Password**")
+        tier = st.selectbox(
+            "层级 Tier",
+            options=["free", "pro", "admin"],
+            format_func=lambda x: {"free": "🆓 Free (3 快照)",
+                                    "pro":  "🔵 Pro (50 快照)",
+                                    "admin":"🔴 Admin (无限)"   }[x],
+            key="cu_tier",
+        )
+
+        auto_pw = st.toggle("🔐 自动生成密码", value=True, key="cu_auto_pw")
+
+        if auto_pw:
+            pw = st.session_state["cu_gen_pw"]
+            st.code(pw, language=None)
+            st.caption("⚠️ 请记录此密码，创建后无法再查看")
+            if st.button("🔄 重新生成", key="cu_regen", use_container_width=True):
+                st.session_state["cu_gen_pw"] = _gen_password()
+                st.rerun()
+        else:
+            pw_a = st.text_input("🔒 密码 *",    type="password", key="cu_pw_a",
+                                  placeholder="至少8位 / Min 8 chars")
+            pw_b = st.text_input("🔒 确认密码 *", type="password", key="cu_pw_b",
+                                  placeholder="再输一遍 / Repeat")
+            pw = pw_a
+
+    st.markdown("---")
+    if st.button("✅ 立即创建账号", type="primary",
+                 use_container_width=True, key="cu_submit"):
+
+        # ── Validate ──
+        errors = []
+        if not email.strip() or "@" not in email:
+            errors.append("邮箱格式无效 / Invalid email")
+        if not full_name.strip():
+            errors.append("请填写姓名 / Name required")
+        if not company.strip():
+            errors.append("请填写公司 / Company required")
+        if not auto_pw:
+            if len(pw_a) < 8:
+                errors.append("密码至少8位 / Password ≥ 8 chars")
+            elif pw_a != pw_b:
+                errors.append("两次密码不一致 / Passwords do not match")
+
+        if errors:
+            for e in errors:
+                st.error(e)
+            return
+
+        # ── Create ──
+        with st.spinner("创建中… / Creating…"):
+            try:
+                import time
+                user = create_user(
+                    email.strip(), pw,
+                    full_name.strip(), company.strip()
+                )
+                time.sleep(0.8)   # 等待 DB trigger 建立 profile
+
+                # 非 Free 层级时更新 tier
+                if tier != "free":
+                    update_user_tier(user.id, tier,
+                                     _TIER_LIMITS[tier], actor_id)
+
+                st.success(
+                    f"✅ 用户创建成功！\n\n"
+                    f"**邮箱:** {email}  \n"
+                    f"**层级:** {_TIER_CFG[tier]['label']}  \n"
+                    f"**密码:** `{pw}`  \n\n"
+                    f"请将密码安全地发送给用户。"
+                )
+                # 清空表单
+                for k in ("cu_email", "cu_name", "cu_company",
+                           "cu_gen_pw", "cu_pw_a", "cu_pw_b"):
+                    st.session_state.pop(k, None)
+                st.session_state["cu_gen_pw"] = _gen_password()
+
+            except Exception as exc:
+                err = str(exc).lower()
+                if "already" in err or "exists" in err or "duplicate" in err:
+                    st.error("❌ 该邮箱已被注册 / Email already exists")
+                else:
+                    st.error(f"❌ 创建失败 / Failed: {exc}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
