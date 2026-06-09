@@ -91,6 +91,18 @@ def sign_in(email: str, password: str):
     return db.auth.sign_in_with_password({"email": email, "password": password})
 
 
+def refresh_session(refresh_token: str):
+    """Restore a Supabase session from a saved refresh token.
+    Returns AuthResponse or None on failure."""
+    try:
+        db = get_db()
+        if not db:
+            return None
+        return db.auth.refresh_session(refresh_token)
+    except Exception:
+        return None
+
+
 def sign_out():
     db = get_db()
     if db:

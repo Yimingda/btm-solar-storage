@@ -7,8 +7,89 @@ from __future__ import annotations
 
 import re
 import streamlit as st
-from db import (sign_up, sign_in, verify_otp, resend_verification,
+import streamlit.components.v1 as components
+
+from db import (sign_up, sign_in, refresh_session, verify_otp, resend_verification,
                 sign_out, get_user_profile, update_last_login, _secrets_ok)
+
+
+# ── localStorage key for "remember me" ───────────────────────────────────────
+_LS_KEY = "btm_auth_v2"
+
+
+def _js_save_session(email: str, refresh_token: str) -> None:
+    """Persist email + refresh_token to browser localStorage (height=0 = invisible)."""
+    safe_e  = email.replace("\\", "\\\\").replace('"', '\\"')
+    safe_rt = refresh_token.replace("\\", "\\\\").replace('"', '\\"')
+    components.html(f"""<script>
+(function(){{
+  try{{
+    localStorage.setItem('{_LS_KEY}', JSON.stringify({{
+      e:"{safe_e}", rt:"{safe_rt}", ts:Date.now()
+    }}));
+  }}catch(ex){{}}
+}})();
+</script>""", height=0)
+
+
+def _js_clear_session() -> None:
+    """Remove saved session from browser localStorage."""
+    components.html(f"""<script>
+(function(){{
+  try{{ localStorage.removeItem('{_LS_KEY}'); }}catch(ex){{}}
+}})();
+</script>""", height=0)
+
+
+def _inject_auth_loader() -> None:
+    """
+    JS bridge: read localStorage and, if a valid saved session exists,
+    redirect the parent window to ?_btm_rt=<token>&_btm_e=<email>.
+    This triggers a Streamlit rerun that Python can intercept.
+    Guard: skips if params already present (avoids infinite loop).
+    """
+    components.html(f"""<script>
+(function(){{
+  try{{
+    var url = new URL(window.parent.location.href);
+    if(url.searchParams.has('_btm_rt')) return;   // already bridged
+    var raw = localStorage.getItem('{_LS_KEY}');
+    if(!raw) return;
+    var auth = JSON.parse(raw);
+    if(!auth || !auth.rt) return;
+    // Expire after 30 days
+    if(Date.now() - (auth.ts||0) > 30*86400000){{
+      localStorage.removeItem('{_LS_KEY}'); return;
+    }}
+    url.searchParams.set('_btm_rt', auth.rt);
+    url.searchParams.set('_btm_e',  auth.e||'');
+    window.parent.location.replace(url.href);
+  }}catch(ex){{ console.log('BTM auth-loader', ex); }}
+}})();
+</script>""", height=0)
+
+
+def _inject_autocomplete() -> None:
+    """Enable browser-native autocomplete on the email + password inputs."""
+    components.html("""<script>
+setTimeout(function(){
+  try{
+    var doc = window.parent.document;
+    var found = 0;
+    doc.querySelectorAll('input').forEach(function(inp){
+      if(found===0 && inp.type==='text'){
+        inp.setAttribute('autocomplete','username');
+        inp.setAttribute('name','username');
+        found=1;
+      } else if(found===1 && inp.type==='password'){
+        inp.setAttribute('autocomplete','current-password');
+        inp.setAttribute('name','password');
+        found=2;
+      }
+    });
+  }catch(e){}
+}, 400);
+</script>""", height=0)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -41,8 +122,10 @@ def is_admin() -> bool:
 
 def logout():
     sign_out()
-    for k in ("_user_profile", "_auth_mode", "_pending_email"):
+    for k in ("_user_profile", "_auth_mode", "_pending_email",
+              "_btm_ls_checked"):
         st.session_state.pop(k, None)
+    _js_clear_session()   # wipe localStorage so auto-login won't fire next visit
     st.rerun()
 
 
@@ -102,6 +185,31 @@ def render_auth_gate():
     Full-page auth UI.  Renders in the centre of the wide-layout page.
     Caller must call st.stop() after this.
     """
+    # ── Auto-login from saved session (Remember Me) ──────────────────────────
+    # JS bridge writes ?_btm_rt=<token> to trigger this block.
+    # Guard: only try once per Streamlit session (session_state persists across
+    # reruns within the same tab; a full-reload creates a new session).
+    if "_btm_rt" in st.query_params and "_btm_ls_checked" not in st.session_state:
+        _rt    = st.query_params.get("_btm_rt", "")
+        _email = st.query_params.get("_btm_e",  "")
+        st.session_state["_btm_ls_checked"] = True   # prevent loop on rerun
+        # Clear params from URL before attempting login
+        try:
+            del st.query_params["_btm_rt"]
+            del st.query_params["_btm_e"]
+        except Exception:
+            pass
+        if _rt:
+            with st.spinner("自动登录中 / Auto sign-in…"):
+                resp = refresh_session(_rt)
+                if resp and resp.session:
+                    # Refresh token is valid — update localStorage with new token
+                    _js_save_session(_email, resp.session.refresh_token)
+                    _on_login_success(resp, _email)
+                    return
+        # Token expired or invalid — fall through to normal login form
+        st.info("登录已过期，请重新登录 / Session expired — please sign in again")
+
     st.markdown(_AUTH_CSS, unsafe_allow_html=True)
 
     # Centre with columns
@@ -128,10 +236,32 @@ def _render_login():
 
     st.markdown("#### 登录 Sign In")
 
+    # ── Pre-fill email from localStorage bridge ──
+    # Only inject the loader if we haven't tried this session AND no bridge param
+    _ls_checked = st.session_state.get("_btm_ls_checked", False)
+    if not _ls_checked and "_btm_rt" not in st.query_params:
+        _inject_auth_loader()   # JS: read localStorage → redirect with ?_btm_rt
+
+    # Pre-filled email (set if user clicked "remember me" last time)
+    _prefill = st.session_state.pop("_btm_prefill_email", "")
+
+    # Enable browser-native autocomplete so Chrome/Firefox can save passwords
+    _inject_autocomplete()
+
     email    = st.text_input("📧 邮箱 Email",    key="li_email",
+                              value=_prefill,
                               placeholder="your@email.com")
     password = st.text_input("🔒 密码 Password", key="li_password",
                               type="password", placeholder="••••••••")
+
+    rm_col, _ = st.columns([3, 2])
+    with rm_col:
+        remember_me = st.checkbox(
+            "记住我 Remember me",
+            value=bool(_prefill),
+            key="li_remember",
+            help="在此浏览器中保持登录状态（30天）/ Stay signed in for 30 days on this browser",
+        )
 
     login_col, reg_col = st.columns(2)
     with login_col:
@@ -149,6 +279,11 @@ def _render_login():
         with st.spinner("登录中 / Signing in…"):
             try:
                 resp = sign_in(email.strip(), password)
+                # ── Remember Me: save session to localStorage ──
+                if remember_me and resp and resp.session:
+                    _js_save_session(email.strip(), resp.session.refresh_token)
+                else:
+                    _js_clear_session()   # ensure no stale data if unchecked
                 _on_login_success(resp, email.strip())
             except Exception as exc:
                 _handle_login_error(exc, email.strip())
