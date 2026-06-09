@@ -428,6 +428,16 @@ TARIFF_DB = {
     # CTOU: NMD ≤ 100 kVA | ITOU: NMD > 100 kVA
     "eThekwini CTOU (≤100kVA)": (7.3847, 3.6950, 1.8000, 3.6435, 2.9310, 1.7050),
     "eThekwini ITOU (>100kVA)": (7.0941, 1.9881, 1.4207, 3.1114, 1.8747, 1.4207),
+    # ── Ekurhuleni Metropolitan Municipality — Tariff C (Large Power Users) ──────
+    # Source: Schedule 2, CoE Electricity Tariffs 2025/26, p13 (energy charges only)
+    # VAT EXCLUDED in source → values below are ×1.15 incl 15% VAT
+    # Tariff C = TOU large power user; also has Basic (R3 701/mth) + Demand (R299/kVA/mth)
+    # Only energy component is modelled here (marginal rate for solar/BESS dispatch)
+    # PV export credit: Winter R1.6162/kWh; Summer R1.1053/kWh (net-consumer only)
+    # Tuple: (w_peak, w_std, w_off, s_peak, s_std, s_off) — VAT incl ZAR/kWh
+    "Ekurhuleni C LV 230/400V":        (5.7712, 4.5493, 4.4135, 3.2299, 2.9339, 2.8252),
+    "Ekurhuleni C LV-Sub (direct)":    (5.6586, 4.4366, 4.3009, 3.1488, 2.8529, 2.7442),
+    "Ekurhuleni C MV ≤11kV":           (5.5704, 4.3484, 4.2127, 3.0915, 2.7956, 2.6870),
     # ── PPA (Power Purchase Agreement) — flat rate, user-defined ─────────────
     # 所有时段同价；用户在 UI 中输入单一 PPA 单价
     # All periods same price; user sets a single PPA rate in the UI
