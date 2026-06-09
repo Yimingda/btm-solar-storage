@@ -455,6 +455,7 @@ TARIFF_DB = {
 # ─────────────────────────────────────────────────────────────
 BESS_EOL_SOH = 0.60   # 低于此值视为退役 / EoL threshold
 
+# ── Legacy table: LUNA2000-2236-1S (1C reference, kept for backward compat) ──
 HUAWEI_SOH_TABLE: dict[int, list[float]] = {
     292: [1.0000,0.9552,0.9323,0.9113,0.8914,0.8724,0.8538,0.8355,0.8175,
           0.7999,0.7826,0.7657,0.7490,0.7326,0.7166,0.7008,0.6853,0.6701,
@@ -472,29 +473,105 @@ HUAWEI_SOH_TABLE: dict[int, list[float]] = {
           0.6240],
 }
 
+# ── LUNA2000-5015-2S 官方 SOH 衰减表 ────────────────────────────────────────
+# 来源: Utility Smart String ESS Performance Guide LUNA2000-5015-2S 20250630
+# pp. 16 (0.25C), 17 (0.33C), 18 (0.5C)
+# 条件: DOD 100%, 平均 SOC ≤50%, 环境温度 ≤40°C
+# 外层 key = C 率 (0.25 / 0.33 / 0.50)
+# 内层 key = 年等效循环次数 (annual cycles)
+# 值   = [SOH year0, year1, ..., yearN]  (1.0 = 100%)
+# 列仅保留到 SOH 首次低于 EoL 前一年（尾列通常 ≥60%；下一格为空即截止）
+# ─────────────────────────────────────────────────────────────────────────────
+LUNA2000_5015_SOH: dict[float, dict[int, list[float]]] = {
+    # ── 0.25C (4h discharge interval) — page 16 ──────────────────────────────
+    0.25: {
+        292: [1.0000,0.9776,0.9596,0.9437,0.9291,0.9153,0.9020,0.8892,0.8765,
+              0.8641,0.8518,0.8396,0.8276,0.8158,0.8042,0.7926,0.7812,0.7699,
+              0.7588,0.7479,0.7370],
+        365: [1.0000,0.9746,0.9543,0.9362,0.9193,0.9032,0.8877,0.8726,0.8576,
+              0.8429,0.8284,0.8141,0.8001,0.7862,0.7726,0.7592,0.7460,0.7330,
+              0.7202,0.7077,0.6952],
+        475: [1.0000,0.9703,0.9464,0.9248,0.9046,0.8851,0.8661,0.8475,0.8291,
+              0.8113,0.7937,0.7766,0.7596,0.7431,0.7269,0.7110,0.6954,0.6802,
+              0.6653,0.6506,0.6362],
+        548: [1.0000,0.9675,0.9412,0.9173,0.8948,0.8730,0.8517,0.8308,0.8104,
+              0.7905,0.7711,0.7521,0.7335,0.7153,0.6976,0.6803,0.6633,0.6468,
+              0.6306,0.6148],
+        657: [1.0000,0.9634,0.9335,0.9060,0.8800,0.8547,0.8301,0.8061,0.7828,
+              0.7602,0.7380,0.7166,0.6956,0.6754,0.6556,0.6363,0.6176],
+        730: [1.0000,0.9605,0.9283,0.8985,0.8701,0.8426,0.8159,0.7899,0.7647,
+              0.7404,0.7167,0.6937,0.6714,0.6498,0.6288,0.6085],
+    },
+    # ── 0.33C (3h discharge interval) — page 17 ──────────────────────────────
+    0.33: {
+        292: [1.0000,0.9763,0.9575,0.9408,0.9254,0.9108,0.8967,0.8831,0.8696,
+              0.8563,0.8432,0.8303,0.8176,0.8051,0.7927,0.7805,0.7685,0.7567,
+              0.7451,0.7336,0.7222],
+        365: [1.0000,0.9730,0.9517,0.9326,0.9146,0.8976,0.8810,0.8648,0.8488,
+              0.8331,0.8177,0.8025,0.7877,0.7730,0.7586,0.7446,0.7307,0.7170,
+              0.7037,0.6904,0.6775],
+        475: [1.0000,0.9685,0.9432,0.9202,0.8985,0.8778,0.8574,0.8374,0.8179,
+              0.7989,0.7802,0.7620,0.7442,0.7267,0.7096,0.6930,0.6767,0.6607,
+              0.6451,0.6298,0.6149],
+        548: [1.0000,0.9654,0.9375,0.9119,0.8878,0.8644,0.8416,0.8193,0.7976,
+              0.7765,0.7559,0.7357,0.7161,0.6970,0.6784,0.6603,0.6426,0.6253,
+              0.6085],
+        657: [1.0000,0.9608,0.9290,0.8996,0.8716,0.8445,0.8181,0.7926,0.7678,
+              0.7437,0.7205,0.6978,0.6759,0.6545,0.6339,0.6138],
+        730: [1.0000,0.9579,0.9233,0.8914,0.8608,0.8314,0.8028,0.7751,0.7484,
+              0.7226,0.6977,0.6734,0.6501,0.6275,0.6057],
+    },
+    # ── 0.50C (2h discharge interval) — page 18 ──────────────────────────────
+    0.50: {
+        292: [1.0000,0.9750,0.9543,0.9357,0.9184,0.9020,0.8861,0.8705,0.8552,
+              0.8403,0.8255,0.8110,0.7966,0.7827,0.7689,0.7554,0.7421,0.7290,
+              0.7161,0.7035,0.6912],
+        365: [1.0000,0.9714,0.9476,0.9261,0.9058,0.8864,0.8675,0.8490,0.8309,
+              0.8131,0.7958,0.7787,0.7621,0.7458,0.7298,0.7142,0.6989,0.6839,
+              0.6692,0.6549,0.6408],
+        475: [1.0000,0.9660,0.9376,0.9114,0.8868,0.8629,0.8395,0.8169,0.7948,
+              0.7734,0.7525,0.7321,0.7123,0.6929,0.6741,0.6559,0.6381,0.6207,
+              0.6038],
+        548: [1.0000,0.9625,0.9309,0.9017,0.8741,0.8473,0.8211,0.7958,0.7714,
+              0.7476,0.7246,0.7022,0.6806,0.6595,0.6391,0.6194,0.6003],
+        657: [1.0000,0.9571,0.9208,0.8871,0.8549,0.8239,0.7940,0.7650,0.7372,
+              0.7103,0.6845,0.6595,0.6353,0.6121],
+        730: [1.0000,0.9537,0.9141,0.8775,0.8424,0.8087,0.7763,0.7451,0.7151,
+              0.6864,0.6589,0.6323,0.6068],
+    },
+}
 
-def get_soh_by_year(annual_cycles: float) -> list[float]:
+
+def get_soh_by_year(annual_cycles: float, c_rate: float | None = None) -> list[float]:
     """
-    给定年等效循环次数，按华为官方表线性插值，返回 year 0~25 的 SOH 列表。
+    给定年等效循环次数，按官方表线性插值，返回 year 0~25 的 SOH 列表。
     EoL 年份后的 SOH 强制为 0（已退役）。
-    Interpolate Huawei SOH table for given annual_cycles → list[26] (year 0-25).
+    c_rate: 0.25 / 0.33 / 0.50 → 使用 LUNA2000-5015-2S 分 C 率表;
+            None / 其他值     → 回退至 LUNA2000-2236-1S 遗留表 (1C).
+    Interpolate official SOH table for given annual_cycles → list[26] (year 0-25).
     """
-    keys = sorted(HUAWEI_SOH_TABLE.keys())
+    # 选取查找表 / choose lookup table
+    if c_rate is not None and c_rate in LUNA2000_5015_SOH:
+        tbl = LUNA2000_5015_SOH[c_rate]
+    else:
+        tbl = HUAWEI_SOH_TABLE
+
+    keys = sorted(tbl.keys())
     ac = float(max(min(annual_cycles, keys[-1]), keys[0]))
 
     if ac <= keys[0]:
-        base = list(HUAWEI_SOH_TABLE[keys[0]])
+        base = list(tbl[keys[0]])
     elif ac >= keys[-1]:
-        base = list(HUAWEI_SOH_TABLE[keys[-1]])
+        base = list(tbl[keys[-1]])
     else:
         lo = max(k for k in keys if k <= ac)
         hi = min(k for k in keys if k >= ac)
         if lo == hi:
-            base = list(HUAWEI_SOH_TABLE[lo])
+            base = list(tbl[lo])
         else:
             frac = (ac - lo) / (hi - lo)
-            lo_a = HUAWEI_SOH_TABLE[lo]
-            hi_a = HUAWEI_SOH_TABLE[hi]
+            lo_a = tbl[lo]
+            hi_a = tbl[hi]
             n = min(len(lo_a), len(hi_a))
             base = [lo_a[i] * (1 - frac) + hi_a[i] * frac for i in range(n)]
 
@@ -547,7 +624,7 @@ ANALYSIS_YEARS = 25
 FOREX_FALLBACK = 18.5   # USD/ZAR 后备汇率 / fallback rate
 
 # C倍率选项 / C-rate options
-C_RATE_OPTIONS = {"0.25C (4h)": 0.25, "0.5C (2h)": 0.50, "1C (1h)": 1.00}
+C_RATE_OPTIONS = {"0.25C (4h)": 0.25, "0.33C (3h)": 0.33, "0.5C (2h)": 0.50, "1C (1h)": 1.00}
 
 # ─────────────────────────────────────────────────────────────
 # 多语言支持 / Multilingual Support
@@ -1306,11 +1383,12 @@ def run_25yr_financial_model(
     eol_years: float,
     params: dict,
     annual_cycles: float = 365.0,
+    c_rate: float = 0.25,
 ) -> pd.DataFrame:
     """
     25年逐年财务模型（含 Section 12B、SOH 衰减、EoL 断崖）
-    SOH 来自华为官方 LUNA2000-2236-1S 衰减表，按年等效循环次数插值
-    PV 节省仅受光衰影响；BESS 节省受 SOH 影响；SOH < 60% 后 BESS 归零
+    SOH 来自华为官方 LUNA2000-5015-2S 衰减表（按 c_rate 选取 0.25/0.33/0.50C 分表），
+    按年等效循环次数插值。PV 节省仅受光衰影响；BESS 节省受 SOH 影响；SOH < 60% 后归零。
     """
     pv_capex   = pv_kwp   * params["pv_capex_per_kwp"]
     bess_capex = bess_kwh * params["bess_capex_per_kwh"]
@@ -1331,7 +1409,7 @@ def run_25yr_financial_model(
     base_bess_save = dispatch_yr1["annual_bess_saving_ZAR"]
 
     # 按实际年循环次数取华为官方 SOH 曲线 / Official SOH curve at actual cycle rate
-    soh_arr = get_soh_by_year(annual_cycles)
+    soh_arr = get_soh_by_year(annual_cycles, c_rate=c_rate)
 
     rows = []
     cum_cf = -total_capex
@@ -1477,7 +1555,7 @@ def generate_excel_report() -> bytes:
     h_df    = ss.hourly_df
     d1      = res["dispatch_yr1"]
     pvg     = res["pvgis_data"]
-    soh_arr = get_soh_by_year(res["annual_cycles"])
+    soh_arr = get_soh_by_year(res["annual_cycles"], c_rate=res.get("c_rate", 0.25))
     pv_zar, bess_zar = get_capex_zar()
     bess_zero = (ss.bess_kwh == 0)   # flag: hide BESS charts/columns when no BESS
     pv_zero   = (ss.pv_kwp   == 0)   # flag: pure BESS → non-12B depreciation
@@ -2765,6 +2843,7 @@ with col_content:
                     "pv_degradation":     st.session_state.pv_degradation,
                 }
 
+                _c_rate_val = C_RATE_OPTIONS[st.session_state.c_rate_label]
                 with st.spinner(T("📊 计算 25 年财务模型...")):
                     fin_df = run_25yr_financial_model(
                         dispatch_yr1=dispatch_yr1,
@@ -2773,6 +2852,7 @@ with col_content:
                         eol_years=eol_years,
                         params=params,
                         annual_cycles=annual_cycles,
+                        c_rate=_c_rate_val,
                     )
 
                 total_capex = (st.session_state.pv_kwp * pv_zar_kwp +
@@ -2798,6 +2878,7 @@ with col_content:
                     "annual_cycles": annual_cycles, "pvgis_data": pvgis_data,
                     "npv": npv, "irr": irr, "payback": payback,
                     "total_capex": total_capex, "bess_kw": bess_kw_use,
+                    "c_rate": _c_rate_val,
                 }
                 st.session_state.hourly_df = dispatch_yr1["hourly_df"]
                 st.session_state.fin_df = fin_df
@@ -3303,7 +3384,7 @@ with col_content:
                             fin_o = run_25yr_financial_model(
                                 dispatch_yr1=d_o, pv_kwp=pv_o, bess_kwh=bess_o,
                                 eol_years=eol_o, params=params_opt,
-                                annual_cycles=ac_o,
+                                annual_cycles=ac_o, c_rate=c_actual,
                             )
                             cap_o = pv_o * pv_zar_k + bess_o * bess_zar_k
                             npv_o, irr_o = compute_npv_irr(fin_o, cap_o, params_opt["discount_rate"])
