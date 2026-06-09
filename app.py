@@ -495,8 +495,12 @@ def compute_bess_eol(throughput_yr1: float, bess_kwh: float,
             break
     return eol, round(annual_cycles, 2)
 
-# Section 12B 加速折旧 / South Africa Section 12B accelerated depreciation
-SECTION_12B = {1: 0.50, 2: 0.25, 3: 0.25}
+# Section 12B 加速折旧 / South Africa Section 12B accelerated depreciation (>1MW standard)
+# Year 1: 50%  Year 2: 30%  Year 3: 20%
+SECTION_12B = {1: 0.50, 2: 0.30, 3: 0.20}
+
+# 纯储能 / Pure BESS depreciation (non-12B): straight-line 20% × 5 years
+SECTION_BESS_ONLY = {1: 0.20, 2: 0.20, 3: 0.20, 4: 0.20, 5: 0.20}
 
 ANALYSIS_YEARS = 25
 FOREX_FALLBACK = 18.5   # USD/ZAR 后备汇率 / fallback rate
@@ -636,7 +640,7 @@ _COL_BILINGUAL = {
     "节省 Saving (ZAR)":      "节省 Saving (ZAR)",
     "PV节省":                 "PV节省",
     "BESS套利":               "BESS套利",
-    "12B折旧 (ZAR)":          "12B折旧 (ZAR)",
+    "折旧 (ZAR)":             "折旧 (ZAR)",
     "评估亏损结转 (ZAR)":     "评估亏损结转 (ZAR)",
     "净利润 (ZAR)":           "净利润 (ZAR)",
     "净现金流 NCF (ZAR)":     "净现金流 NCF (ZAR)",
@@ -650,7 +654,7 @@ _COL_ENGLISH = {
     "节省 Saving (ZAR)":      "Total Saving (ZAR)",
     "PV节省":                 "PV Saving (ZAR)",
     "BESS套利":               "BESS Saving (ZAR)",
-    "12B折旧 (ZAR)":          "Sec.12B Depreciation (ZAR)",
+    "折旧 (ZAR)":             "Depreciation (ZAR)",
     "评估亏损结转 (ZAR)":     "Assess. Loss C/F (ZAR)",
     "净利润 (ZAR)":           "Net Profit (ZAR)",
     "净现金流 NCF (ZAR)":     "Net Cash Flow NCF (ZAR)",
@@ -1271,6 +1275,12 @@ def run_25yr_financial_model(
     bess_capex = bess_kwh * params["bess_capex_per_kwh"]
     total_capex = pv_capex + bess_capex
 
+    # 折旧方案 / Depreciation schedule:
+    # - 有PV：Section 12B (>1MW) 50/30/20 三年
+    # - 纯BESS：非12B 直线20%×5年
+    pure_bess  = (pv_kwp == 0)
+    _depr_sched = SECTION_BESS_ONLY if pure_bess else SECTION_12B
+
     esc  = params["tariff_escalation"] / 100.0
     disc = params["discount_rate"] / 100.0
     tax  = params["tax_rate"] / 100.0
@@ -1307,8 +1317,8 @@ def run_25yr_financial_model(
 
         ebitda = saving - total_opex
 
-        # Section 12B 折旧
-        depreciation = total_capex * SECTION_12B.get(yr, 0.0)
+        # 折旧 / Depreciation (12B 50/30/20 for PV; 20%×5yr straight-line for pure BESS)
+        depreciation = total_capex * _depr_sched.get(yr, 0.0)
         # tax_shield: 名义节税 = dep × tax%（理论上限；实际节税通过结转在未来年份兑现）
         # Theoretical tax shield = dep × rate (actual benefit may be deferred via carry-forward)
         tax_shield = depreciation * tax
@@ -1341,7 +1351,7 @@ def run_25yr_financial_model(
             "PV O&M (ZAR)": round(pv_opex, 0),
             "BESS O&M (ZAR)": round(bess_opex, 0),
             "EBITDA (ZAR)": round(ebitda, 0),
-            "12B折旧 (ZAR)": round(depreciation, 0),
+            "折旧 (ZAR)": round(depreciation, 0),
             "Tax Shield (ZAR)": round(tax_shield, 0),
             "评估亏损结转 (ZAR)": round(assessed_loss_cf, 0),
             "净利润 (ZAR)": round(net_profit, 0),
@@ -1429,6 +1439,7 @@ def generate_excel_report() -> bytes:
     soh_arr = get_soh_by_year(res["annual_cycles"])
     pv_zar, bess_zar = get_capex_zar()
     bess_zero = (ss.bess_kwh == 0)   # flag: hide BESS charts/columns when no BESS
+    pv_zero   = (ss.pv_kwp   == 0)   # flag: pure BESS → non-12B depreciation
 
     # ── Colour palette ────────────────────────────────────────
     C_NAVY   = "1F3864"
@@ -1845,14 +1856,14 @@ def generate_excel_report() -> bytes:
         hdrs3 = ["Year", "BESS\nStatus", "SOH\n%",
                  "PV Saving\nZAR", "BESS Saving\nZAR", "Total Saving\nZAR",
                  "PV O&M\nZAR", "BESS O&M\nZAR", "EBITDA\nZAR",
-                 "Sec12B Depr.\nZAR", "Tax Shield\n(theoretical)", "EBIT\nZAR",
+                 ("Depreciation\n(20%×5yr)\nZAR" if pv_zero else "Sec12B Depr.\n(50/30/20)\nZAR"), "Tax Shield\n(theoretical)", "EBIT\nZAR",
                  "Cash Tax\nZAR", "Net CF\nNCF ZAR", "Disc. CF\nPV ZAR",
                  "Cum. CF\nZAR", "Net Profit\nZAR", "Assess.Loss\nB/F ZAR"]
     else:
         hdrs3 = ["年份\nYear", "BESS\n状态", "SOH\n%",
                  "PV节省\nZAR", "BESS节省\nZAR", "总节省\nZAR",
                  "PV运维\nZAR", "BESS运维\nZAR", "EBITDA\nZAR",
-                 "12B折旧\nZAR", "税盾\n(名义)", "EBIT\nZAR",
+                 ("折旧\n(20%×5年)\nZAR" if pv_zero else "12B折旧\n(50/30/20)\nZAR"), "税盾\n(名义)", "EBIT\nZAR",
                  "现金税\nZAR", "净现金流\nNCF ZAR", "折现CF\nPV ZAR",
                  "累计CF\nZAR", "净利润\nZAR", "亏损结转\nZAR"]
     for ci, hdr in enumerate(hdrs3, 1):
@@ -1894,7 +1905,8 @@ def generate_excel_report() -> bytes:
         sv    = soh_arr[yr] if yr < len(soh_arr) else 0.0
         alive = sv >= BESS_EOL_SOH
         alt_bg = C_ALT if yr % 2 == 0 else "FFFFFF"
-        dep_pct = SECTION_12B.get(yr, 0.0)
+        _xl_depr = SECTION_BESS_ONLY if pv_zero else SECTION_12B
+        dep_pct  = _xl_depr.get(yr, 0.0)
 
         def _wc(col, val=None, formula=None, fmt="#,##0",
                 bg=None, bold=False, color="1A1A2E"):
@@ -2945,13 +2957,13 @@ with col_content:
         if st.session_state.fin_df is not None:
             if _is_en:
                 st.markdown("""<div class="info-box">
-                    📌 <b>Section 12B</b> accelerated depreciation: Yr1 50% · Yr2 25% · Yr3 25% (SA Income Tax Act) &nbsp;|&nbsp;
+                    📌 <b>Section 12B</b> accelerated depreciation (PV, &gt;1MW): Yr1 50% · Yr2 30% · Yr3 20% · Pure BESS: 20%×5yr straight-line (SA Income Tax Act) &nbsp;|&nbsp;
                     SA assessed loss carry-forward applied — early-year losses reduce tax in future profitable years &nbsp;|&nbsp;
                     PV &amp; BESS savings shown separately &nbsp;|&nbsp; BESS revenue &amp; OPEX zeroed after EoL (SOH &lt; 60%)
                 </div>""", unsafe_allow_html=True)
             else:
                 st.markdown("""<div class="info-box">
-                    📌 <b>Section 12B</b> 加速折旧：第1年50% · 第2年25% · 第3年25%（南非所得税法）&nbsp;|&nbsp;
+                    📌 <b>Section 12B</b> 加速折旧（有PV，>1MW）：第1年50% · 第2年30% · 第3年20% · 纯储能：20%×5年直线折旧（南非所得税法）&nbsp;|&nbsp;
                     已建模评估亏损结转（SA Assessed Loss Carry-Forward）— 前期亏损在未来盈利年度抵减应税收入 &nbsp;|&nbsp;
                     PV 与 BESS 节省分开列示 &nbsp;|&nbsp; BESS 超期（SOH &lt; 60%）后收入及运维归零
                 </div>""", unsafe_allow_html=True)
