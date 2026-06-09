@@ -14,6 +14,13 @@ import warnings
 from datetime import date as _date, timedelta
 warnings.filterwarnings("ignore")
 
+# ── Auth / User system ──────────────────────────────────────────────────────
+# Imported here so auth helpers are available throughout app.py
+from auth import (is_logged_in, render_auth_gate, get_current_user,
+                  get_tier, is_pro, is_admin, logout)
+from snapshots import render_snapshot_panel
+from admin import render_admin_panel
+
 # SA 2025 公众假期 / SA 2025 Public Holidays (off-peak all day like weekends)
 SA_PUBLIC_HOLIDAYS_2025 = {
     _date(2025, 1, 1),   # New Year's Day
@@ -708,6 +715,13 @@ DEFAULT_PARAMS = {
     "s_standard":     2.0990,
     "s_off_peak":     1.5740,
 }
+
+# ─────────────────────────────────────────────────────────────
+# 认证门禁 / Auth Gate  (runs before any UI is rendered)
+# ─────────────────────────────────────────────────────────────
+if not is_logged_in():
+    render_auth_gate()
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────
 # Session State 初始化 / Session State Initialization
@@ -2213,6 +2227,28 @@ with col_params:
 
 with _scroll:
 
+    # ── 用户信息 / User Info ──
+    _u = get_current_user()
+    if _u:
+        _tbadge = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(
+            _u.get("tier", "free"), "🆓")
+        _uname  = _u.get("full_name") or _u.get("email", "User")
+        _uc1, _uc2 = st.columns([4, 1])
+        with _uc1:
+            st.markdown(
+                f"<div style='font-size:0.88em;padding-top:4px'>"
+                f"👤 <b>{_uname}</b> &nbsp;{_tbadge}</div>",
+                unsafe_allow_html=True,
+            )
+        with _uc2:
+            if st.button("退出", key="logout_btn",
+                         help="Sign out / 退出登录"):
+                logout()
+
+    # ── 快照管理 / Snapshot Panel ──
+    render_snapshot_panel()
+    st.markdown("---")
+
     # ── 语言设置 / Language Setting ──
     _lang_opt = st.radio(
         "🌐 Language / 语言",
@@ -2222,23 +2258,6 @@ with _scroll:
         key="lang_radio_sel",
     )
     st.session_state["lang"] = "bilingual" if _lang_opt == "双语 Bilingual" else "english"
-    st.markdown("---")
-
-    # ── 参数管理 / Parameter Management ──
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button(T("💾 暂存 / Save"), use_container_width=True):
-            st.session_state.stashed_params = {k: st.session_state[k] for k in DEFAULT_PARAMS}
-            st.toast(T("✓ 已暂存 / Params saved"))
-    with c2:
-        if st.button(T("📤 恢复 / Restore"), use_container_width=True):
-            if st.session_state.stashed_params:
-                for k, v in st.session_state.stashed_params.items():
-                    st.session_state[k] = v
-                st.toast(T("✓ 已恢复 / Params restored"))
-            else:
-                st.toast(T("⚠️ 无暂存数据 / Nothing saved yet"))
-
     st.markdown("---")
 
     # ══════════════════════════════════════════════════════════
@@ -2572,12 +2591,17 @@ with _scroll:
 # ══════════════════════════════════════════════════════════════
 with col_content:
 
-    tab1, tab2, tab3, tab4 = st.tabs([
+    _tab_labels = [
         T("📊 计算与结果 / Run & Results"),
         T("📋 25年财务报表 / 25Y Model"),
         T("⏱️ 8760小时调度 / Hourly Dispatch"),
         T("🔍 AI 寻优 / Optimization"),
-    ])
+    ]
+    if is_admin():
+        _tab_labels.append("🔴 管理员 Admin")
+    _all_tabs = st.tabs(_tab_labels)
+    tab1, tab2, tab3, tab4 = _all_tabs[:4]
+    _admin_tab = _all_tabs[4] if len(_all_tabs) > 4 else None
 
     # ──────────────────────────────────────────────────────────
     # Tab 1: 计算与结果
@@ -2852,32 +2876,34 @@ with col_content:
             if _is_en:
                 st.markdown("""<div class="info-box">
                     6-sheet report: Cover · Parameters (with Excel formulas) · 25Y Financial Model · Monthly Summary · Charts · 8760h Raw Data
-                    &nbsp;|&nbsp; White cells in Parameters sheet are editable; Sheet3 recalculates automatically &nbsp;|&nbsp; Password required
+                    &nbsp;|&nbsp; White cells in Parameters sheet are editable; Sheet3 recalculates automatically
+                    &nbsp;|&nbsp; 🔵 <b>Pro / Admin feature</b>
                 </div>""", unsafe_allow_html=True)
             else:
                 st.markdown("""<div class="info-box">
                     6-sheet 完整报告：封面 · 参数（含 Excel 公式）· 25年财务模型 · 月度汇总 · 图表 · 8760h 原始数据
-                    &nbsp;|&nbsp; 参数页白色单元格可调，Sheet3 财务模型自动重算 &nbsp;|&nbsp; 需密码授权
+                    &nbsp;|&nbsp; 参数页白色单元格可调，Sheet3 财务模型自动重算
+                    &nbsp;|&nbsp; 🔵 <b>Pro / Admin 专属功能</b>
                 </div>""", unsafe_allow_html=True)
 
-            xpwd_col, xbtn_col, xdl_col = st.columns([2, 1.5, 2])
-            with xpwd_col:
-                entered_pwd = st.text_input(
-                    T("🔑 报告密码 Report Password"),
-                    type="password",
-                    key="excel_export_pwd",
-                    placeholder="Enter password..." if _is_en else "输入密码 Enter password...",
-                )
-            with xbtn_col:
-                st.markdown("<br>", unsafe_allow_html=True)
-                gen_excel_btn = st.button(
-                    T("📊 Export Financial Report · 导出财务分析报告"),
-                    key="gen_excel_report_btn",
-                    use_container_width=True,
-                )
+            if not is_pro():
+                # Free users see a locked message
+                st.markdown("""<div class="warning-box">
+                    🔒 <b>Pro 专属功能 / Pro Feature</b> — Excel 报告导出仅限 Pro 及 Admin 账号。<br>
+                    如需升级请联系管理员。<br>
+                    Excel export is available for 🔵 Pro and 🔴 Admin accounts only.
+                    Contact admin to upgrade.
+                </div>""", unsafe_allow_html=True)
+            else:
+                _xbtn_col, _xdl_col = st.columns([2, 3])
+                with _xbtn_col:
+                    gen_excel_btn = st.button(
+                        T("📊 Export Financial Report · 导出财务分析报告"),
+                        key="gen_excel_report_btn",
+                        use_container_width=True,
+                    )
 
-            if gen_excel_btn:
-                if entered_pwd == "9999":
+                if gen_excel_btn:
                     with st.spinner("📊 Generating 6-sheet Excel report, please wait..." if _is_en else "📊 正在生成 6-sheet 专业 Excel 报告，请稍候..."):
                         try:
                             _xlsx_bytes = generate_excel_report()
@@ -2891,21 +2917,19 @@ with col_content:
                             st.success(T("✅ 报告已生成，点击下方按钮下载 / Report ready — click to download"))
                         except Exception as _e:
                             st.error(f"❌ Generation failed: {_e}" if _is_en else f"❌ 生成失败 Generation failed: {_e}")
-                elif entered_pwd:
-                    st.error(T("❌ 密码错误 Wrong password"))
 
-            if "_excel_rpt_bytes" in st.session_state:
-                with xdl_col:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.download_button(
-                        T("⬇ 下载专业报告 / Download Excel Report"),
-                        data=st.session_state["_excel_rpt_bytes"],
-                        file_name=st.session_state.get(
-                            "_excel_rpt_fname", "BTM_Report.xlsx"),
-                        mime=("application/vnd.openxmlformats-"
-                              "officedocument.spreadsheetml.sheet"),
-                        use_container_width=True,
-                    )
+                if "_excel_rpt_bytes" in st.session_state:
+                    with _xdl_col:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.download_button(
+                            T("⬇ 下载专业报告 / Download Excel Report"),
+                            data=st.session_state["_excel_rpt_bytes"],
+                            file_name=st.session_state.get(
+                                "_excel_rpt_fname", "BTM_Report.xlsx"),
+                            mime=("application/vnd.openxmlformats-"
+                                  "officedocument.spreadsheetml.sheet"),
+                            use_container_width=True,
+                        )
 
     # ──────────────────────────────────────────────────────────
     # Tab 2: 25年财务报表
@@ -3004,49 +3028,55 @@ with col_content:
             )
             st.plotly_chart(fig_m, use_container_width=True)
 
-            # 典型日剖面
-            st.markdown(f'<div class="section-header">{T("📈 典型日调度剖面 / Typical Day Profile")}</div>',
-                        unsafe_allow_html=True)
-            sel_month = st.selectbox(T("选择月份 / Select Month"), range(1, 13),
-                                      format_func=lambda x: mnames[x-1], index=6)
+            # 典型日剖面 + 小时明细 — Pro+ only
+            if not is_pro():
+                st.markdown("""<div class="warning-box">
+                    🔒 <b>Pro 专属 / Pro Feature</b> — 典型日剖面及小时明细数据仅限 Pro 及 Admin 账号。<br>
+                    Typical day profile &amp; hourly log available for 🔵 Pro / 🔴 Admin accounts only.
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown(f'<div class="section-header">{T("📈 典型日调度剖面 / Typical Day Profile")}</div>',
+                            unsafe_allow_html=True)
+                sel_month = st.selectbox(T("选择月份 / Select Month"), range(1, 13),
+                                         format_func=lambda x: mnames[x-1], index=6)
 
-            mdata = df_h[df_h["month"] == sel_month]
-            if len(mdata) > 0:
-                tgt = int(mdata["day"].median())
-                ddata = mdata[mdata["day"] == tgt]
-                if len(ddata) == 24:
-                    fig_d = go.Figure()
-                    fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"], y=ddata["load_kWh"],
-                                               name="Load", line=dict(color="white", width=2, dash="dot")))
-                    fig_d.add_trace(go.Bar(x=ddata["hour_of_day"], y=ddata["pv_gen_kWh"],
-                                           name="PV Gen", marker_color="#F6C90E", opacity=0.8))
-                    fig_d.add_trace(go.Bar(x=ddata["hour_of_day"], y=ddata["discharge_kWh"],
-                                           name="BESS Discharge", marker_color="#00E5A0", opacity=0.8))
-                    fig_d.add_trace(go.Bar(x=ddata["hour_of_day"],
-                                           y=[-v for v in ddata["charge_grid_kWh"]],
-                                           name="Grid Charge", marker_color="#4ECDC4", opacity=0.7))
-                    fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"], y=ddata["soc_kWh"],
-                                               name="SOC (kWh)", yaxis="y2",
-                                               line=dict(color="#FF6B35", width=2)))
-                    fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"],
-                                               y=ddata["tariff_ZAR_kWh"] * 50,
-                                               name="Tariff×50", yaxis="y2",
-                                               line=dict(color="#E040FB", width=1.5, dash="dash")))
-                    fig_d.update_layout(
-                        paper_bgcolor="#0A0E1A", plot_bgcolor="#111827",
-                        font=dict(color="#E8ECF0", family="IBM Plex Mono"),
-                        barmode="overlay",
-                        yaxis=dict(title="kWh/h", gridcolor="#2D3748"),
-                        yaxis2=dict(title="SOC/Tariff", overlaying="y", side="right"),
-                        legend=dict(bgcolor="#111827", orientation="h"),
-                        height=360, margin=dict(l=10, r=10, t=20, b=10),
-                        xaxis=dict(title="Hour", tickvals=list(range(24)), gridcolor="#2D3748"),
-                    )
-                    st.plotly_chart(fig_d, use_container_width=True)
+                mdata = df_h[df_h["month"] == sel_month]
+                if len(mdata) > 0:
+                    tgt = int(mdata["day"].median())
+                    ddata = mdata[mdata["day"] == tgt]
+                    if len(ddata) == 24:
+                        fig_d = go.Figure()
+                        fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"], y=ddata["load_kWh"],
+                                                   name="Load", line=dict(color="white", width=2, dash="dot")))
+                        fig_d.add_trace(go.Bar(x=ddata["hour_of_day"], y=ddata["pv_gen_kWh"],
+                                               name="PV Gen", marker_color="#F6C90E", opacity=0.8))
+                        fig_d.add_trace(go.Bar(x=ddata["hour_of_day"], y=ddata["discharge_kWh"],
+                                               name="BESS Discharge", marker_color="#00E5A0", opacity=0.8))
+                        fig_d.add_trace(go.Bar(x=ddata["hour_of_day"],
+                                               y=[-v for v in ddata["charge_grid_kWh"]],
+                                               name="Grid Charge", marker_color="#4ECDC4", opacity=0.7))
+                        fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"], y=ddata["soc_kWh"],
+                                                   name="SOC (kWh)", yaxis="y2",
+                                                   line=dict(color="#FF6B35", width=2)))
+                        fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"],
+                                                   y=ddata["tariff_ZAR_kWh"] * 50,
+                                                   name="Tariff×50", yaxis="y2",
+                                                   line=dict(color="#E040FB", width=1.5, dash="dash")))
+                        fig_d.update_layout(
+                            paper_bgcolor="#0A0E1A", plot_bgcolor="#111827",
+                            font=dict(color="#E8ECF0", family="IBM Plex Mono"),
+                            barmode="overlay",
+                            yaxis=dict(title="kWh/h", gridcolor="#2D3748"),
+                            yaxis2=dict(title="SOC/Tariff", overlaying="y", side="right"),
+                            legend=dict(bgcolor="#111827", orientation="h"),
+                            height=360, margin=dict(l=10, r=10, t=20, b=10),
+                            xaxis=dict(title="Hour", tickvals=list(range(24)), gridcolor="#2D3748"),
+                        )
+                        st.plotly_chart(fig_d, use_container_width=True)
 
-            st.markdown(f'<div class="section-header">{T("📋 小时明细 / Hourly Log (First 100)")}</div>',
-                        unsafe_allow_html=True)
-            st.dataframe(df_h.head(100), use_container_width=True, height=380)
+                st.markdown(f'<div class="section-header">{T("📋 小时明细 / Hourly Log (First 100)")}</div>',
+                            unsafe_allow_html=True)
+                st.dataframe(df_h.head(100), use_container_width=True, height=380)
 
         else:
             st.markdown(f'<div class="warning-box">{T("⚠️ Run simulation first / 请先运行计算")}</div>', unsafe_allow_html=True)
@@ -3251,6 +3281,11 @@ with col_content:
                     st.markdown(f"#### {T('📊 全部寻优结果 / Full Results')}")
                     st.dataframe(opt_df.sort_values("NPV (ZAR)", ascending=False),
                                  use_container_width=True, height=380)
+
+# ── Admin Tab (only visible to admins) ──────────────────────
+if _admin_tab is not None:
+    with _admin_tab:
+        render_admin_panel()
 
 # ─────────────────────────────────────────────────────────────
 # 页脚 / Footer
