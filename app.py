@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 # Imported here so auth helpers are available throughout app.py
 from auth import (is_logged_in, render_auth_gate, get_current_user,
                   get_tier, is_pro, is_admin, logout)
-from snapshots import render_snapshot_panel, get_active_project
+from snapshots import render_snapshot_panel
 from admin import render_admin_panel
 
 # SA 2025 公众假期 / SA 2025 Public Holidays (off-peak all day like weekends)
@@ -2666,7 +2666,15 @@ with _scroll:
 with col_content:
 
     # ── Active-project context bar (always visible at top of content area) ──
-    _proj_id, _proj_name, _proj_dirty = get_active_project()
+    # Reads directly from session_state — no extra import needed
+    _proj_id   = st.session_state.get("_active_snap_id")
+    _proj_name = st.session_state.get("_active_snap_name")
+    _proj_dirty = False
+    if _proj_id:
+        # Compare current session values against the baseline snapshot when loaded
+        _loaded_baseline = st.session_state.get("_snap_loaded_params") or {}
+        _proj_dirty = any(st.session_state.get(k) != v
+                          for k, v in _loaded_baseline.items())
     if _proj_name:
         _pb_bg  = "#2a1800" if _proj_dirty else "#07180e"
         _pb_bdr = "#e67e22" if _proj_dirty else "#27ae60"
