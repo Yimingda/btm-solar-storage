@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 # Imported here so auth helpers are available throughout app.py
 from auth import (is_logged_in, render_auth_gate, get_current_user,
                   get_tier, is_pro, is_admin, logout)
-from snapshots import render_snapshot_panel
+from snapshots import render_snapshot_panel, get_active_project
 from admin import render_admin_panel
 
 # SA 2025 公众假期 / SA 2025 Public Holidays (off-peak all day like weekends)
@@ -2664,6 +2664,25 @@ with _scroll:
 # 左侧内容区 / LEFT — Content Area (Tabs)
 # ══════════════════════════════════════════════════════════════
 with col_content:
+
+    # ── Active-project context bar (always visible at top of content area) ──
+    _proj_id, _proj_name, _proj_dirty = get_active_project()
+    if _proj_name:
+        _pb_bg  = "#2a1800" if _proj_dirty else "#07180e"
+        _pb_bdr = "#e67e22" if _proj_dirty else "#27ae60"
+        _pb_ico = "✏️" if _proj_dirty else "✅"
+        _pb_lbl = (("Unsaved changes — click ♻️ Update Config or 💾 Save"
+                    if _proj_dirty else "Synced with project")
+                   if _is_en else
+                   ("有未保存的修改 — 点击 ♻️ 更新配置 或 💾 保存新项目"
+                    if _proj_dirty else "已同步 / Synced"))
+        st.markdown(
+            f'<div style="background:{_pb_bg};border-left:4px solid {_pb_bdr};'
+            f'padding:5px 10px;border-radius:4px;font-size:0.82em;margin-bottom:6px">'
+            f'{_pb_ico} <b>{"Project" if _is_en else "当前项目"}:</b>'
+            f' {_proj_name} &nbsp;·&nbsp; {_pb_lbl}</div>',
+            unsafe_allow_html=True,
+        )
 
     _tab_labels = [
         T("📊 计算与结果 / Run & Results"),

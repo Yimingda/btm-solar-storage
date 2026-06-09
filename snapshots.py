@@ -81,12 +81,40 @@ def get_results_summary() -> dict:
     }
 
 
-def restore_snapshot(params: dict) -> None:
-    """Load all project params back into session_state."""
+def restore_snapshot(params: dict,
+                     snap_id: str | None = None,
+                     snap_name: str | None = None) -> None:
+    """Load all project params back into session_state.
+    Also sets active-project context so the UI knows which project is loaded.
+    """
     for key, val in params.items():
         st.session_state[key] = val
     for k in ("results", "fin_df", "hourly_df"):
         st.session_state[k] = None
+    # ── Active-project tracking ──────────────────────────────
+    st.session_state["_active_snap_id"]     = snap_id
+    st.session_state["_active_snap_name"]   = snap_name
+    st.session_state["_snap_loaded_params"] = dict(params)   # baseline for dirty-check
+
+
+def _is_dirty() -> bool:
+    """True if any tracked param differs from the last-loaded snapshot baseline."""
+    loaded = st.session_state.get("_snap_loaded_params")
+    if not loaded:
+        return False
+    current = get_params_to_save()
+    return any(current.get(k) != v for k, v in loaded.items())
+
+
+def get_active_project() -> tuple:
+    """Return (snap_id, snap_name, is_dirty) for the currently loaded project.
+    Returns (None, None, False) when no project is loaded.
+    """
+    snap_id   = st.session_state.get("_active_snap_id")
+    snap_name = st.session_state.get("_active_snap_name")
+    if not snap_id:
+        return None, None, False
+    return snap_id, snap_name, _is_dirty()
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -135,6 +163,27 @@ def render_snapshot_panel() -> None:
                 st.session_state["_snap_save_open"]    = True
                 st.session_state["_snap_default_name"] = _default_name()
 
+    # ── Active-project context bar ──────────────────────────────────────────
+    _aid, _aname, _dirty = get_active_project()
+    if _aname:
+        if _dirty:
+            _bar_bg  = "#2a1a00"
+            _bar_bd  = "#e67e22"
+            _bar_ico = "✏️"
+            _bar_lbl = "Unsaved changes" if _en() else "有未保存的修改"
+        else:
+            _bar_bg  = "#0a1f12"
+            _bar_bd  = "#27ae60"
+            _bar_ico = "✅"
+            _bar_lbl = "Synced" if _en() else "已同步"
+        st.markdown(
+            f'<div style="background:{_bar_bg};border-left:3px solid {_bar_bd};'
+            f'padding:3px 8px;border-radius:4px;font-size:0.76em;'
+            f'margin:2px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+            f'{_bar_ico} <b>{_aname}</b>&nbsp;·&nbsp;{_bar_lbl}</div>',
+            unsafe_allow_html=True,
+        )
+
     # ── Save dialog ──
     if st.session_state.get("_snap_save_open"):
         _render_save_dialog(user_id)
@@ -170,15 +219,20 @@ def _render_save_dialog(user_id: str) -> None:
         ok_lbl = "✅ Save" if _en() else "✅ 保存 Save"
         if st.button(ok_lbl, type="primary", use_container_width=True,
                      key="snap_dialog_ok"):
-            final  = name.strip() or default
+            final       = name.strip() or default
+            _saved_params = get_params_to_save()
             result = save_snapshot(
                 user_id=user_id,
                 name=final,
                 default_name=_default_name(),
-                params=get_params_to_save(),
+                params=_saved_params,
                 results=get_results_summary(),
             )
             if result:
+                # New project becomes the active project (clean state)
+                st.session_state["_active_snap_id"]     = result.get("id")
+                st.session_state["_active_snap_name"]   = final
+                st.session_state["_snap_loaded_params"] = dict(_saved_params)
                 msg = f"Saved: {final}" if _en() else f"✅ 已保存: {final}"
                 st.toast(f"✅ {msg}" if _en() else msg)
             _close_dialog()
@@ -215,28 +269,44 @@ def _render_snapshot_item(snap: dict) -> None:
     badge = (f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%"
              if npv else ("Not run" if _en() else "未运算"))
 
-    pin_icon = "★ " if pinned else ""
+    pin_icon  = "★ " if pinned else ""
+    is_active = (snap_id == st.session_state.get("_active_snap_id"))
+
+    # Active-project highlight border
+    if is_active:
+        _dirty = _is_dirty()
+        _hi_color = "#e67e22" if _dirty else "#27ae60"
+        st.markdown(
+            f'<div style="border-left:3px solid {_hi_color};'
+            f'padding-left:4px;margin:0 0 -4px">',
+            unsafe_allow_html=True,
+        )
 
     # ── Load button + ⋮ menu ──
     load_col, menu_col = st.columns([11, 1])
 
     with load_col:
+        _active_prefix = "▶ " if is_active else ""
         load_tip = f"Load · {default}" if _en() else f"点击加载 / Load · {default}"
         if st.button(
-            f"{pin_icon}{name}  ·  {badge}  ·  {ts}",
+            f"{_active_prefix}{pin_icon}{name}  ·  {badge}  ·  {ts}",
             key=f"snap_load_{snap_id}",
             use_container_width=True,
             help=load_tip,
         ):
             full = get_snapshot_full(snap_id)
             if full and full.get("params_json"):
-                restore_snapshot(full["params_json"])
+                restore_snapshot(full["params_json"],
+                                 snap_id=snap_id, snap_name=name)
                 msg = f"Loaded: {name}" if _en() else f"已加载: {name}"
                 st.toast(f"✅ {msg}")
                 st.rerun()
             else:
                 err = "Failed to load project" if _en() else "项目读取失败 / Failed to load"
                 st.error(err)
+
+    if is_active:
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with menu_col:
         with st.popover("⋮", use_container_width=True):
@@ -266,10 +336,15 @@ def _render_snapshot_item(snap: dict) -> None:
                        if _en() else "用当前参数覆盖此项目")
             if st.button(upd_lbl, key=f"pm_upd_{snap_id}",
                          use_container_width=True, help=upd_tip):
+                _cur_params = get_params_to_save()
                 update_snapshot(snap_id,
-                                params_json=get_params_to_save(),
+                                params_json=_cur_params,
                                 results_json=get_results_summary(),
                                 default_name=_default_name())
+                # Reset dirty baseline so indicator turns green again
+                st.session_state["_active_snap_id"]     = snap_id
+                st.session_state["_active_snap_name"]   = name
+                st.session_state["_snap_loaded_params"] = dict(_cur_params)
                 msg = f"Updated: {name}" if _en() else f"已更新: {name}"
                 st.toast(f"✅ {msg}")
                 st.rerun()
