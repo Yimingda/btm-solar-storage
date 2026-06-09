@@ -159,13 +159,10 @@ def _on_login_success(resp, email: str):
         st.error("登录失败 / Login failed")
         return
 
-    # Check email confirmed
-    if not resp.user.email_confirmed_at:
-        st.session_state["_pending_email"] = email
-        st.session_state["_auth_mode"]    = "verify"
-        st.warning("邮箱未验证，请输入验证码 / Email not confirmed — enter your OTP")
-        st.rerun()
-        return
+    # Note: email_confirmed_at check intentionally removed.
+    # If Supabase email confirmation is disabled, confirmed_at is None but
+    # login still succeeds.  If re-enabled later, Supabase rejects unconfirmed
+    # logins at the API level — we handle that in _handle_login_error().
 
     profile = get_user_profile(resp.user.id)
     if not profile:
@@ -255,11 +252,28 @@ def _render_register():
 
         with st.spinner("创建账号中 / Creating account…"):
             try:
-                sign_up(email.strip(), password,
-                        full_name.strip(), company.strip())
-                st.session_state["_pending_email"] = email.strip()
-                st.session_state["_auth_mode"]     = "verify"
-                st.rerun()
+                resp = sign_up(email.strip(), password,
+                               full_name.strip(), company.strip())
+
+                if resp.session:
+                    # Email confirmation disabled — user is immediately active
+                    import time; time.sleep(0.8)   # wait for DB trigger
+                    profile = get_user_profile(resp.user.id)
+                    if profile:
+                        st.session_state["_user_profile"] = profile
+                        update_last_login(resp.user.id)
+                        st.success("✅ 账号创建成功！正在进入系统… / Account created!")
+                        st.rerun()
+                    else:
+                        st.error("账号创建成功但档案读取失败，请登录 / Created — please sign in")
+                        st.session_state["_auth_mode"] = "login"
+                        st.rerun()
+                else:
+                    # Email confirmation required — go to OTP verify
+                    st.session_state["_pending_email"] = email.strip()
+                    st.session_state["_auth_mode"]     = "verify"
+                    st.rerun()
+
             except Exception as exc:
                 err = str(exc).lower()
                 if "already registered" in err or "already been registered" in err:

@@ -394,6 +394,26 @@ TARIFF_DB = {
     "Miniflex >900km 500V-66kV":    (8.1551, 2.2303, 1.5719, 3.5338, 2.0985, 1.5719),
     "Miniflex >900km 66-132kV":     (7.5679, 2.0697, 1.4588, 3.2793, 1.9475, 1.4588),
     "Miniflex >900km >132kV":       (7.0570, 1.9299, 1.3601, 3.0580, 1.8160, 1.3601),
+    # ── MunicFlex Local Authority (p15) ——————————————————————————————————————————
+    # Effective 1 July 2025. Replaces Megaflex/Miniflex/Nightsave for local authorities.
+    # Values = (active energy incl VAT + legacy charge incl VAT) / 100 → ZAR/kWh
+    # Tuple: (w_peak, w_std, w_off, s_peak, s_std, s_off)
+    "MunicFlex ≤300km <500V":        (8.2878, 2.2719, 1.6040, 3.5963, 2.1386, 1.6046),
+    "MunicFlex ≤300km 500V-66kV":    (8.0493, 2.2067, 1.5577, 3.4922, 2.0769, 1.5577),
+    "MunicFlex ≤300km 66-132kV":     (7.4693, 2.0478, 1.4453, 3.2407, 1.9275, 1.4453),
+    "MunicFlex ≤300km >132kV":       (6.9649, 1.9096, 1.3478, 3.0219, 1.7973, 1.3478),
+    "MunicFlex 300-600km <500V":     (8.3980, 2.3006, 1.6232, 3.6422, 2.1653, 1.6232),
+    "MunicFlex 300-600km 500V-66kV": (8.1390, 2.2298, 1.5732, 3.5297, 2.0984, 1.5732),
+    "MunicFlex 300-600km 66-132kV":  (7.5416, 2.0660, 1.4575, 3.2706, 1.9443, 1.4575),
+    "MunicFlex 300-600km >132kV":    (7.0324, 1.9264, 1.3590, 3.0497, 1.8130, 1.3590),
+    "MunicFlex 600-900km <500V":     (8.4743, 2.3193, 1.6358, 3.6741, 2.1828, 1.6360),
+    "MunicFlex 600-900km 500V-66kV": (8.2200, 2.2500, 1.5868, 3.5635, 2.1172, 1.5868),
+    "MunicFlex 600-900km 66-132kV":  (7.6138, 2.0840, 1.4696, 3.3007, 1.9611, 1.4696),
+    "MunicFlex 600-900km >132kV":    (7.0998, 1.9433, 1.3703, 3.0778, 1.8288, 1.3703),
+    "MunicFlex >900km <500V":        (8.5663, 2.3427, 1.6512, 3.7118, 2.2045, 1.6512),
+    "MunicFlex >900km 500V-66kV":    (8.2955, 2.2686, 1.5992, 3.5946, 2.1348, 1.5992),
+    "MunicFlex >900km 66-132kV":     (7.6861, 2.1021, 1.4816, 3.3305, 1.9780, 1.4816),
+    "MunicFlex >900km >132kV":       (7.1672, 1.9602, 1.3814, 3.1057, 1.8443, 1.3814),
     # ── Nightsave Urban Non-local Authority (p22) — flat energy, no TOU arbitrage
     # All 6 period prices identical per season; BESS peak-shaving via demand charge not modelled
     "Nightsave ≤300km <500V":       (2.1991, 2.1991, 2.1991, 2.1227, 2.1227, 2.1227),
