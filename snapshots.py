@@ -1,9 +1,6 @@
 """
-snapshots.py — 快照管理面板
+snapshots.py — 项目管理面板 / Project (Snapshot) Management Panel
 BTM PV+BESS Financial Modelling System
-
-Renders the snapshot panel inside the right-column scroll container.
-All DB operations go through db.py.
 """
 
 from __future__ import annotations
@@ -17,8 +14,21 @@ from db import (get_snapshots, get_snapshot_full, save_snapshot,
                 update_snapshot, delete_snapshot)
 from auth import get_current_user, is_pro
 
-# ── Keys that define a complete project state ────────────────────────────────
-# Mirrors DEFAULT_PARAMS in app.py — any key present in session_state is saved.
+
+# ── Language helper ───────────────────────────────────────────────────────────
+
+def _en() -> bool:
+    """True when UI is in English-only mode."""
+    return st.session_state.get("lang", "bilingual") == "english"
+
+
+def _t(zh: str, en: str) -> str:
+    """Return English text or bilingual text depending on lang setting."""
+    return en if _en() else f"{zh} {en}" if zh != en else zh
+
+
+# ── Keys that define a complete project state ─────────────────────────────────
+# Mirrors DEFAULT_PARAMS in app.py
 _SAVE_KEYS = [
     "lat", "lon", "tilt", "azimuth", "pv_loss",
     "pv_kwp", "bess_kwh", "c_rate_label",
@@ -37,7 +47,7 @@ _SAVE_KEYS = [
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _default_name() -> str:
-    """Generate default snapshot name from current session state."""
+    """Generate default project name from current session state."""
     pv   = st.session_state.get("pv_kwp",   0) or 0
     bess = st.session_state.get("bess_kwh", 0) or 0
     if bess > 0:
@@ -52,7 +62,7 @@ def get_params_to_save() -> dict:
         val = st.session_state.get(key)
         if val is not None:
             try:
-                json.dumps(val)   # verify JSON-serialisable
+                json.dumps(val)
                 params[key] = val
             except (TypeError, ValueError):
                 params[key] = str(val)
@@ -60,7 +70,7 @@ def get_params_to_save() -> dict:
 
 
 def get_results_summary() -> dict:
-    """Extract lightweight results summary for snapshot list display."""
+    """Extract lightweight results summary for project list display."""
     res = st.session_state.get("results")
     if not res:
         return {}
@@ -72,16 +82,15 @@ def get_results_summary() -> dict:
 
 
 def restore_snapshot(params: dict) -> None:
-    """Load all snapshot params back into session_state."""
+    """Load all project params back into session_state."""
     for key, val in params.items():
         st.session_state[key] = val
-    # Clear stale results so user re-runs the simulation
     for k in ("results", "fin_df", "hourly_df"):
         st.session_state[k] = None
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Main panel — called from app.py inside _scroll container
+# Main panel
 # ════════════════════════════════════════════════════════════════════════════
 
 def render_snapshot_panel() -> None:
@@ -99,21 +108,26 @@ def render_snapshot_panel() -> None:
     _tier_icon = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(tier, "🆓")
     limit_str  = "∞" if limit >= 999999 else str(limit)
 
-    # ── Header row: title badge + collapse toggle + save button ──
+    # ── Header: title + collapse toggle + save button ──
     h1, h2, h3 = st.columns([5, 2, 2])
     with h1:
+        title = "📂 Projects" if _en() else "📂 项目 Projects"
         st.markdown(
-            f"**📂 快照** `{count}`**/**`{limit_str}` {_tier_icon}",
+            f"**{title}** `{count}`**/**`{limit_str}` {_tier_icon}",
             unsafe_allow_html=True,
         )
     with h2:
         _expanded = st.session_state.get("_snap_expanded", True)
-        if st.button("▲ 收起" if _expanded else "▼ 展开",
-                     key="snap_toggle_btn", use_container_width=True):
+        if _en():
+            toggle_lbl = "▲ Hide" if _expanded else "▼ Show"
+        else:
+            toggle_lbl = "▲ 收起" if _expanded else "▼ 展开"
+        if st.button(toggle_lbl, key="snap_toggle_btn", use_container_width=True):
             st.session_state["_snap_expanded"] = not _expanded
             st.rerun()
     with h3:
-        if st.button("💾 保存", use_container_width=True, key="snap_save_btn",
+        save_lbl = "💾 Save" if _en() else "💾 保存 Save"
+        if st.button(save_lbl, use_container_width=True, key="snap_save_btn",
                      type="primary"):
             if count >= limit:
                 _show_limit_msg(tier, limit)
@@ -121,18 +135,20 @@ def render_snapshot_panel() -> None:
                 st.session_state["_snap_save_open"]    = True
                 st.session_state["_snap_default_name"] = _default_name()
 
-    # ── Save dialog (inline) ──
+    # ── Save dialog ──
     if st.session_state.get("_snap_save_open"):
         _render_save_dialog(user_id)
 
-    # ── Collapsible snapshot list ──
+    # ── Collapsible project list ──
     if not st.session_state.get("_snap_expanded", True):
         return
 
     if not snapshots:
+        empty_msg = ("No projects yet" if _en()
+                     else "暂无项目 / No projects yet")
         st.markdown(
-            "<div style='color:#888;font-size:0.82em;text-align:center;"
-            "padding:8px 0'>暂无快照 / No snapshots yet</div>",
+            f"<div style='color:#888;font-size:0.82em;text-align:center;"
+            f"padding:8px 0'>{empty_msg}</div>",
             unsafe_allow_html=True,
         )
         return
@@ -141,21 +157,20 @@ def render_snapshot_panel() -> None:
         _render_snapshot_item(snap)
 
 
-# ── Save dialog ──────────────────────────────────────────────────────────────
+# ── Save dialog ───────────────────────────────────────────────────────────────
 
 def _render_save_dialog(user_id: str) -> None:
     default = st.session_state.get("_snap_default_name", _default_name())
-    name = st.text_input(
-        "快照名称 Snapshot Name",
-        value=default,
-        key="snap_name_input",
-        placeholder="e.g. Site A · 100kWp+200kWh",
-    )
+    label   = "Project Name" if _en() else "项目名称 Project Name"
+    ph      = "e.g. Site A · 100kWp+200kWh"
+    name = st.text_input(label, value=default, key="snap_name_input",
+                         placeholder=ph)
     ok_col, cancel_col = st.columns(2)
     with ok_col:
-        if st.button("✅ 保存 Save", type="primary",
-                     use_container_width=True, key="snap_dialog_ok"):
-            final = name.strip() or default
+        ok_lbl = "✅ Save" if _en() else "✅ 保存 Save"
+        if st.button(ok_lbl, type="primary", use_container_width=True,
+                     key="snap_dialog_ok"):
+            final  = name.strip() or default
             result = save_snapshot(
                 user_id=user_id,
                 name=final,
@@ -164,10 +179,12 @@ def _render_save_dialog(user_id: str) -> None:
                 results=get_results_summary(),
             )
             if result:
-                st.toast(f"✅ 已保存 / Saved: {final}")
+                msg = f"Saved: {final}" if _en() else f"✅ 已保存: {final}"
+                st.toast(f"✅ {msg}" if _en() else msg)
             _close_dialog()
     with cancel_col:
-        if st.button("✖ 取消 Cancel", use_container_width=True,
+        cancel_lbl = "✖ Cancel" if _en() else "✖ 取消 Cancel"
+        if st.button(cancel_lbl, use_container_width=True,
                      key="snap_dialog_cancel"):
             _close_dialog()
 
@@ -178,7 +195,7 @@ def _close_dialog():
     st.rerun()
 
 
-# ── Single snapshot item ──────────────────────────────────────────────────────
+# ── Single project item ───────────────────────────────────────────────────────
 
 def _render_snapshot_item(snap: dict) -> None:
     snap_id = snap["id"]
@@ -187,37 +204,39 @@ def _render_snapshot_item(snap: dict) -> None:
     pinned  = snap.get("is_pinned", False)
     results = snap.get("results_json") or {}
 
-    # Timestamp
     try:
         dt = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
         ts = dt.strftime("%m-%d %H:%M")
     except Exception:
         ts = ""
 
-    # Result badge
-    npv = results.get("npv", 0)
-    irr = results.get("irr", 0)
-    badge = f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%" if npv else "未运算"
+    npv   = results.get("npv", 0)
+    irr   = results.get("irr", 0)
+    badge = (f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%"
+             if npv else ("Not run" if _en() else "未运算"))
 
     pin_icon = "★ " if pinned else ""
 
-    # ── Row: load button (wide) + ⋮ menu (narrow) ──
+    # ── Load button + ⋮ menu ──
     load_col, menu_col = st.columns([11, 1])
 
     with load_col:
+        load_tip = f"Load · {default}" if _en() else f"点击加载 / Load · {default}"
         if st.button(
             f"{pin_icon}{name}  ·  {badge}  ·  {ts}",
             key=f"snap_load_{snap_id}",
             use_container_width=True,
-            help=f"点击加载 / Click to load · {default}",
+            help=load_tip,
         ):
             full = get_snapshot_full(snap_id)
             if full and full.get("params_json"):
                 restore_snapshot(full["params_json"])
-                st.toast(f"✅ 已加载: {name}")
+                msg = f"Loaded: {name}" if _en() else f"已加载: {name}"
+                st.toast(f"✅ {msg}")
                 st.rerun()
             else:
-                st.error("快照读取失败 / Failed to load")
+                err = "Failed to load project" if _en() else "项目读取失败 / Failed to load"
+                st.error(err)
 
     with menu_col:
         with st.popover("⋮", use_container_width=True):
@@ -225,68 +244,84 @@ def _render_snapshot_item(snap: dict) -> None:
             st.divider()
 
             # Pin / Unpin
-            pin_lbl = "📍 取消置顶 Unpin" if pinned else "📌 置顶 Pin"
+            if pinned:
+                pin_lbl = "📍 Unpin" if _en() else "📍 取消置顶 Unpin"
+            else:
+                pin_lbl = "📌 Pin" if _en() else "📌 置顶 Pin"
             if st.button(pin_lbl, key=f"pm_pin_{snap_id}",
                          use_container_width=True):
                 update_snapshot(snap_id, is_pinned=not pinned)
                 st.rerun()
 
             # Rename
-            if st.button("✏️ 重命名 Rename", key=f"pm_ren_{snap_id}",
+            ren_lbl = "✏️ Rename" if _en() else "✏️ 重命名 Rename"
+            if st.button(ren_lbl, key=f"pm_ren_{snap_id}",
                          use_container_width=True):
                 st.session_state[f"_ren_{snap_id}"] = True
                 st.rerun()
 
             # Update config
-            if st.button("♻️ 更新配置 Update", key=f"pm_upd_{snap_id}",
-                         use_container_width=True,
-                         help="用当前参数覆盖此快照 / Overwrite with current params"):
+            upd_lbl = "♻️ Update Config" if _en() else "♻️ 更新配置 Update"
+            upd_tip = ("Overwrite with current params"
+                       if _en() else "用当前参数覆盖此项目")
+            if st.button(upd_lbl, key=f"pm_upd_{snap_id}",
+                         use_container_width=True, help=upd_tip):
                 update_snapshot(snap_id,
                                 params_json=get_params_to_save(),
                                 results_json=get_results_summary(),
                                 default_name=_default_name())
-                st.toast(f"✅ 已更新: {name}")
+                msg = f"Updated: {name}" if _en() else f"已更新: {name}"
+                st.toast(f"✅ {msg}")
                 st.rerun()
 
             st.divider()
 
             # Delete
-            if st.button("🗑️ 删除 Delete", key=f"pm_del_{snap_id}",
+            del_lbl = "🗑️ Delete" if _en() else "🗑️ 删除 Delete"
+            if st.button(del_lbl, key=f"pm_del_{snap_id}",
                          use_container_width=True, type="primary"):
                 st.session_state[f"_del_{snap_id}"] = True
                 st.rerun()
 
     # ── Inline rename ──
     if st.session_state.get(f"_ren_{snap_id}"):
-        new_name = st.text_input("新名称 New name", value=name,
-                                  key=f"ren_inp_{snap_id}")
-        rn1, rn2 = st.columns(2)
+        ren_label = "New name" if _en() else "新名称 New name"
+        new_name  = st.text_input(ren_label, value=name,
+                                   key=f"ren_inp_{snap_id}")
+        rn1, rn2  = st.columns(2)
         with rn1:
-            if st.button("✅ 确认", key=f"ren_ok_{snap_id}",
+            ok_l = "✅ Confirm" if _en() else "✅ 确认 Confirm"
+            if st.button(ok_l, key=f"ren_ok_{snap_id}",
                          use_container_width=True, type="primary"):
                 if new_name.strip():
                     update_snapshot(snap_id, name=new_name.strip())
                 st.session_state.pop(f"_ren_{snap_id}", None)
                 st.rerun()
         with rn2:
-            if st.button("✖ 取消", key=f"ren_cancel_{snap_id}",
+            ca_l = "✖ Cancel" if _en() else "✖ 取消 Cancel"
+            if st.button(ca_l, key=f"ren_cancel_{snap_id}",
                          use_container_width=True):
                 st.session_state.pop(f"_ren_{snap_id}", None)
                 st.rerun()
 
     # ── Inline delete confirm ──
     if st.session_state.get(f"_del_{snap_id}"):
-        st.warning(f"确认删除 '{name}'？")
+        warn_msg = (f"Delete '{name}'?" if _en()
+                    else f"确认删除 '{name}'？")
+        st.warning(warn_msg)
         d1, d2 = st.columns(2)
         with d1:
-            if st.button("✅ 确认删除", key=f"del_ok_{snap_id}",
+            confirm_l = "✅ Delete" if _en() else "✅ 确认删除"
+            if st.button(confirm_l, key=f"del_ok_{snap_id}",
                          type="primary", use_container_width=True):
                 delete_snapshot(snap_id)
                 st.session_state.pop(f"_del_{snap_id}", None)
-                st.toast("🗑️ 已删除")
+                msg = "Deleted" if _en() else "已删除"
+                st.toast(f"🗑️ {msg}")
                 st.rerun()
         with d2:
-            if st.button("✖ 取消", key=f"del_cancel_{snap_id}",
+            cancel_l = "✖ Cancel" if _en() else "✖ 取消 Cancel"
+            if st.button(cancel_l, key=f"del_cancel_{snap_id}",
                          use_container_width=True):
                 st.session_state.pop(f"_del_{snap_id}", None)
                 st.rerun()
@@ -301,11 +336,19 @@ def _render_snapshot_item(snap: dict) -> None:
 
 def _show_limit_msg(tier: str, limit: int) -> None:
     if tier == "free":
-        st.error(
-            f"已达免费版快照上限 {limit} 个。"
-            f"请联系管理员升级为 🔵 Pro 版（50个快照）。\n\n"
-            f"Free tier limit ({limit} snapshots) reached. "
-            f"Contact admin to upgrade to 🔵 Pro."
-        )
+        if _en():
+            st.error(
+                f"Free tier limit ({limit} projects) reached. "
+                f"Contact admin to upgrade to 🔵 Pro (50 projects)."
+            )
+        else:
+            st.error(
+                f"已达免费版项目上限（{limit} 个）。"
+                f"请联系管理员升级为 🔵 Pro 版（50个项目）。\n\n"
+                f"Free tier limit ({limit} projects) reached. "
+                f"Contact admin to upgrade to 🔵 Pro."
+            )
     else:
-        st.error(f"已达快照上限 {limit} 个 / Snapshot limit ({limit}) reached")
+        msg = (f"Project limit ({limit}) reached"
+               if _en() else f"已达项目上限 {limit} 个 / Project limit ({limit}) reached")
+        st.error(msg)
