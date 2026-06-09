@@ -1584,6 +1584,48 @@ def generate_excel_report() -> bytes:
     def _bdr():
         return Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
 
+    # ── Language helper: strip Chinese from bilingual labels ──────────────────
+    # In English mode: remove CJK characters so only English text appears in Excel
+    import re as _re
+    _is_en_xl = (ss.get("lang") == "english")
+
+    # Explicit overrides for labels where simple CJK-strip gives messy results
+    _XL_EN = {
+        "PV 年衰减率 PV Degradation":              "PV Degradation",
+        "PV 造价 ZAR/kWp":                         "PV Cost  ZAR/kWp",
+        "BESS 造价 ZAR/kWh":                       "BESS Cost  ZAR/kWh",
+        "PV 运维 PV O&M":                          "PV O&M",
+        "BESS 运维 BESS O&M":                      "BESS O&M",
+        "年1 PV 节省 Yr1 PV Saving":               "Yr1 PV Saving",
+        "年1 BESS 节省 Yr1 BESS Save":             "Yr1 BESS Saving",
+        "BESS 寿命 BESS EoL":                      "BESS EoL",
+        "年等效循环 Annual Cycles":                "Annual Cycles",
+        "▌ PVGIS 数据（锁定 LOCKED — 导出时快照）": "▌ PVGIS Data  (Locked — Snapshot at Export)",
+    }
+
+    def _L(s: str) -> str:
+        """English-export mode: strip Chinese characters from bilingual label."""
+        if not _is_en_xl:
+            return s
+        # Multi-line cell (e.g. Sheet 3 param headers): remove lines containing CJK
+        if "\n" in s:
+            kept = [ln for ln in s.split("\n")
+                    if not _re.search(r'[一-鿿]', ln)]
+            return "\n".join(kept) if kept else s
+        # Override dict for edge cases
+        if s in _XL_EN:
+            return _XL_EN[s]
+        # Section header pattern: "▌ 中文 / English Text" → "▌ English Text"
+        m = _re.match(
+            r'^(▌\s*)[一-鿿　-〿\s＀-￯（）()]+/\s*(.*)',
+            s)
+        if m:
+            return (m.group(1) + m.group(2)).strip()
+        # General: strip CJK chars, collapse duplicate spaces
+        out = _re.sub(r'[一-鿿　-〿＀-￯]+', '', s)
+        out = _re.sub(r' {2,}', ' ', out).strip()
+        return out if out else s
+
     wb = Workbook()
 
     # ════════════════════════════════════════════════════════════
@@ -1756,7 +1798,7 @@ def generate_excel_report() -> bytes:
 
     def _p_sec(r, title, bg=C_DARK):
         ws2.merge_cells(start_row=r, start_column=1, end_row=r, end_column=5)
-        c_ = ws2.cell(row=r, column=1, value=title)
+        c_ = ws2.cell(row=r, column=1, value=_L(title))
         c_.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
         c_.fill = _fill(bg); c_.alignment = _align("left")
         ws2.row_dimensions[r].height = 18
@@ -1764,7 +1806,7 @@ def generate_excel_report() -> bytes:
     def _p_row(r, label, value, unit="", locked=False, fmt=None, formula=None):
         lk = ws2.cell(row=r, column=1, value="🔒" if locked else "")
         lk.font = _font(sz=9); lk.alignment = _align("center")
-        lb = ws2.cell(row=r, column=2, value=label)
+        lb = ws2.cell(row=r, column=2, value=_L(label))
         lb.font = _font(sz=10); lb.fill = _fill(C_ALT)
         lb.alignment = _align(); lb.border = _bdr()
         vc = ws2.cell(row=r, column=3, value=(formula if formula else value))
@@ -1937,7 +1979,7 @@ def generate_excel_report() -> bytes:
     ws3.row_dimensions[5].height = 6   # thin divider
     for ci_p, lbl_p, val_p, edit_p, fmt_p, formula_ref in param_meta:
         # Label row 3
-        lc3 = ws3.cell(row=3, column=ci_p, value=lbl_p)
+        lc3 = ws3.cell(row=3, column=ci_p, value=_L(lbl_p))
         lc3.font = _font(sz=8, bold=True)
         lc3.fill = _fill(C_LTBLUE)
         lc3.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
