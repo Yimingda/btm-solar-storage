@@ -96,50 +96,43 @@ def render_snapshot_panel() -> None:
     snapshots = get_snapshots(user_id)
     count     = len(snapshots)
 
-    # ── Header ──
     _tier_icon = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(tier, "🆓")
-    st.markdown(
-        f"**📂 我的快照 / Snapshots** &nbsp; `{count}`**/**"
-        f"`{'∞' if limit >= 999999 else limit}` &nbsp; {_tier_icon}",
-        unsafe_allow_html=True,
-    )
+    limit_str  = "∞" if limit >= 999999 else str(limit)
 
-    # ── Save / New buttons ──
-    sc1, sc2 = st.columns(2)
-    with sc1:
-        if st.button("💾 保存当前 Save", use_container_width=True,
-                     key="snap_save_btn"):
+    # ── Header row: title badge + collapse toggle + save button ──
+    h1, h2, h3 = st.columns([5, 2, 2])
+    with h1:
+        st.markdown(
+            f"**📂 快照** `{count}`**/**`{limit_str}` {_tier_icon}",
+            unsafe_allow_html=True,
+        )
+    with h2:
+        _expanded = st.session_state.get("_snap_expanded", True)
+        if st.button("▲ 收起" if _expanded else "▼ 展开",
+                     key="snap_toggle_btn", use_container_width=True):
+            st.session_state["_snap_expanded"] = not _expanded
+            st.rerun()
+    with h3:
+        if st.button("💾 保存", use_container_width=True, key="snap_save_btn",
+                     type="primary"):
             if count >= limit:
                 _show_limit_msg(tier, limit)
             else:
-                st.session_state["_snap_save_open"]   = True
+                st.session_state["_snap_save_open"]    = True
                 st.session_state["_snap_default_name"] = _default_name()
-    with sc2:
-        if st.button("♻️ 更新最近 Update", use_container_width=True,
-                     key="snap_update_recent_btn",
-                     help="用当前参数覆盖最近快照 / Overwrite newest snapshot with current params"):
-            if snapshots:
-                newest = snapshots[0]
-                params  = get_params_to_save()
-                results = get_results_summary()
-                update_snapshot(newest["id"],
-                                params_json=params,
-                                results_json=results,
-                                default_name=_default_name())
-                st.toast(f"✅ 已更新: {newest['name']}")
-                st.rerun()
-            else:
-                st.toast("⚠️ 无快照可更新 / No snapshot to update")
 
     # ── Save dialog (inline) ──
     if st.session_state.get("_snap_save_open"):
         _render_save_dialog(user_id)
 
-    # ── Snapshot list ──
+    # ── Collapsible snapshot list ──
+    if not st.session_state.get("_snap_expanded", True):
+        return
+
     if not snapshots:
         st.markdown(
             "<div style='color:#888;font-size:0.82em;text-align:center;"
-            "padding:10px 0'>暂无快照 / No snapshots yet</div>",
+            "padding:8px 0'>暂无快照 / No snapshots yet</div>",
             unsafe_allow_html=True,
         )
         return
@@ -188,110 +181,120 @@ def _close_dialog():
 # ── Single snapshot item ──────────────────────────────────────────────────────
 
 def _render_snapshot_item(snap: dict) -> None:
-    snap_id  = snap["id"]
-    name     = snap["name"]
-    default  = snap.get("default_name") or name
-    pinned   = snap.get("is_pinned", False)
-    results  = snap.get("results_json") or {}
+    snap_id = snap["id"]
+    name    = snap["name"]
+    default = snap.get("default_name") or name
+    pinned  = snap.get("is_pinned", False)
+    results = snap.get("results_json") or {}
 
-    # Format timestamp
+    # Timestamp
     try:
-        dt  = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
-        ts  = dt.strftime("%m-%d %H:%M")
+        dt = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
+        ts = dt.strftime("%m-%d %H:%M")
     except Exception:
         ts = ""
 
     # Result badge
     npv = results.get("npv", 0)
     irr = results.get("irr", 0)
-    if npv:
-        badge = f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%"
-    else:
-        badge = "未运算 / Not run"
+    badge = f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%" if npv else "未运算"
 
-    pin_icon  = "★ " if pinned else "  "
-    item_key  = f"si_{snap_id}"
+    pin_icon = "★ " if pinned else ""
 
-    with st.container():
-        # ── Load button (full row) ──
+    # ── Row: load button (wide) + ⋮ menu (narrow) ──
+    load_col, menu_col = st.columns([11, 1])
+
+    with load_col:
         if st.button(
-            f"{pin_icon}{name}\n{badge}  ·  {ts}",
+            f"{pin_icon}{name}  ·  {badge}  ·  {ts}",
             key=f"snap_load_{snap_id}",
             use_container_width=True,
-            help=f"点击加载 / Load  ·  {default}",
+            help=f"点击加载 / Click to load · {default}",
         ):
             full = get_snapshot_full(snap_id)
             if full and full.get("params_json"):
                 restore_snapshot(full["params_json"])
-                st.toast(f"✅ 已加载 / Loaded: {name}")
+                st.toast(f"✅ 已加载: {name}")
                 st.rerun()
             else:
-                st.error("快照数据读取失败 / Failed to load snapshot data")
+                st.error("快照读取失败 / Failed to load")
 
-        # ── Action icons row ──
-        a1, a2, a3, a4 = st.columns(4)
-        with a1:
-            new_pin = not pinned
-            tip = "取消置顶 Unpin" if pinned else "置顶 Pin"
-            if st.button("📌" if not pinned else "📍",
-                         key=f"snap_pin_{snap_id}", help=tip):
-                update_snapshot(snap_id, is_pinned=new_pin)
+    with menu_col:
+        with st.popover("⋮", use_container_width=True):
+            st.markdown(f"**{name}**")
+            st.divider()
+
+            # Pin / Unpin
+            pin_lbl = "📍 取消置顶 Unpin" if pinned else "📌 置顶 Pin"
+            if st.button(pin_lbl, key=f"pm_pin_{snap_id}",
+                         use_container_width=True):
+                update_snapshot(snap_id, is_pinned=not pinned)
                 st.rerun()
-        with a2:
-            if st.button("✏️", key=f"snap_ren_{snap_id}", help="重命名 Rename"):
+
+            # Rename
+            if st.button("✏️ 重命名 Rename", key=f"pm_ren_{snap_id}",
+                         use_container_width=True):
                 st.session_state[f"_ren_{snap_id}"] = True
                 st.rerun()
-        with a3:
-            if st.button("♻️", key=f"snap_upd_{snap_id}",
-                         help="用当前参数更新此快照 Update with current params"):
+
+            # Update config
+            if st.button("♻️ 更新配置 Update", key=f"pm_upd_{snap_id}",
+                         use_container_width=True,
+                         help="用当前参数覆盖此快照 / Overwrite with current params"):
                 update_snapshot(snap_id,
                                 params_json=get_params_to_save(),
                                 results_json=get_results_summary(),
                                 default_name=_default_name())
-                st.toast("✅ 已更新快照 / Snapshot updated")
+                st.toast(f"✅ 已更新: {name}")
                 st.rerun()
-        with a4:
-            if st.button("🗑️", key=f"snap_del_{snap_id}", help="删除 Delete"):
+
+            st.divider()
+
+            # Delete
+            if st.button("🗑️ 删除 Delete", key=f"pm_del_{snap_id}",
+                         use_container_width=True, type="primary"):
                 st.session_state[f"_del_{snap_id}"] = True
                 st.rerun()
 
-        # ── Inline rename ──
-        if st.session_state.get(f"_ren_{snap_id}"):
-            new_name = st.text_input("新名称 New name", value=name,
-                                     key=f"ren_inp_{snap_id}")
-            rn1, rn2 = st.columns(2)
-            with rn1:
-                if st.button("✅", key=f"ren_ok_{snap_id}", use_container_width=True):
-                    if new_name.strip():
-                        update_snapshot(snap_id, name=new_name.strip())
-                    st.session_state.pop(f"_ren_{snap_id}", None)
-                    st.rerun()
-            with rn2:
-                if st.button("✖", key=f"ren_cancel_{snap_id}", use_container_width=True):
-                    st.session_state.pop(f"_ren_{snap_id}", None)
-                    st.rerun()
+    # ── Inline rename ──
+    if st.session_state.get(f"_ren_{snap_id}"):
+        new_name = st.text_input("新名称 New name", value=name,
+                                  key=f"ren_inp_{snap_id}")
+        rn1, rn2 = st.columns(2)
+        with rn1:
+            if st.button("✅ 确认", key=f"ren_ok_{snap_id}",
+                         use_container_width=True, type="primary"):
+                if new_name.strip():
+                    update_snapshot(snap_id, name=new_name.strip())
+                st.session_state.pop(f"_ren_{snap_id}", None)
+                st.rerun()
+        with rn2:
+            if st.button("✖ 取消", key=f"ren_cancel_{snap_id}",
+                         use_container_width=True):
+                st.session_state.pop(f"_ren_{snap_id}", None)
+                st.rerun()
 
-        # ── Inline delete confirm ──
-        if st.session_state.get(f"_del_{snap_id}"):
-            st.warning(f"删除 '{name}'? / Delete snapshot?")
-            d1, d2 = st.columns(2)
-            with d1:
-                if st.button("✅ 确认删除", key=f"del_ok_{snap_id}",
-                             type="primary", use_container_width=True):
-                    delete_snapshot(snap_id)
-                    st.session_state.pop(f"_del_{snap_id}", None)
-                    st.toast("🗑️ 已删除 / Deleted")
-                    st.rerun()
-            with d2:
-                if st.button("✖ 取消", key=f"del_cancel_{snap_id}",
-                             use_container_width=True):
-                    st.session_state.pop(f"_del_{snap_id}", None)
-                    st.rerun()
+    # ── Inline delete confirm ──
+    if st.session_state.get(f"_del_{snap_id}"):
+        st.warning(f"确认删除 '{name}'？")
+        d1, d2 = st.columns(2)
+        with d1:
+            if st.button("✅ 确认删除", key=f"del_ok_{snap_id}",
+                         type="primary", use_container_width=True):
+                delete_snapshot(snap_id)
+                st.session_state.pop(f"_del_{snap_id}", None)
+                st.toast("🗑️ 已删除")
+                st.rerun()
+        with d2:
+            if st.button("✖ 取消", key=f"del_cancel_{snap_id}",
+                         use_container_width=True):
+                st.session_state.pop(f"_del_{snap_id}", None)
+                st.rerun()
 
-        st.markdown(
-            "<hr style='margin:4px 0; border-color:#2a2a4a'>",
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        "<hr style='margin:2px 0; border-color:#2a2a4a'>",
+        unsafe_allow_html=True,
+    )
 
 
 # ── Limit message ─────────────────────────────────────────────────────────────

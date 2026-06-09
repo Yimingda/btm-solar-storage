@@ -2196,6 +2196,22 @@ def generate_excel_report() -> bytes:
 
 
 # ─────────────────────────────────────────────────────────────
+# 顶部栏：语言选择（右上角）
+# Top bar: language selector (top-right)
+# ─────────────────────────────────────────────────────────────
+_top_l, _top_r = st.columns([8, 2])
+with _top_r:
+    _lang_opt = st.radio(
+        "🌐",
+        options=["双语", "EN"],
+        index=0 if st.session_state.get("lang", "bilingual") == "bilingual" else 1,
+        horizontal=True,
+        key="lang_radio_sel",
+        label_visibility="collapsed",
+    )
+    st.session_state["lang"] = "bilingual" if _lang_opt == "双语" else "english"
+
+# ─────────────────────────────────────────────────────────────
 # 页头 / Header
 # ─────────────────────────────────────────────────────────────
 _is_en = st.session_state.get("lang") == "english"
@@ -2247,17 +2263,6 @@ with _scroll:
 
     # ── 快照管理 / Snapshot Panel ──
     render_snapshot_panel()
-    st.markdown("---")
-
-    # ── 语言设置 / Language Setting ──
-    _lang_opt = st.radio(
-        "🌐 Language / 语言",
-        options=["双语 Bilingual", "English Only"],
-        index=0 if st.session_state.get("lang", "bilingual") == "bilingual" else 1,
-        horizontal=True,
-        key="lang_radio_sel",
-    )
-    st.session_state["lang"] = "bilingual" if _lang_opt == "双语 Bilingual" else "english"
     st.markdown("---")
 
     # ══════════════════════════════════════════════════════════
