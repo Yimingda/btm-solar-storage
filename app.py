@@ -30,6 +30,32 @@ SA_PUBLIC_HOLIDAYS_2025 = {
     _date(2025, 12, 26), # Day of Goodwill
 }
 
+# eThekwini 2025/26 public holidays — treated as "saturday" or "sunday" TOU level
+# (Eskom treats all holidays as Sunday; eThekwini distinguishes between the two)
+# Source: eThekwini Tariff Booklet 25/26 p21
+ETHEKWINI_HOLIDAYS_2025_26: dict[_date, str] = {
+    # ── Sunday-level (no peaks at all) ──
+    _date(2025, 4, 18): "sunday",   # Good Friday
+    _date(2025, 4, 21): "sunday",   # Family Day
+    _date(2025, 4, 27): "sunday",   # Freedom Day (falls on Sunday anyway)
+    _date(2025, 12, 25): "sunday",  # Christmas Day
+    _date(2025, 12, 26): "sunday",  # Day of Goodwill
+    _date(2026, 1, 1):  "sunday",   # New Year's Day
+    _date(2026, 4, 3):  "sunday",   # Good Friday
+    _date(2026, 4, 6):  "sunday",   # Family Day
+    _date(2026, 4, 27): "sunday",   # Freedom Day
+    # ── Saturday-level (standard during some windows, no peak) ──
+    _date(2025, 4, 28): "saturday", # Public Holiday (day after Freedom Day)
+    _date(2025, 5, 1):  "saturday", # Workers' Day
+    _date(2025, 6, 16): "saturday", # Youth Day
+    _date(2025, 8, 9):  "saturday", # National Women's Day
+    _date(2025, 9, 24): "saturday", # Heritage Day
+    _date(2025, 12, 16):"saturday", # Day of Reconciliation
+    _date(2026, 3, 21): "saturday", # Human Rights Day
+    _date(2026, 5, 1):  "saturday", # Worker's Day
+    _date(2026, 6, 16): "saturday", # Youth Day
+}
+
 try:
     import folium
     from streamlit_folium import st_folium
@@ -356,6 +382,14 @@ TARIFF_DB = {
     "Nightsave ≤300km 500V-66kV":   (2.1423, 2.1423, 2.1423, 2.0679, 2.0679, 2.0679),
     "Nightsave ≤300km 66-132kV":    (1.9881, 1.9881, 1.9881, 1.9191, 1.9191, 1.9191),
     "Nightsave ≤300km >132kV":      (1.8540, 1.8540, 1.8540, 1.7895, 1.7895, 1.7895),
+    # ── eThekwini Metropolitan Municipality 2025/26 TOU ──────────────────────
+    # Source: eThekwini Energy Management Directorate Tariff Booklet 25/26 p16,23
+    # Prices in c/kWh (excl. VAT) → ×1.15/100 → ZAR/kWh incl. 15% VAT
+    # Tuple: (w_peak, w_std, w_off, s_peak, s_std, s_off)
+    # High demand season = Jun–Aug (WINTER_MONTHS); Low demand = Sep–May
+    # CTOU: NMD ≤ 100 kVA | ITOU: NMD > 100 kVA
+    "eThekwini CTOU (≤100kVA)": (7.3847, 3.6950, 1.8000, 3.6435, 2.9310, 1.7050),
+    "eThekwini ITOU (>100kVA)": (7.0941, 1.9881, 1.4207, 3.1114, 1.8747, 1.4207),
     # ── PPA (Power Purchase Agreement) — flat rate, user-defined ─────────────
     # 所有时段同价；用户在 UI 中输入单一 PPA 单价
     # All periods same price; user sets a single PPA rate in the UI
@@ -600,6 +634,61 @@ def get_tariff_for_hour(hour: int, month: int, day_type: str = "weekday") -> tup
         return standard_p, "standard"
 
 
+def get_ethekwini_tou(hour: int, month: int, day_type: str) -> tuple[float, str]:
+    """
+    eThekwini CTOU / ITOU 2025/26 TOU schedule.
+    Source: eThekwini Tariff Booklet 25/26 p22 (time period tables).
+    Returns (tariff_price_ZAR, period_string)
+    period_string: "peak" | "standard" | "off_peak"
+
+    High demand season (Jun–Aug):
+      Weekday peaks: 06:00–08:00 and 17:00–20:00
+      Saturday:      standard 07:00–12:00 and 17:00–19:00; rest off-peak
+      Sunday:        standard 17:00–19:00; rest off-peak
+
+    Low demand season (Sep–May):
+      Weekday peaks: 07:00–09:00 and 18:00–21:00
+      Saturday:      standard 07:00–12:00 and 18:00–20:00; rest off-peak
+      Sunday:        standard 18:00–20:00; rest off-peak
+
+    Note: eThekwini has NO peak on weekends/holidays — at most Standard.
+    """
+    is_high = month in WINTER_MONTHS
+    pfx     = "w_" if is_high else "s_"
+    peak_p  = st.session_state[f"{pfx}morning_peak"]   # one peak rate (morning_peak = evening_peak)
+    std_p   = st.session_state[f"{pfx}standard"]
+    off_p   = st.session_state[f"{pfx}off_peak"]
+
+    if day_type == "sunday":
+        if is_high:
+            return (std_p, "standard") if 17 <= hour < 19 else (off_p, "off_peak")
+        else:
+            return (std_p, "standard") if 18 <= hour < 20 else (off_p, "off_peak")
+
+    if day_type == "saturday":
+        if is_high:
+            if (7 <= hour < 12) or (17 <= hour < 19):
+                return std_p, "standard"
+        else:
+            if (7 <= hour < 12) or (18 <= hour < 20):
+                return std_p, "standard"
+        return off_p, "off_peak"
+
+    # weekday
+    if is_high:                                   # HIGH demand Jun–Aug
+        if (6 <= hour < 8) or (17 <= hour < 20):
+            return peak_p, "peak"
+        elif (8 <= hour < 17) or (20 <= hour < 22):
+            return std_p, "standard"
+    else:                                         # LOW demand Sep–May
+        if (7 <= hour < 9) or (18 <= hour < 21):
+            return peak_p, "peak"
+        elif (6 <= hour < 7) or (9 <= hour < 18) or (21 <= hour < 22):
+            return std_p, "standard"
+
+    return off_p, "off_peak"                      # 22:00–06:00
+
+
 def get_pvgis_data(lat, lon, kwp, loss, tilt, azimuth) -> dict:
     """
     调用 PVGIS API / Call EU PVGIS API
@@ -716,6 +805,7 @@ def run_8760_dispatch(
     load_map = {
         "morning_peak": load_peak_kw,
         "evening_peak": load_peak_kw,
+        "peak":         load_peak_kw,   # eThekwini unified peak period
         "standard":     load_std_kw,
         "off_peak":     load_offpeak_kw,
     }
@@ -734,6 +824,12 @@ def run_8760_dispatch(
     _EVE_HRS = 3   # Eskom 2025/26: evening peak 17:00-19:59
     std_charge_target = min(usable, _EVE_HRS * min(bess_kw, load_peak_kw))
 
+    # ── 市政 vs 国家电网 路由 / Municipal vs Eskom routing ──────────────────
+    _tariff_mode   = st.session_state.get("tariff_mode", "Megaflex ≤300km <500V")
+    is_ethekwini   = _tariff_mode.startswith("eThekwini")
+    # Use eThekwini holiday table (sat/sun levels) or Eskom set (all → sunday)
+    _holiday_db    = ETHEKWINI_HOLIDAYS_2025_26 if is_ethekwini else SA_PUBLIC_HOLIDAYS_2025
+
     days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     g = 0  # global hour index
 
@@ -743,8 +839,10 @@ def run_8760_dispatch(
             # 计算当天类型 / Determine day type using 2025 calendar
             cal_date = _date(2025, month, d + 1)
             wday = cal_date.weekday()  # 0=Mon, 5=Sat, 6=Sun
-            if cal_date in SA_PUBLIC_HOLIDAYS_2025:
-                day_type = "sunday"    # holidays treated as Sunday per Appendix D
+            if cal_date in _holiday_db:
+                # Eskom: all holidays → "sunday"
+                # eThekwini: holidays map to "saturday" or "sunday" level
+                day_type = _holiday_db[cal_date] if is_ethekwini else "sunday"
             elif wday == 5:
                 day_type = "saturday"
             elif wday == 6:
@@ -753,7 +851,10 @@ def run_8760_dispatch(
                 day_type = "weekday"
 
             for h in range(24):
-                tariff_price, period = get_tariff_for_hour(h, month, day_type)
+                if is_ethekwini:
+                    tariff_price, period = get_ethekwini_tou(h, month, day_type)
+                else:
+                    tariff_price, period = get_tariff_for_hour(h, month, day_type)
                 pv_gen  = hourly_pv[g]
                 load    = load_map[period]
 
@@ -784,8 +885,9 @@ def run_8760_dispatch(
                 # (Economic break-even including RTE: tariff_price * rte_dec > off_peak_p)
                 discharge_viable = tariff_price > off_peak_p
 
-                if period in ("morning_peak", "evening_peak"):
+                if period in ("morning_peak", "evening_peak", "peak"):
                     # 削峰放电（仅当该时段电价高于谷价时才有套利价值）
+                    # "peak" = eThekwini unified peak period (no morning/evening split)
                     if discharge_viable:
                         dis = min(bess_kw, soc, net_load)
                         discharge = max(0.0, dis)
@@ -825,8 +927,9 @@ def run_8760_dispatch(
                         # 判断"下一个早高峰日"的类型
                         _next_dt = cal_date + timedelta(days=1) if h >= 22 else cal_date
                         _nwd     = _next_dt.weekday()
-                        if _next_dt in SA_PUBLIC_HOLIDAYS_2025:
-                            _next_type = "sunday"
+                        if _next_dt in _holiday_db:
+                            # eThekwini: both "saturday" and "sunday" holidays have no peak
+                            _next_type = _holiday_db[_next_dt] if is_ethekwini else "sunday"
                         elif _nwd == 5:
                             _next_type = "saturday"
                         elif _nwd == 6:
@@ -867,12 +970,23 @@ def run_8760_dispatch(
                     # Evening standard (20-21h): NEVER charge — off-peak starts ≤2h later
                     # at ~29% lower cost. Revenue-maximising rule: always wait for cheapest.
                     # Power = min(bess_kw, need / hrs_remaining / RTE) — min-power spread.
+                    # Daytime standard charging window:
+                    #   Eskom:           09:00–17:00 (morning peak 07-09, evening peak 17-20)
+                    #   eThekwini high:  08:00–17:00 (morning peak 06-08, evening peak 17-20)
+                    #   eThekwini low:   09:00–18:00 (morning peak 07-09, evening peak 18-21)
+                    is_high_season = month in WINTER_MONTHS
+                    if is_ethekwini and is_high_season:
+                        _std_start, _std_end = 8, 17
+                    elif is_ethekwini and not is_high_season:
+                        _std_start, _std_end = 9, 18
+                    else:
+                        _std_start, _std_end = 9, 17
                     std_effective_cost = tariff_price / rte_dec
                     if (grid_charge_viable
                             and season_peak >= std_effective_cost * 1.2
                             and soc < std_charge_target   # 目标：晚高峰正好放完（不充满）
-                            and 9 <= h < 17):             # 日间平期专用，傍晚平期排除
-                        hrs_left = 17 - h                 # 09h→8h，10h→7h … 16h→1h
+                            and _std_start <= h < _std_end):
+                        hrs_left = max(1, _std_end - h)
                         # 目标 SOC = std_charge_target（正好够晚高峰放完），而非 usable
                         # Target = evening-peak target, not full usable capacity
                         need = max(0.0, std_charge_target - soc)
