@@ -548,10 +548,12 @@ _EN: dict[str, str] = {
     "平期 Standard":                              "Standard",
     "晚峰 Eve Peak":                              "Evening Peak",
     "谷期 Off-Peak":                              "Off-Peak",
-    "早峰 Morn Peak ":                            "Morning Peak",
-    "平期 Standard ":                             "Standard",
-    "晚峰 Eve Peak ":                             "Evening Peak",
-    "谷期 Off-Peak ":                             "Off-Peak",
+    # Summer variants — trailing space keeps bilingual labels distinct;
+    # English labels must also be distinct to avoid StreamlitDuplicateElementId
+    "早峰 Morn Peak ":                            "Morn Peak (S)",
+    "平期 Standard ":                             "Standard (S)",
+    "晚峰 Eve Peak ":                             "Eve Peak (S)",
+    "谷期 Off-Peak ":                             "Off-Peak (S)",
     # ── Section headers & metric labels (HTML) ──
     "### 🚀 运行 8760 小时物理仿真 / Run Physical Simulation":
         "### 🚀 Run Physical Simulation (8,760-Hour Dispatch)",
