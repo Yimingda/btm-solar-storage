@@ -107,6 +107,17 @@ st.markdown("""
         font-family: 'IBM Plex Sans', sans-serif !important;
     }
 
+    /* 压缩 Streamlit 默认顶部空白 */
+    .block-container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 1rem !important;
+    }
+    header[data-testid="stHeader"] {
+        height: 0 !important;
+        min-height: 0 !important;
+    }
+    #MainMenu, footer { visibility: hidden; }
+
     .main-header {
         background: linear-gradient(135deg, #0A0E1A 0%, #111827 50%, #0A1628 100%);
         border-bottom: 1px solid var(--primary);
