@@ -625,30 +625,32 @@ _EN: dict[str, str] = {
 
 # Column display map: internal fin_df names → display names per language
 _COL_BILINGUAL = {
-    "年份 Year":           "年份 Year",
-    "节省 Saving (ZAR)":   "节省 Saving (ZAR)",
-    "PV节省":              "PV节省",
-    "BESS套利":            "BESS套利",
-    "12B折旧 (ZAR)":       "12B折旧 (ZAR)",
-    "净利润 (ZAR)":        "净利润 (ZAR)",
-    "净现金流 NCF (ZAR)":  "净现金流 NCF (ZAR)",
-    "折现CF PV (ZAR)":     "折现CF PV (ZAR)",
-    "累计CF (ZAR)":        "累计CF (ZAR)",
-    "SOH%":                "SOH%",
-    "状态":                "状态",
+    "年份 Year":              "年份 Year",
+    "节省 Saving (ZAR)":      "节省 Saving (ZAR)",
+    "PV节省":                 "PV节省",
+    "BESS套利":               "BESS套利",
+    "12B折旧 (ZAR)":          "12B折旧 (ZAR)",
+    "评估亏损结转 (ZAR)":     "评估亏损结转 (ZAR)",
+    "净利润 (ZAR)":           "净利润 (ZAR)",
+    "净现金流 NCF (ZAR)":     "净现金流 NCF (ZAR)",
+    "折现CF PV (ZAR)":        "折现CF PV (ZAR)",
+    "累计CF (ZAR)":           "累计CF (ZAR)",
+    "SOH%":                   "SOH%",
+    "状态":                   "状态",
 }
 _COL_ENGLISH = {
-    "年份 Year":           "Year",
-    "节省 Saving (ZAR)":   "Total Saving (ZAR)",
-    "PV节省":              "PV Saving (ZAR)",
-    "BESS套利":            "BESS Saving (ZAR)",
-    "12B折旧 (ZAR)":       "Sec.12B Depreciation (ZAR)",
-    "净利润 (ZAR)":        "Net Profit (ZAR)",
-    "净现金流 NCF (ZAR)":  "Net Cash Flow NCF (ZAR)",
-    "折现CF PV (ZAR)":     "Discounted CF PV (ZAR)",
-    "累计CF (ZAR)":        "Cumulative CF (ZAR)",
-    "SOH%":                "SOH%",
-    "状态":                "Status",
+    "年份 Year":              "Year",
+    "节省 Saving (ZAR)":      "Total Saving (ZAR)",
+    "PV节省":                 "PV Saving (ZAR)",
+    "BESS套利":               "BESS Saving (ZAR)",
+    "12B折旧 (ZAR)":          "Sec.12B Depreciation (ZAR)",
+    "评估亏损结转 (ZAR)":     "Assess. Loss C/F (ZAR)",
+    "净利润 (ZAR)":           "Net Profit (ZAR)",
+    "净现金流 NCF (ZAR)":     "Net Cash Flow NCF (ZAR)",
+    "折现CF PV (ZAR)":        "Discounted CF PV (ZAR)",
+    "累计CF (ZAR)":           "Cumulative CF (ZAR)",
+    "SOH%":                   "SOH%",
+    "状态":                   "Status",
 }
 
 
@@ -1268,6 +1270,7 @@ def run_25yr_financial_model(
 
     rows = []
     cum_cf = -total_capex
+    assessed_loss_cf = 0.0   # SA assessed loss carry-forward (accumulated unabsorbed losses)
 
     for yr in range(1, ANALYSIS_YEARS + 1):
         esc_mult  = (1 + esc) ** (yr - 1)
@@ -1292,20 +1295,31 @@ def run_25yr_financial_model(
 
         # Section 12B 折旧
         depreciation = total_capex * SECTION_12B.get(yr, 0.0)
-        tax_shield   = depreciation * tax   # 仅用于报表展示
+        # tax_shield: 名义节税 = dep × tax%（理论上限；实际节税通过结转在未来年份兑现）
+        # Theoretical tax shield = dep × rate (actual benefit may be deferred via carry-forward)
+        tax_shield = depreciation * tax
 
         ebit = ebitda - depreciation
-        # net_cf 只扣实缴税：折旧节税已内含于 EBIT→更低税额，不可重复加 tax_shield
-        cash_tax = max(0.0, ebit * tax)
+
+        # ── SA Assessed Loss Carry-Forward (Income Tax Act s20) ──────────
+        # If taxable income (EBIT - prior losses) is negative, the excess loss
+        # is carried forward indefinitely and deducted in future profitable years.
+        assessed_loss_cf_start = assessed_loss_cf        # carry-forward available this year
+        taxable_income = ebit - assessed_loss_cf_start   # EBIT net of prior losses
+        cash_tax = max(0.0, taxable_income * tax)        # pay tax only on positive taxable income
+        # Update carry-forward: absorb if income positive, accumulate if still negative
+        assessed_loss_cf = max(0.0, -taxable_income)     # remaining unabsorbed loss after this yr
+        # ─────────────────────────────────────────────────────────────────
+
         net_profit = ebit - cash_tax
-        net_cf   = ebitda - cash_tax       # 折旧是非现金项，EBITDA - 税
+        net_cf   = ebitda - cash_tax       # 折旧是非现金项，EBITDA - 实缴税
         pv_cf    = net_cf / (1 + disc) ** yr
 
         cum_cf += net_cf
 
         rows.append({
             "年份 Year": yr,
-            "BESS": "✓" if bess_alive else "✗ EoL",
+            "状态": "✓" if bess_alive else "✗ EoL",
             "SOH%": round(soh * 100, 1),
             "节省 Saving (ZAR)": round(saving, 0),
             "PV节省": round(pv_save, 0),
@@ -1315,6 +1329,7 @@ def run_25yr_financial_model(
             "EBITDA (ZAR)": round(ebitda, 0),
             "12B折旧 (ZAR)": round(depreciation, 0),
             "Tax Shield (ZAR)": round(tax_shield, 0),
+            "评估亏损结转 (ZAR)": round(assessed_loss_cf, 0),
             "净利润 (ZAR)": round(net_profit, 0),
             "净现金流 NCF (ZAR)": round(net_cf, 0),
             "折现CF PV (ZAR)": round(pv_cf, 0),
@@ -1722,11 +1737,11 @@ def generate_excel_report() -> bytes:
     ws3 = wb.create_sheet(T("财务模型 25Y Model"))
     ws3.sheet_view.showGridLines = False
     ws3.freeze_panes = "A8"    # freeze title + param section + header
-    for ci, w in enumerate([6,14,10,14,14,14,12,12,14,13,12,12,12,14,13,14,12], 1):
+    for ci, w in enumerate([6,14,10,14,14,14,12,12,14,13,12,12,12,14,13,14,12,14], 1):
         ws3.column_dimensions[get_column_letter(ci)].width = w
 
     # ── Title row 1 ───────────────────────────────────────────
-    ws3.merge_cells("A1:Q1")
+    ws3.merge_cells("A1:R1")
     _p2_sheet = T("参数 Parameters")   # sheet name (already lang-aware via T())
     if st.session_state.get("lang") == "english":
         _ws3_title = f"25-Year Financial Model — Edit white cells in '{_p2_sheet}' sheet · Row 4 formulas auto-pull & recalculate"
@@ -1739,7 +1754,7 @@ def generate_excel_report() -> bytes:
     ws3.row_dimensions[1].height = 28
 
     # ── Parameter Section header row 2 ───────────────────────
-    ws3.merge_cells("A2:Q2")
+    ws3.merge_cells("A2:R2")
     if st.session_state.get("lang") == "english":
         _ws3_row2 = f"⚙️  Row 4 = cross-sheet links to '{_p2_sheet}' — 🟢 Edit white cells in Parameters sheet → auto-update · 🔒 Locked = re-run simulation"
     else:
@@ -1801,14 +1816,14 @@ def generate_excel_report() -> bytes:
                       value=("Parameter" if r_ == 3 else "Value") if st.session_state.get("lang") == "english" else ("参数名" if r_ == 3 else "参数值"))
         ac.font = _font(sz=8, bold=True, color="FFFFFF")
         ac.fill = _fill(C_NAVY); ac.alignment = _align("center"); ac.border = _bdr()
-    # Fill cols M-Q rows 3-4 as spacers
+    # Fill cols M-R rows 3-4 as spacers
     for r_ in (3, 4):
-        for ci_sp in range(13, 18):
+        for ci_sp in range(13, 19):
             ws3.cell(row=r_, column=ci_sp).fill = _fill(C_ALT)
             ws3.cell(row=r_, column=ci_sp).border = _bdr()
 
     # Divider row 5
-    ws3.merge_cells("A5:Q5")
+    ws3.merge_cells("A5:R5")
     ws3.cell(row=5, column=1).fill = _fill(C_NAVY)
 
     # ── Column headers row 6 ─────────────────────────────────
@@ -1816,16 +1831,16 @@ def generate_excel_report() -> bytes:
         hdrs3 = ["Year", "BESS\nStatus", "SOH\n%",
                  "PV Saving\nZAR", "BESS Saving\nZAR", "Total Saving\nZAR",
                  "PV O&M\nZAR", "BESS O&M\nZAR", "EBITDA\nZAR",
-                 "Sec12B Depr.\nZAR", "Tax Shield\nZAR", "EBIT\nZAR",
+                 "Sec12B Depr.\nZAR", "Tax Shield\n(theoretical)", "EBIT\nZAR",
                  "Cash Tax\nZAR", "Net CF\nNCF ZAR", "Disc. CF\nPV ZAR",
-                 "Cum. CF\nZAR", "Net Profit\nZAR"]
+                 "Cum. CF\nZAR", "Net Profit\nZAR", "Assess.Loss\nB/F ZAR"]
     else:
         hdrs3 = ["年份\nYear", "BESS\n状态", "SOH\n%",
                  "PV节省\nZAR", "BESS节省\nZAR", "总节省\nZAR",
                  "PV运维\nZAR", "BESS运维\nZAR", "EBITDA\nZAR",
-                 "12B折旧\nZAR", "税盾\nZAR", "EBIT\nZAR",
+                 "12B折旧\nZAR", "税盾\n(名义)", "EBIT\nZAR",
                  "现金税\nZAR", "净现金流\nNCF ZAR", "折现CF\nPV ZAR",
-                 "累计CF\nZAR", "净利润\nZAR"]
+                 "累计CF\nZAR", "净利润\nZAR", "亏损结转\nZAR"]
     for ci, hdr in enumerate(hdrs3, 1):
         hc = ws3.cell(row=6, column=ci, value=hdr)
         hc.font = Font("Calibri", size=8, bold=True, color="FFFFFF")
@@ -1937,8 +1952,9 @@ def generate_excel_report() -> bytes:
         # Col L: EBIT = EBITDA - Depreciation
         _wc(12, formula=f"=I{r}-J{r}")
 
-        # Col M: Cash Tax = MAX(0, EBIT × Tax%)
-        _wc(13, formula=f"=MAX(0,L{r}*$F$4/100)")
+        # Col M: Cash Tax = MAX(0, (EBIT − Assessed Loss B/F) × Tax%)
+        # R{r} = assessed loss carried forward from prior years (Col R below)
+        _wc(13, formula=f"=MAX(0,(L{r}-R{r})*$F$4/100)")
 
         # Col N: Net Cash Flow = EBITDA - Cash Tax (depreciation is non-cash)
         ncf_val = float(fin_df["净现金流 NCF (ZAR)"].iloc[yr - 1])
@@ -1954,6 +1970,14 @@ def generate_excel_report() -> bytes:
 
         # Col Q: Net Profit = EBIT - Cash Tax
         _wc(17, formula=f"=L{r}-M{r}")
+
+        # Col R: SA Assessed Loss B/F (carry-forward from prior year)
+        # Year 1: no prior losses; subsequent years: remaining loss = MAX(0, prev_LossBF - prev_EBIT)
+        if yr == 1:
+            _wc(18, val=0, fmt="#,##0", color="888888")
+        else:
+            _wc(18, formula=f"=MAX(0,R{r-1}-L{r-1})", fmt="#,##0", color="888888")
+
         ws3.row_dimensions[r].height = 16
 
     # ── Totals row (row 33) ───────────────────────────────────
@@ -2893,11 +2917,13 @@ with col_content:
             if _is_en:
                 st.markdown("""<div class="info-box">
                     📌 <b>Section 12B</b> accelerated depreciation: Yr1 50% · Yr2 25% · Yr3 25% (SA Income Tax Act) &nbsp;|&nbsp;
+                    SA assessed loss carry-forward applied — early-year losses reduce tax in future profitable years &nbsp;|&nbsp;
                     PV &amp; BESS savings shown separately &nbsp;|&nbsp; BESS revenue &amp; OPEX zeroed after EoL (SOH &lt; 60%)
                 </div>""", unsafe_allow_html=True)
             else:
                 st.markdown("""<div class="info-box">
                     📌 <b>Section 12B</b> 加速折旧：第1年50% · 第2年25% · 第3年25%（南非所得税法）&nbsp;|&nbsp;
+                    已建模评估亏损结转（SA Assessed Loss Carry-Forward）— 前期亏损在未来盈利年度抵减应税收入 &nbsp;|&nbsp;
                     PV 与 BESS 节省分开列示 &nbsp;|&nbsp; BESS 超期（SOH &lt; 60%）后收入及运维归零
                 </div>""", unsafe_allow_html=True)
 
