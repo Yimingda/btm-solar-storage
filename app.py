@@ -2418,6 +2418,22 @@ with _scroll:
             st.session_state.azimuth       = azimuth
             st.session_state.pv_degradation = pv_deg
 
+        # 当 PV 参数变化时重新拉取 PVGIS（首次调用在坐标区，此处是 PV 参数联动）
+        # Re-run PVGIS if any PV parameter changed (lat/lon handled above; this covers the rest)
+        check_auto_pvgis()
+        _ok2 = "success-box" if "✓" in st.session_state.pvgis_status else "warning-box"
+        st.markdown(
+            f'<div class="{_ok2}" style="font-size:0.7rem">🌤 {st.session_state.pvgis_status}</div>',
+            unsafe_allow_html=True,
+        )
+        if st.session_state.annual_pv_kwh and not pv_dis:
+            _eq_h = st.session_state.annual_pv_kwh / max(st.session_state.pv_kwp, 1)
+            st.markdown(
+                f'<div class="derived-value">☀️ {st.session_state.annual_pv_kwh:,.0f} kWh/yr'
+                f' ({_eq_h:.0f} h equiv)</div>',
+                unsafe_allow_html=True,
+            )
+
     # ══════════════════════════════════════════════════════════
     # 3. 储能系统 / BESS System
     # ══════════════════════════════════════════════════════════
