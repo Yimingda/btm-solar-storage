@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import re
 import streamlit as st
-import streamlit.components.v1 as components
 
 from db import (sign_up, sign_in, refresh_session, verify_otp, resend_verification,
                 sign_out, get_user_profile, update_last_login, _secrets_ok)
@@ -18,27 +17,34 @@ _LS_KEY = "btm_auth_v2"
 
 
 def _js_save_session(email: str, refresh_token: str) -> None:
-    """Persist email + refresh_token to browser localStorage (height=0 = invisible)."""
+    """Persist email + refresh_token to browser localStorage.
+
+    Uses st.html(unsafe_allow_javascript=True) which injects the <script>
+    directly into the main page DOM — no iframe, no sandbox restrictions.
+    components.html() was previously used but its iframe sandbox omits
+    allow-top-navigation AND its localStorage writes are unreliable when
+    sandboxed; st.html() eliminates both problems.
+    """
     safe_e  = email.replace("\\", "\\\\").replace('"', '\\"')
     safe_rt = refresh_token.replace("\\", "\\\\").replace('"', '\\"')
-    components.html(f"""<script>
+    st.html(f"""<script>
 (function(){{
   try{{
     localStorage.setItem('{_LS_KEY}', JSON.stringify({{
       e:"{safe_e}", rt:"{safe_rt}", ts:Date.now()
     }}));
-  }}catch(ex){{}}
+  }}catch(ex){{ console.warn('BTM auth-save error:', ex); }}
 }})();
-</script>""", height=0)
+</script>""", unsafe_allow_javascript=True)
 
 
 def _js_clear_session() -> None:
     """Remove saved session from browser localStorage."""
-    components.html(f"""<script>
+    st.html(f"""<script>
 (function(){{
   try{{ localStorage.removeItem('{_LS_KEY}'); }}catch(ex){{}}
 }})();
-</script>""", height=0)
+</script>""", unsafe_allow_javascript=True)
 
 
 def flush_token_to_storage() -> None:
@@ -68,19 +74,20 @@ def flush_token_to_storage() -> None:
 def _inject_auth_loader() -> None:
     """
     JS bridge: read localStorage and, if a valid saved session exists,
-    navigate the TOP-LEVEL window to ?_btm_rt=<token>&_btm_e=<email>.
-    Uses window.top (not window.parent) because Streamlit components run
-    inside a nested srcdoc iframe — window.parent is Streamlit's own frame,
-    not the browser window. window.top bypasses all intermediate frames.
-    A 500 ms setTimeout lets the Streamlit DOM fully settle (cold loads on
-    Streamlit Cloud can be slow) before we access window.top.location.
+    navigate the page to ?_btm_rt=<token>&_btm_e=<email>.
+
+    Uses st.html(unsafe_allow_javascript=True) so the script runs DIRECTLY
+    in the main page DOM — not inside a sandboxed iframe.  The previous
+    components.html() approach failed silently on Streamlit Cloud because
+    the component iframe sandbox omits allow-top-navigation, which blocks
+    window.top.location.replace() regardless of origin.  Running in the main
+    page context means window.location IS the page — no navigation restriction.
     """
-    components.html(f"""<script>
+    st.html(f"""<script>
 (function(){{
   setTimeout(function(){{
     try{{
-      var top = window.top || window.parent;
-      var url = new URL(top.location.href);
+      var url = new URL(window.location.href);
       if(url.searchParams.has('_btm_rt')){{ return; }}   // already bridged
 
       var raw = localStorage.getItem('{_LS_KEY}');
@@ -91,36 +98,31 @@ def _inject_auth_loader() -> None:
       }}
       if(!auth || !auth.rt){{ return; }}
 
-      // Client-side 30-day expiry guard
+      // Client-side 30-day expiry guard (30 days)
       if(Date.now() - (auth.ts||0) > 30*86400000){{
         localStorage.removeItem('{_LS_KEY}'); return;
       }}
 
       url.searchParams.set('_btm_rt', auth.rt);
       url.searchParams.set('_btm_e',  auth.e||'');
-
-      // window.top is the actual browser tab — should always be accessible
-      // on the same origin. Try .replace() first (no back-button entry);
-      // fall back to .href assignment if .replace() throws.
-      try{{ top.location.replace(url.href); }}
-      catch(e1){{
-        try{{ top.location.href = url.href; }}
-        catch(e2){{ console.warn('BTM auth-loader: redirect blocked', e2); }}
-      }}
+      window.location.replace(url.href);
     }}catch(ex){{ console.warn('BTM auth-loader error:', ex); }}
-  }}, 500);
+  }}, 300);
 }})();
-</script>""", height=0)
+</script>""", unsafe_allow_javascript=True)
 
 
 def _inject_autocomplete() -> None:
-    """Enable browser-native autocomplete on the email + password inputs."""
-    components.html("""<script>
+    """Enable browser-native autocomplete on the email + password inputs.
+
+    Script runs in main page context via st.html() — uses document directly
+    (no window.parent indirection needed since we're not in an iframe).
+    """
+    st.html("""<script>
 setTimeout(function(){
   try{
-    var doc = window.parent.document;
     var found = 0;
-    doc.querySelectorAll('input').forEach(function(inp){
+    document.querySelectorAll('input').forEach(function(inp){
       if(found===0 && inp.type==='text'){
         inp.setAttribute('autocomplete','username');
         inp.setAttribute('name','username');
@@ -133,7 +135,7 @@ setTimeout(function(){
     });
   }catch(e){}
 }, 400);
-</script>""", height=0)
+</script>""", unsafe_allow_javascript=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -302,7 +304,7 @@ def _render_login():
     _ls_checked = st.session_state.get("_btm_ls_checked", False)
     if not _ls_checked and "_btm_rt" not in st.query_params:
         st.session_state["_btm_ls_checked"] = True   # mark before inject
-        _inject_auth_loader()   # JS: read localStorage → window.top redirect
+        _inject_auth_loader()   # JS: read localStorage → window.location.replace redirect
 
     # Pre-filled email (set if user clicked "remember me" last time)
     _prefill = st.session_state.pop("_btm_prefill_email", "")
