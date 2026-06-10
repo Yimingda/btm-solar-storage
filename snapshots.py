@@ -41,6 +41,8 @@ _SAVE_KEYS = [
     "w_morning_peak", "w_evening_peak", "w_standard", "w_off_peak",
     "s_morning_peak", "s_evening_peak", "s_standard", "s_off_peak",
     "lang",
+    # Project timeline
+    "bess_lead_months", "pv_lead_months",
 ]
 
 
@@ -91,6 +93,14 @@ def restore_snapshot(params: dict,
         st.session_state[key] = val
     for k in ("results", "fin_df", "hourly_df"):
         st.session_state[k] = None
+    # ── Sync divergent widget-state keys so number_inputs reflect restored values.
+    # The lat/lon inputs use key="_lat_in"/"_lon_in" (not "lat"/"lon"), so Streamlit
+    # would otherwise display the stale widget value and then overwrite the restored
+    # coordinates in the next render cycle.
+    if "lat" in params:
+        st.session_state["_lat_in"] = params["lat"]
+    if "lon" in params:
+        st.session_state["_lon_in"] = params["lon"]
     # ── Active-project tracking ──────────────────────────────
     st.session_state["_active_snap_id"]     = snap_id
     st.session_state["_active_snap_name"]   = snap_name

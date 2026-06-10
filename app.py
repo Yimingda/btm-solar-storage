@@ -107,22 +107,40 @@ st.markdown("""
         font-family: 'IBM Plex Sans', sans-serif !important;
     }
 
-    /* 压缩 Streamlit 默认顶部空白 */
+    /* 给 Streamlit 工具栏留出空间，并移除内容区顶部多余留白 */
     .block-container {
-        padding-top: 0.5rem !important;
+        padding-top: 0 !important;
         padding-bottom: 1rem !important;
     }
     header[data-testid="stHeader"] {
-        height: 0 !important;
-        min-height: 0 !important;
+        height: 2.8rem !important;
+        min-height: 2.8rem !important;
+        background: #080C18 !important;
+    }
+    /* 语言选择行与主标题同行：整行统一底边框 + 深色背景 */
+    div[data-testid="stHorizontalBlock"]:first-of-type {
+        border-bottom: 1px solid var(--primary);
+        margin-bottom: 1rem;
+    }
+    div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"] {
+        background: linear-gradient(135deg, #0A0E1A 0%, #111827 50%, #0A1628 100%);
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"]:last-child {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: flex-end !important;
+        padding-right: 1.5rem !important;
     }
     #MainMenu, footer { visibility: hidden; }
 
+    /* 下边框 / 下外边距由整行容器（stHorizontalBlock）统一承载 */
     .main-header {
         background: linear-gradient(135deg, #0A0E1A 0%, #111827 50%, #0A1628 100%);
-        border-bottom: 1px solid var(--primary);
+        border-bottom: none;
         padding: 1rem 1.5rem;
-        margin-bottom: 1rem;
+        margin-bottom: 0;
         display: flex;
         align-items: center;
         gap: 1rem;
@@ -575,9 +593,9 @@ def get_soh_by_year(annual_cycles: float, c_rate: float | None = None) -> list[f
             n = min(len(lo_a), len(hi_a))
             base = [lo_a[i] * (1 - frac) + hi_a[i] * frac for i in range(n)]
 
-    # Pad to 26 entries (year 0-25); years beyond table = 0.0 (past EoL)
+    # Pad to 21 entries (year 0-20); years beyond table = 0.0 (past EoL)
     result: list[float] = list(base)
-    while len(result) < 26:
+    while len(result) < 21:
         result.append(0.0)
 
     # Zero out any year after EoL (SOH drops below threshold)
@@ -620,7 +638,7 @@ SECTION_12B = {1: 0.50, 2: 0.30, 3: 0.20}
 # 纯储能 / Pure BESS depreciation (non-12B): straight-line 20% × 5 years
 SECTION_BESS_ONLY = {1: 0.20, 2: 0.20, 3: 0.20, 4: 0.20, 5: 0.20}
 
-ANALYSIS_YEARS = 25
+ANALYSIS_YEARS = 20
 FOREX_FALLBACK = 18.5   # USD/ZAR 后备汇率 / fallback rate
 
 # C倍率选项 / C-rate options
@@ -640,7 +658,7 @@ _EN: dict[str, str] = {
     "🚀 开始寻优 / Start Optimization":           "🚀 Start Optimization",
     # ── Tabs ──
     "📊 计算与结果 / Run & Results":              "📊 Run & Results",
-    "📋 25年财务报表 / 25Y Model":                "📋 25-Year Financial Model",
+    "📋 20年财务报表 / 20Y Model":                "📋 20-Year Financial Model",
     "⏱️ 8760小时调度 / Hourly Dispatch":         "⏱️ Hourly Dispatch",
     "🔍 AI 寻优 / Optimization":                  "🔍 Capacity Optimization",
     # ── Expanders ──
@@ -673,6 +691,10 @@ _EN: dict[str, str] = {
     "电价涨幅 Tariff Esc. (%/yr)":               "Tariff Escalation (%/yr)",
     "折现率 Discount Rate (%)":                   "Discount Rate (%)",
     "企业税率 Corp Tax (%)":                      "Corporate Tax Rate (%)",
+    # ── Project timeline ──
+    "🗓️ 项目工期 / Timeline":                    "🗓️ Project Timeline",
+    "BESS 交货周期 (月)":                         "BESS Delivery Lead (months)",
+    "PV 交货周期 (月)":                           "PV Delivery Lead (months)",
     "早峰 Morn Peak":                             "Morning Peak",
     "平期 Standard":                              "Standard",
     "晚峰 Eve Peak":                              "Evening Peak",
@@ -688,7 +710,7 @@ _EN: dict[str, str] = {
         "### 🚀 Run Physical Simulation (8,760-Hour Dispatch)",
     "📈 关键财务指标 / Key Metrics":             "📈 Key Financial Metrics",
     "⚡ 年度运营指标 / Year 1 Operations":        "⚡ Year 1 Operations",
-    "📊 25年现金流图表 / 25Y Cash Flow":          "📊 25-Year Cash Flow",
+    "📊 20年现金流图表 / 20Y Cash Flow":          "📊 20-Year Cash Flow",
     "📥 数据导出 / Export":                       "📥 Data Export",
     "📊 专业 Excel 报告 / Professional Excel Report": "📊 Professional Excel Report",
     "🔑 报告密码 Report Password":                "🔑 Report Password",
@@ -700,7 +722,7 @@ _EN: dict[str, str] = {
     "📊 全部寻优结果 / Full Results":             "📊 Full Optimisation Results",
     "#### 🏆 最优配置 / Best Configuration":      "#### 🏆 Optimal Configuration",
     "总投资 CAPEX":                               "Total CAPEX",
-    "净现值 NPV (25yr)":                          "NPV (25-Year)",
+    "净现值 NPV (20yr)":                          "NPV (20-Year)",
     "内部收益率 IRR":                             "Project IRR",
     "回收期 Payback":                             "Simple Payback",
     "年总节省 Yr1 Saving":                        "Yr1 Total Saving",
@@ -712,8 +734,8 @@ _EN: dict[str, str] = {
     "最优NPV Best NPV":                           "Best NPV",
     "最优IRR Best IRR":                           "Best IRR",
     # ── Section header markdown strings ──
-    "### 📋 25年逐年财务报表 / 25-Year Annual Financial Statement":
-        "### 📋 25-Year Annual Financial Statement",
+    "### 📋 20年逐年财务报表 / 20-Year Annual Financial Statement":
+        "### 📋 20-Year Annual Financial Statement",
     "### ⏱️ 8760小时调度明细 / Hourly Dispatch Log":
         "### ⏱️ Hourly Dispatch Log",
     "### 🔍 max(NPV) 全局容量寻优 / Global Capacity Optimization":
@@ -724,7 +746,7 @@ _EN: dict[str, str] = {
     "⚠️ 无暂存数据 / Nothing saved yet":          "⚠️ No snapshot saved yet",
     "⚙️ 正在运行 8760h 物理调度引擎... / Running dispatch engine...":
         "⚙️ Running 8,760-hour dispatch engine…",
-    "📊 计算 25 年财务模型...":                   "📊 Building 25-year financial model…",
+    "📊 计算 20 年财务模型...":                   "📊 Building 20-year financial model…",
     "✅ 计算完成 / Calculation Complete!":        "✅ Calculation complete!",
     "✅ 报告已生成，点击下方按钮下载 / Report ready — click to download":
         "✅ Report ready — click the button below to download",
@@ -734,12 +756,12 @@ _EN: dict[str, str] = {
     # ── Excel sheet names ──
     "封面 Cover":                                 "Cover",
     "参数 Parameters":                            "Parameters",
-    "财务模型 25Y Model":                         "25Y Financial Model",
+    "财务模型 20Y Model":                         "20Y Financial Model",
     "月度汇总 Monthly":                           "Monthly Summary",
     "图表 Charts":                                "Charts",
     "原始数据 Raw Data":                          "Raw Data",
     # ── Excel chart titles ──
-    "25年累计现金流 / Cumulative Cash Flow (ZAR)":"Cumulative Cash Flow — 25 Years (ZAR)",
+    "20年累计现金流 / Cumulative Cash Flow (ZAR)":"Cumulative Cash Flow — 20 Years (ZAR)",
     "年度净现金流 / Annual Net Cash Flow (ZAR)":  "Annual Net Cash Flow (ZAR)",
     "BESS SOH 衰减 / Battery SOH Degradation (%)":"Battery SOH Degradation (%)",
     "PV & BESS 年度节省 / Annual Savings Breakdown (ZAR)":
@@ -811,17 +833,20 @@ DEFAULT_PARAMS = {
     "tilt": 26.0,                  # abs(lat) for SA
     "azimuth": 180.0,              # 南半球正北朝赤道 = 180° in PVGIS convention
     "rte": 88.2,
-    "bess_cycles": 6000,
+    "bess_cycles": 10000,
     "dod": 100.0,
     "forex_usd_zar": FOREX_FALLBACK,
     "pv_usd_per_w": 0.75,
     "bess_usd_per_wh": 0.20,
     "pv_opex_per_kwp": 125.0,
     "bess_opex_per_kwh": 10.0,
-    "tariff_escalation": 6.5,
+    "tariff_escalation": 8.0,
     "discount_rate": 10.0,
     "tax_rate": 27.0,
     "pv_degradation": 0.5,
+    # 项目工期 / Project commissioning lead times (months from PO)
+    "bess_lead_months": 6,
+    "pv_lead_months": 12,
     # 界面语言 / UI language: "bilingual" | "english"
     "lang": "bilingual",
     # 电价模式 / Tariff mode (see TARIFF_DB)
@@ -1366,17 +1391,19 @@ def run_8760_dispatch(
 
 def compute_bess_eol(throughput_yr1: float, bess_kwh: float,
                      cycles: int, dod: float) -> tuple[float, float]:
-    """计算 BESS 物理退役年份和年等效循环次数 / Compute BESS EoL and annual cycles"""
+    """计算 BESS 物理退役年份和年等效循环次数 / Compute BESS EoL and annual cycles
+    EoL capped at 20 years (beyond the 25-yr model's meaningful SOH data range).
+    """
     usable = bess_kwh * dod / 100.0
     if usable <= 0:
-        return 999.0, 0.0
+        return 20.0, 0.0
     annual_cycles = throughput_yr1 / (2.0 * usable)
     if annual_cycles <= 0:
-        return 999.0, 0.0
-    return round(cycles / annual_cycles, 2), round(annual_cycles, 2)
+        return 20.0, 0.0
+    return min(20.0, round(cycles / annual_cycles, 2)), round(annual_cycles, 2)
 
 
-def run_25yr_financial_model(
+def run_20yr_financial_model(
     dispatch_yr1: dict,
     pv_kwp: float,
     bess_kwh: float,
@@ -1384,11 +1411,15 @@ def run_25yr_financial_model(
     params: dict,
     annual_cycles: float = 365.0,
     c_rate: float = 0.25,
+    precomm_bess_months: int = 0,
 ) -> pd.DataFrame:
     """
-    25年逐年财务模型（含 Section 12B、SOH 衰减、EoL 断崖）
+    20年逐年财务模型（含 Section 12B、SOH 衰减、EoL 断崖）
     SOH 来自华为官方 LUNA2000-5015-2S 衰减表（按 c_rate 选取 0.25/0.33/0.50C 分表），
     按年等效循环次数插值。PV 节省仅受光衰影响；BESS 节省受 SOH 影响；SOH < 60% 后归零。
+
+    precomm_bess_months: BESS-only period before PV goes live (between BESS go-live and PV go-live).
+    During this period BESS earns savings that partially offset the initial CAPEX outflow.
     """
     pv_capex   = pv_kwp   * params["pv_capex_per_kwp"]
     bess_capex = bess_kwh * params["bess_capex_per_kwh"]
@@ -1411,8 +1442,18 @@ def run_25yr_financial_model(
     # 按实际年循环次数取华为官方 SOH 曲线 / Official SOH curve at actual cycle rate
     soh_arr = get_soh_by_year(annual_cycles, c_rate=c_rate)
 
+    # ── Pre-commissioning BESS-only period ───────────────────────────────────
+    # Between BESS go-live and PV go-live (months), BESS earns while PV is still being built.
+    # Treated as a Year-0 cash inflow that partially offsets the initial CAPEX.
+    # After-tax: BTM company deducts BESS O&M against gross saving; no depreciation yet.
+    _precomm_bess_gross = base_bess_save * precomm_bess_months / 12.0
+    _precomm_bess_opex  = bess_kwh * params["bess_opex_per_kwh"] * precomm_bess_months / 12.0
+    _precomm_ebitda     = _precomm_bess_gross - _precomm_bess_opex
+    # Immediate BTM tax realization (same logic as main loop): cash_tax = ebitda × tax
+    precomm_net_cf      = _precomm_ebitda * (1 - tax)
+
     rows = []
-    cum_cf = -total_capex
+    cum_cf = -total_capex + precomm_net_cf   # Year-0 starts partially recovered by BESS precomm
     assessed_loss_cf = 0.0   # SA assessed loss carry-forward (accumulated unabsorbed losses)
 
     for yr in range(1, ANALYSIS_YEARS + 1):
@@ -1438,24 +1479,26 @@ def run_25yr_financial_model(
 
         # 折旧 / Depreciation (12B 50/30/20 for PV; 20%×5yr straight-line for pure BESS)
         depreciation = total_capex * _depr_sched.get(yr, 0.0)
-        # tax_shield: 名义节税 = dep × tax%（理论上限；实际节税通过结转在未来年份兑现）
-        # Theoretical tax shield = dep × rate (actual benefit may be deferred via carry-forward)
+        # Tax shield = dep × tax rate — realized immediately (BTM at profitable company)
         tax_shield = depreciation * tax
 
         ebit = ebitda - depreciation
 
-        # ── SA Assessed Loss Carry-Forward (Income Tax Act s20) ──────────
-        # If taxable income (EBIT - prior losses) is negative, the excess loss
-        # is carried forward indefinitely and deducted in future profitable years.
-        assessed_loss_cf_start = assessed_loss_cf        # carry-forward available this year
-        taxable_income = ebit - assessed_loss_cf_start   # EBIT net of prior losses
-        cash_tax = max(0.0, taxable_income * tax)        # pay tax only on positive taxable income
-        # Update carry-forward: absorb if income positive, accumulate if still negative
-        assessed_loss_cf = max(0.0, -taxable_income)     # remaining unabsorbed loss after this yr
+        # ── BTM Project Tax Treatment ─────────────────────────────────────
+        # The host company already has significant taxable income from operations.
+        # Section 12B / straight-line depreciation is deducted against THAT income
+        # immediately — there is no "standalone entity" loss to carry forward.
+        # Net tax impact on the company = EBIT × tax_rate
+        #   positive → company pays more tax (savings exceed deduction)
+        #   negative → company pays less tax (deduction exceeds project income)
+        #              this negative amount is a REAL cash inflow (smaller SARS cheque)
+        # NCF = EBITDA − cash_tax = EBITDA×(1−tax) + depreciation×tax
+        cash_tax = ebit * tax          # can be negative in 12B years → net_cf > ebitda
+        assessed_loss_cf = 0.0         # N/A: absorbed against company's main income
         # ─────────────────────────────────────────────────────────────────
 
-        net_profit = ebit - cash_tax
-        net_cf   = ebitda - cash_tax       # 折旧是非现金项，EBITDA - 实缴税
+        net_profit = ebit - cash_tax   # = ebit × (1 − tax)
+        net_cf   = ebitda - cash_tax   # = EBITDA×(1−tax) + dep×tax
         pv_cf    = net_cf / (1 + disc) ** yr
 
         cum_cf += net_cf
@@ -1479,13 +1522,16 @@ def run_25yr_financial_model(
             "累计CF (ZAR)": round(cum_cf, 0),
         })
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), round(precomm_net_cf, 0)
 
 
 def compute_npv_irr(fin_df: pd.DataFrame, total_capex: float,
-                    discount_rate: float) -> tuple[float, float]:
-    """计算 NPV 和 IRR（二分法）/ Compute NPV and IRR via bisection"""
-    cfs = [-total_capex] + fin_df["净现金流 NCF (ZAR)"].tolist()
+                    discount_rate: float,
+                    year0_extra_cf: float = 0.0) -> tuple[float, float]:
+    """计算 NPV 和 IRR（二分法）/ Compute NPV and IRR via bisection
+    year0_extra_cf: pre-commissioning BESS net CF added to Year-0 (reduces effective initial outflow)
+    """
+    cfs = [-total_capex + year0_extra_cf] + fin_df["净现金流 NCF (ZAR)"].tolist()
     dr = discount_rate / 100.0
     npv = sum(cf / (1 + dr) ** t for t, cf in enumerate(cfs))
 
@@ -1534,7 +1580,7 @@ def check_auto_pvgis():
 
 # ─────────────────────────────────────────────────────────────
 # Excel 专业报告生成器 / Professional Excel Report Generator
-# 6 sheets: Cover · Parameters · 25Y Model · Monthly · Charts · Raw Data
+# 6 sheets: Cover · Parameters · 20Y Model · Monthly · Charts · Raw Data
 # ─────────────────────────────────────────────────────────────
 def generate_excel_report() -> bytes:
     """
@@ -1663,7 +1709,7 @@ def generate_excel_report() -> bytes:
     c.fill = _fill(C_DARK); c.alignment = _align("left")
     ws1.row_dimensions[5].height = 20
 
-    payback_str = f"{res['payback']:.2f} yr" if res['payback'] else "25yr+"
+    payback_str = f"{res['payback']:.2f} yr" if res['payback'] else "20yr+"
     if _en_mode:
         info_rows = [
             ("Location",             f"Lat {ss.lat:.3f}°  /  Lon {ss.lon:.3f}°"),
@@ -1698,6 +1744,37 @@ def generate_excel_report() -> bytes:
         cv.alignment = _align(); cv.border = _bdr()
         ws1.row_dimensions[r].height = 18
 
+    # Timeline row (row 14) — between info block and KPI header
+    _tl_res = res  # res is the results dict available in generate_excel_report
+    _bess_lead_xl = _tl_res.get("bess_lead_months", ss.get("bess_lead_months", 6))
+    _pv_lead_xl   = _tl_res.get("pv_lead_months",   ss.get("pv_lead_months",  12))
+    _po_xl        = _tl_res.get("po_date",        _dt.date.today().isoformat())
+    _bess_gol_xl  = _tl_res.get("bess_golive",    "—")
+    _pv_gol_xl    = _tl_res.get("pv_golive",      "—")
+    _end_xl       = _tl_res.get("model_end",      "—")
+    _pcomm_xl     = _tl_res.get("precomm_months", 0) or 0
+    _pcomm_ncf_xl = _tl_res.get("precomm_ncf",   0.0) or 0.0
+
+    if _en_mode:
+        _tl_str = (
+            f"Project Timeline:  PO: {_po_xl}  →  BESS: {_bess_gol_xl} (+{_bess_lead_xl}mo)"
+            f"  →  PV: {_pv_gol_xl} (+{_pv_lead_xl}mo)  →  End: {_end_xl} (PV+{ANALYSIS_YEARS}yr)"
+            + (f"  |  BESS pre-comm: {_pcomm_xl}mo  →  Year-0 BESS net: R {_pcomm_ncf_xl:,.0f}"
+               if _pcomm_xl > 0 else "")
+        )
+    else:
+        _tl_str = (
+            f"项目工期：PO下发: {_po_xl}  →  BESS上线: {_bess_gol_xl} (+{_bess_lead_xl}月)"
+            f"  →  PV上线: {_pv_gol_xl} (+{_pv_lead_xl}月)  →  模型终止: {_end_xl} (PV后{ANALYSIS_YEARS}年)"
+            + (f"  |  BESS预运营: {_pcomm_xl}月  →  Year-0净收益: R {_pcomm_ncf_xl:,.0f}"
+               if _pcomm_xl > 0 else "")
+        )
+    ws1.merge_cells("B14:G14")
+    c14 = ws1.cell(row=14, column=2, value=_tl_str)
+    c14.font = Font("Calibri", size=9, italic=True, color=C_NAVY)
+    c14.fill = _fill("EAF0FB"); c14.alignment = _align(wrap=False); c14.border = _bdr()
+    ws1.row_dimensions[14].height = 16
+
     # KPI section header
     ws1.merge_cells("B15:G15")
     c = ws1["B15"]
@@ -1709,20 +1786,20 @@ def generate_excel_report() -> bytes:
     if _en_mode:
         kpis = [
             ("Total CAPEX",         f"R {res['total_capex']/1e6:.2f} M",      "ZAR"),
-            ("NPV (25yr)",          f"R {res['npv']/1e6:.2f} M",              "ZAR"),
+            ("NPV (20yr)",          f"R {res['npv']/1e6:.2f} M",              "ZAR"),
             ("Project IRR",         f"{res['irr']:.2f}%",                     "IRR"),
             ("Simple Payback",      payback_str,                              ""),
             ("Yr1 Total Saving",    f"R {d1['annual_saving_ZAR']/1e6:.2f} M", "ZAR/yr"),
-            ("BESS EoL",            f"Year {res['eol_years']:.1f}",           "SOH < 60%"),
+            ("BESS EoL",            f"Year {min(20.0, res['eol_years']):.1f}", "SOH < 60%"),
         ]
     else:
         kpis = [
             ("总投资 CAPEX",       f"R {res['total_capex']/1e6:.2f} M",      "ZAR"),
-            ("净现值 NPV 25yr",    f"R {res['npv']/1e6:.2f} M",              "ZAR"),
+            ("净现值 NPV 20yr",    f"R {res['npv']/1e6:.2f} M",              "ZAR"),
             ("内部回报率 IRR",      f"{res['irr']:.2f}%",                     "Project IRR"),
             ("回收期 Payback",     payback_str,                              "Simple Payback"),
             ("年1节省 Yr1 Save",   f"R {d1['annual_saving_ZAR']/1e6:.2f} M", "ZAR/yr"),
-            ("BESS寿命 EoL",       f"Year {res['eol_years']:.1f}",           "SOH < 60%"),
+            ("BESS寿命 EoL",       f"Year {min(20.0, res['eol_years']):.1f}", "SOH < 60%"),
         ]
     # 3 cols × 2 rows layout
     kpi_layout = [
@@ -1860,48 +1937,59 @@ def generate_excel_report() -> bytes:
     _p_row(32, "折现率 Discount Rate",            ss.discount_rate,     "%",           fmt="0.0")
     _p_row(33, "企业税率 Corp Tax Rate",           ss.tax_rate,          "%",           fmt="0.0")
 
-    # ── Tariff Rates (rows 35-43) ─────────────────────────────
-    _p_sec(35, "▌ 电价 / Tariff Rates (ZAR/kWh incl VAT)")
-    _p_row(36, T("电价模式 Tariff Mode"),             ss.get("tariff_mode", "—"), "—", locked=True)
-    _p_row(37, "冬季高峰 Winter Peak",             ss.get("w_morning_peak", 0), "ZAR/kWh", fmt="0.0000")
-    _p_row(38, "冬季平期 Winter Std",              ss.get("w_standard", 0),    "ZAR/kWh",  fmt="0.0000")
-    _p_row(39, "冬季谷期 Winter Off-peak",         ss.get("w_off_peak", 0),    "ZAR/kWh",  fmt="0.0000")
-    _p_row(40, "夏季高峰 Summer Peak",             ss.get("s_morning_peak", 0),"ZAR/kWh",  fmt="0.0000")
-    _p_row(41, "夏季平期 Summer Std",              ss.get("s_standard", 0),    "ZAR/kWh",  fmt="0.0000")
-    _p_row(42, "夏季谷期 Summer Off-peak",         ss.get("s_off_peak", 0),    "ZAR/kWh",  fmt="0.0000")
+    # ── Project Timeline (row 34) ──────────────────────────────
+    _p_sec(34, "▌ 项目工期 / Project Timeline")
+    _p_row(35, "PO下发日期 PO Date",              res.get("po_date", _dt.date.today().isoformat()), "—", locked=True)
+    _p_row(36, "BESS交货周期 BESS Lead",          ss.get("bess_lead_months", 6),  "months",  fmt="0")
+    _p_row(37, "PV交货周期 PV Lead",              ss.get("pv_lead_months", 12),   "months",  fmt="0")
+    _p_row(38, "BESS上线 BESS Go-Live",           res.get("bess_golive", "—"),    "—",       locked=True)
+    _p_row(39, "PV上线 PV Go-Live",               res.get("pv_golive", "—"),      "—",       locked=True)
+    _p_row(40, "模型终止 Model End",               res.get("model_end", "—"),      "—",       locked=True)
+    _p_row(41, "BESS预运营 Pre-comm (mo)",        res.get("precomm_months", 0),   "months",  fmt="0", locked=True)
+    _p_row(42, "Year-0 BESS净收益 Pre-comm NCF",  res.get("precomm_ncf", 0.0),    "ZAR",     fmt="#,##0", locked=True)
 
-    # ── PVGIS Data LOCKED (rows 44-60) ────────────────────────
-    _p_sec(44, "▌ PVGIS 数据（锁定 LOCKED — 导出时快照）", bg=C_MID)
+    # ── Tariff Rates (rows 44-52) ─────────────────────────────
+    _p_sec(44, "▌ 电价 / Tariff Rates (ZAR/kWh incl VAT)")
+    _p_row(45, T("电价模式 Tariff Mode"),             ss.get("tariff_mode", "—"), "—", locked=True)
+    _p_row(46, "冬季高峰 Winter Peak",             ss.get("w_morning_peak", 0), "ZAR/kWh", fmt="0.0000")
+    _p_row(47, "冬季平期 Winter Std",              ss.get("w_standard", 0),    "ZAR/kWh",  fmt="0.0000")
+    _p_row(48, "冬季谷期 Winter Off-peak",         ss.get("w_off_peak", 0),    "ZAR/kWh",  fmt="0.0000")
+    _p_row(49, "夏季高峰 Summer Peak",             ss.get("s_morning_peak", 0),"ZAR/kWh",  fmt="0.0000")
+    _p_row(50, "夏季平期 Summer Std",              ss.get("s_standard", 0),    "ZAR/kWh",  fmt="0.0000")
+    _p_row(51, "夏季谷期 Summer Off-peak",         ss.get("s_off_peak", 0),    "ZAR/kWh",  fmt="0.0000")
+
+    # ── PVGIS Data LOCKED (rows 53-69) ────────────────────────
+    _p_sec(53, "▌ PVGIS 数据（锁定 LOCKED — 导出时快照）", bg=C_MID)
     monthly_kwh = pvg.get("monthly_kwh", [0] * 12)
-    _p_row(45, "纬度 Latitude",       ss.lat,                     "°",       locked=True, fmt="0.000")
-    _p_row(46, "经度 Longitude",      ss.lon,                     "°",       locked=True, fmt="0.000")
-    _p_row(47, "年发电量 Annual PV",  pvg.get("annual_kwh", 0),   "kWh/yr",  locked=True, fmt="#,##0")
+    _p_row(54, "纬度 Latitude",       ss.lat,                     "°",       locked=True, fmt="0.000")
+    _p_row(55, "经度 Longitude",      ss.lon,                     "°",       locked=True, fmt="0.000")
+    _p_row(56, "年发电量 Annual PV",  pvg.get("annual_kwh", 0),   "kWh/yr",  locked=True, fmt="#,##0")
     for mi, mn in enumerate(["Jan","Feb","Mar","Apr","May","Jun",
                               "Jul","Aug","Sep","Oct","Nov","Dec"]):
         val_m = monthly_kwh[mi] if mi < len(monthly_kwh) else 0
         _pv_gen_lbl = (f"{mn} PV Generation" if st.session_state.get("lang") == "english"
                        else f"{mn} 发电量 PV Gen")
-        _p_row(48 + mi, _pv_gen_lbl, val_m, "kWh", locked=True, fmt="#,##0")
+        _p_row(57 + mi, _pv_gen_lbl, val_m, "kWh", locked=True, fmt="#,##0")
 
-    # ── Dispatch Results LOCKED (rows 61-66) ──────────────────
-    _p_sec(61, ("▌ Yr1 Dispatch Results (Locked)" if st.session_state.get("lang") == "english"
+    # ── Dispatch Results LOCKED (rows 70-74) ──────────────────
+    _p_sec(70, ("▌ Yr1 Dispatch Results (Locked)" if st.session_state.get("lang") == "english"
                 else "▌ Yr1 Dispatch Results / 年1调度结果 (Locked)"), bg=C_MID)
-    _p_row(62, "年1 PV 节省 Yr1 PV Saving",    d1["annual_pv_saving_ZAR"],   "ZAR/yr", locked=True, fmt="#,##0")
-    _p_row(63, "年1 BESS 节省 Yr1 BESS Save",  d1["annual_bess_saving_ZAR"], "ZAR/yr", locked=True, fmt="#,##0")
-    _p_row(64, "年等效循环 Annual Cycles",       res["annual_cycles"],          "/yr",    locked=True, fmt="0.00")
-    _p_row(65, "BESS 寿命 BESS EoL",           res["eol_years"],              "years",  locked=True, fmt="0.0")
+    _p_row(71, "年1 PV 节省 Yr1 PV Saving",    d1["annual_pv_saving_ZAR"],   "ZAR/yr", locked=True, fmt="#,##0")
+    _p_row(72, "年1 BESS 节省 Yr1 BESS Save",  d1["annual_bess_saving_ZAR"], "ZAR/yr", locked=True, fmt="#,##0")
+    _p_row(73, "年等效循环 Annual Cycles",       res["annual_cycles"],          "/yr",    locked=True, fmt="0.00")
+    _p_row(74, "BESS 寿命 BESS EoL",           min(20.0, res["eol_years"]),   "years",  locked=True, fmt="0.0")
 
-    # ── SOH Table LOCKED (rows 67-93) ─────────────────────────
-    _p_sec(67, "▌ BESS SOH Degradation Table — Huawei LUNA2000-2236-1S (Locked)", bg=C_MID)
+    # ── SOH Table LOCKED (rows 76-97) ─────────────────────────
+    _p_sec(76, "▌ BESS SOH Degradation Table — Huawei LUNA2000-2236-1S (Locked)", bg=C_MID)
     _soh_hdrs = (["Year", "SOH (%)", "Status"] if st.session_state.get("lang") == "english"
                  else ["年份 Year", "SOH (%)", "状态 Status"])
     for ci_h, hdr_h in enumerate(_soh_hdrs, start=2):
-        hc = ws2.cell(row=68, column=ci_h, value=hdr_h)
+        hc = ws2.cell(row=77, column=ci_h, value=hdr_h)
         hc.font = _font(bold=True, sz=9, color="FFFFFF")
         hc.fill = _fill(C_DARK); hc.alignment = _align("center"); hc.border = _bdr()
-    ws2.row_dimensions[68].height = 15
-    for yr_i in range(1, 26):          # years 1..25 → Parameters rows 69..93
-        sr = 68 + yr_i
+    ws2.row_dimensions[77].height = 15
+    for yr_i in range(1, ANALYSIS_YEARS + 1):  # years 1..20 → Parameters rows 78..97
+        sr = 77 + yr_i
         sv = soh_arr[yr_i] if yr_i < len(soh_arr) else 0.0
         alive_s = sv >= BESS_EOL_SOH
         yc = ws2.cell(row=sr, column=2, value=yr_i)
@@ -1917,10 +2005,10 @@ def generate_excel_report() -> bytes:
         ws2.row_dimensions[sr].height = 15
 
     # ════════════════════════════════════════════════════════════
-    # SHEET 3 — 财务模型 25Y Model
+    # SHEET 3 — 财务模型 20Y Model
     # 所有公式使用工作表内绝对引用（$B$5 等），不跨表，确保 Excel 正常计算
     # ════════════════════════════════════════════════════════════
-    ws3 = wb.create_sheet(T("财务模型 25Y Model"))
+    ws3 = wb.create_sheet(T("财务模型 20Y Model"))
     ws3.sheet_view.showGridLines = False
     ws3.freeze_panes = "A8"    # freeze title + param section + header
     for ci, w in enumerate([6,14,10,14,14,14,12,12,14,13,12,12,12,14,13,14,12,14], 1):
@@ -1930,9 +2018,9 @@ def generate_excel_report() -> bytes:
     ws3.merge_cells("A1:R1")
     _p2_sheet = T("参数 Parameters")   # sheet name (already lang-aware via T())
     if st.session_state.get("lang") == "english":
-        _ws3_title = f"25-Year Financial Model — Edit white cells in '{_p2_sheet}' sheet · Row 4 formulas auto-pull & recalculate"
+        _ws3_title = f"20-Year Financial Model — Edit white cells in '{_p2_sheet}' sheet · Row 4 formulas auto-pull & recalculate"
     else:
-        _ws3_title = (f"25-Year Financial Model / 25年财务模型  "
+        _ws3_title = (f"20-Year Financial Model / 20年财务模型  "
                       f"—  Edit white cells in '{_p2_sheet}' sheet · Row 4 formulas auto-pull & recalculate / 在参数页修改白色单元格，第4行自动联动，全表重算")
     c = ws3.cell(row=1, column=1, value=_ws3_title)
     c.font = Font("Calibri", size=12, bold=True, color="FFFFFF")
@@ -1958,12 +2046,12 @@ def generate_excel_report() -> bytes:
     # 跨表引用：参数值行（Row 4）用公式链接到 Sheet 2，Sheet 2 白色单元格改动后
     # 财务模型所有列（D列起用 $X$4 绝对引用）自动重算，实现一页参数驱动全表
     # Cross-sheet links: Row 4 cells reference '参数 Parameters' sheet.
-    # Changing any white cell in Sheet 2 propagates to the full 25Y model instantly.
+    # Changing any white cell in Sheet 2 propagates to the full 20Y model instantly.
     _P2 = f"'{T('参数 Parameters')}'"  # dynamic: matches actual sheet name
     param_meta = [
         # (col_idx, label, value_fallback, editable, fmt, sheet2_formula)
-        (2,  "Yr1 PV Save\nPV节省基期\n(ZAR) 🔒",       d1["annual_pv_saving_ZAR"],   False, "#,##0",   f"={_P2}!C62"),
-        (3,  "Yr1 BESS Save\nBESS节省基期\n(ZAR) 🔒",   d1["annual_bess_saving_ZAR"], False, "#,##0",   f"={_P2}!C63"),
+        (2,  "Yr1 PV Save\nPV节省基期\n(ZAR) 🔒",       d1["annual_pv_saving_ZAR"],   False, "#,##0",   f"={_P2}!C71"),
+        (3,  "Yr1 BESS Save\nBESS节省基期\n(ZAR) 🔒",   d1["annual_bess_saving_ZAR"], False, "#,##0",   f"={_P2}!C72"),
         (4,  "Tariff Esc.\n电费增速\n(%/yr) 🟢 Sheet2",  ss.tariff_escalation,         True,  "0.0",     f"={_P2}!C31"),
         (5,  "Discount Rate\n折现率\n(%) 🟢 Sheet2",     ss.discount_rate,             True,  "0.0",     f"={_P2}!C32"),
         (6,  "Tax Rate\n税率\n(%) 🟢 Sheet2",            ss.tax_rate,                  True,  "0.0",     f"={_P2}!C33"),
@@ -2017,16 +2105,16 @@ def generate_excel_report() -> bytes:
         hdrs3 = ["Year", "BESS\nStatus", "SOH\n%",
                  "PV Saving\nZAR", "BESS Saving\nZAR", "Total Saving\nZAR",
                  "PV O&M\nZAR", "BESS O&M\nZAR", "EBITDA\nZAR",
-                 ("Depreciation\n(20%×5yr)\nZAR" if pv_zero else "Sec12B Depr.\n(50/30/20)\nZAR"), "Tax Shield\n(theoretical)", "EBIT\nZAR",
-                 "Cash Tax\nZAR", "Net CF\nNCF ZAR", "Disc. CF\nPV ZAR",
-                 "Cum. CF\nZAR", "Net Profit\nZAR", "Assess.Loss\nB/F ZAR"]
+                 ("Depreciation\n(20%×5yr)\nZAR" if pv_zero else "Sec12B Depr.\n(50/30/20)\nZAR"), "Tax Shield\n(realized)", "EBIT\nZAR",
+                 "Net Tax\nZAR", "Net CF\nNCF ZAR", "Disc. CF\nPV ZAR",
+                 "Cum. CF\nZAR", "Net Profit\nZAR", "Assess.Loss\nB/F\n(N/A-BTM)"]
     else:
         hdrs3 = ["年份\nYear", "BESS\n状态", "SOH\n%",
                  "PV节省\nZAR", "BESS节省\nZAR", "总节省\nZAR",
                  "PV运维\nZAR", "BESS运维\nZAR", "EBITDA\nZAR",
-                 ("折旧\n(20%×5年)\nZAR" if pv_zero else "12B折旧\n(50/30/20)\nZAR"), "税盾\n(名义)", "EBIT\nZAR",
-                 "现金税\nZAR", "净现金流\nNCF ZAR", "折现CF\nPV ZAR",
-                 "累计CF\nZAR", "净利润\nZAR", "亏损结转\nZAR"]
+                 ("折旧\n(20%×5年)\nZAR" if pv_zero else "12B折旧\n(50/30/20)\nZAR"), "税盾\n(实际兑现)", "EBIT\nZAR",
+                 "净税额\nZAR", "净现金流\nNCF ZAR", "折现CF\nPV ZAR",
+                 "累计CF\nZAR", "净利润\nZAR", "亏损结转\n(BTM N/A)"]
     for ci, hdr in enumerate(hdrs3, 1):
         hc = ws3.cell(row=6, column=ci, value=hdr)
         hc.font = Font("Calibri", size=8, bold=True, color="FFFFFF")
@@ -2038,31 +2126,43 @@ def generate_excel_report() -> bytes:
     # ── Year 0 row (row 7) ────────────────────────────────────
     # $H$4 = Total CAPEX (parameter value cell)
     r0 = 7
+    _precomm_ncf_xl2 = float(res.get("precomm_ncf", 0.0) or 0.0)
+    _precomm_mo_xl2  = int(res.get("precomm_months", 0) or 0)
     y0 = ws3.cell(row=r0, column=1, value=0)
     y0.font = _font(bold=True, sz=10); y0.fill = _fill(C_ALT)
     y0.alignment = _align("center"); y0.border = _bdr()
+    if _precomm_mo_xl2 > 0:
+        if st.session_state.get("lang") == "english":
+            _y0_label = f"Initial Investment  |  BESS pre-commission: {_precomm_mo_xl2} months"
+        else:
+            _y0_label = f"初始投资 / Initial Investment  |  BESS预运营: {_precomm_mo_xl2}个月"
+    else:
+        _y0_label = ("Initial Investment" if st.session_state.get("lang") == "english"
+                     else "初始投资 / Initial Investment")
     ws3.merge_cells(start_row=r0, start_column=2, end_row=r0, end_column=13)
-    lc = ws3.cell(row=r0, column=2, value="Initial Investment" if st.session_state.get("lang") == "english" else "初始投资 / Initial Investment")
+    lc = ws3.cell(row=r0, column=2, value=_y0_label)
     lc.font = Font("Calibri", size=10, bold=True, color=C_RED)
     lc.fill = _fill(C_ALT); lc.alignment = _align("center"); lc.border = _bdr()
-    for col_y0, formula_y0 in [
-        (14, "=$H$4*-1"),   # NCF yr0 = -CAPEX
-        (15, "=$H$4*-1"),   # DiscCF yr0
-        (16, "=$H$4*-1"),   # CumCF yr0
+    # NCF yr0 = -CAPEX + precomm BESS net saving
+    _y0_ncf_val = -res["total_capex"] + _precomm_ncf_xl2
+    for col_y0, y0_value in [
+        (14, _y0_ncf_val),           # NCF yr0
+        (15, _y0_ncf_val),           # DiscCF yr0 (not discounted since yr=0)
+        (16, _y0_ncf_val),           # CumCF yr0
     ]:
-        cc = ws3.cell(row=r0, column=col_y0, value=formula_y0)
-        cc.font = Font("Calibri", size=10, bold=True, color=C_RED)
+        cc = ws3.cell(row=r0, column=col_y0, value=round(y0_value, 0))
+        cc.font = Font("Calibri", size=10, bold=True, color=C_RED if _y0_ncf_val < 0 else C_GREEN)
         cc.fill = _fill("FFF0F0"); cc.alignment = _align("center")
         cc.number_format = "#,##0"; cc.border = _bdr()
     ws3.row_dimensions[r0].height = 20
 
-    # ── Years 1-25 (rows 8-32) ───────────────────────────────
+    # ── Years 1-20 (rows 8-27) ───────────────────────────────
     # Parameter absolute refs:  $B$4=BasePVSave  $C$4=BaseBESSSave
     #   $D$4=Esc%  $E$4=Disc%  $F$4=Tax%  $G$4=PVDeg%
     #   $H$4=CAPEX  $I$4=PVkWp  $J$4=BESSCkWh  $K$4=PVOM  $L$4=BESSOM
 
-    for yr in range(1, 26):
-        r = r0 + yr          # rows 8..32
+    for yr in range(1, ANALYSIS_YEARS + 1):
+        r = r0 + yr          # rows 8..27
         sv    = soh_arr[yr] if yr < len(soh_arr) else 0.0
         alive = sv >= BESS_EOL_SOH
         alt_bg = C_ALT if yr % 2 == 0 else "FFFFFF"
@@ -2130,7 +2230,7 @@ def generate_excel_report() -> bytes:
         else:
             _wc(10, val=0)
 
-        # Col K: Tax Shield = Dep × Tax%
+        # Col K: Tax Shield = Dep × Tax%  (realized immediately — BTM at profitable company)
         if dep_pct > 0:
             _wc(11, formula=f"=J{r}*$F$4/100")
         else:
@@ -2139,11 +2239,12 @@ def generate_excel_report() -> bytes:
         # Col L: EBIT = EBITDA - Depreciation
         _wc(12, formula=f"=I{r}-J{r}")
 
-        # Col M: Cash Tax = MAX(0, (EBIT − Assessed Loss B/F) × Tax%)
-        # R{r} = assessed loss carried forward from prior years (Col R below)
-        _wc(13, formula=f"=MAX(0,(L{r}-R{r})*$F$4/100)")
+        # Col M: Net Tax = EBIT × Tax%  (negative = tax saving → positive cash benefit)
+        # BTM model: company has taxable income; dep deducted against main business income.
+        # No MAX(0,...) — negative tax means company writes a smaller cheque to SARS.
+        _wc(13, formula=f"=L{r}*$F$4/100")
 
-        # Col N: Net Cash Flow = EBITDA - Cash Tax (depreciation is non-cash)
+        # Col N: Net Cash Flow = EBITDA - Net Tax  (dep is non-cash; neg tax = real cash inflow)
         ncf_val = float(fin_df["净现金流 NCF (ZAR)"].iloc[yr - 1])
         _wc(14, formula=f"=I{r}-M{r}", bold=True,
             color=C_GREEN if ncf_val > 0 else C_RED)
@@ -2158,19 +2259,16 @@ def generate_excel_report() -> bytes:
         # Col Q: Net Profit = EBIT - Cash Tax
         _wc(17, formula=f"=L{r}-M{r}")
 
-        # Col R: SA Assessed Loss B/F (carry-forward from prior year)
-        # Year 1: no prior losses; subsequent years: remaining loss = MAX(0, prev_LossBF - prev_EBIT)
-        if yr == 1:
-            _wc(18, val=0, fmt="#,##0", color="888888")
-        else:
-            _wc(18, formula=f"=MAX(0,R{r-1}-L{r-1})", fmt="#,##0", color="888888")
+        # Col R: Assessed Loss B/F — always 0 for BTM model
+        # Company absorbs 12B deduction against its main business income immediately.
+        _wc(18, val=0, fmt="#,##0", color="888888")
 
         ws3.row_dimensions[r].height = 16
 
-    # ── Totals row (row 33) ───────────────────────────────────
-    r_tot = r0 + 26   # = 33
+    # ── Totals row (row 28) ───────────────────────────────────
+    r_tot = r0 + ANALYSIS_YEARS + 1   # = 28
     ws3.merge_cells(start_row=r_tot, start_column=1, end_row=r_tot, end_column=3)
-    tc_lbl = ws3.cell(row=r_tot, column=1, value="25Y Total" if st.session_state.get("lang") == "english" else "25年合计 / 25Y Total")
+    tc_lbl = ws3.cell(row=r_tot, column=1, value="20Y Total" if st.session_state.get("lang") == "english" else "20年合计 / 20Y Total")
     tc_lbl.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
     tc_lbl.fill = _fill(C_NAVY); tc_lbl.alignment = _align("center"); tc_lbl.border = _bdr()
     for ci_s, cl_s in {4:"D",5:"E",6:"F",7:"G",8:"H",9:"I",
@@ -2256,8 +2354,8 @@ def generate_excel_report() -> bytes:
 
     # ════════════════════════════════════════════════════════════
     # SHEET 5 — 图表 Charts
-    # Sheet3 data: header row 6, Year0 row 7, Years 1-25 rows 8-32, totals row 33
-    # Chart data range: rows 6-32 (includes header for title), categories rows 7-32
+    # Sheet3 data: header row 6, Year0 row 7, Years 1-20 rows 8-27, totals row 28
+    # Chart data range: rows 6-27 (includes header for title), categories rows 7-27
     # BESS charts skipped when bess_zero=True
     # ════════════════════════════════════════════════════════════
     ws5 = wb.create_sheet(T("图表 Charts"))
@@ -2277,27 +2375,27 @@ def generate_excel_report() -> bytes:
     ws5.row_dimensions[1].height = 24
 
     # Shared category reference: col A rows 7-32 (year 0..25)
-    _cat = Reference(ws3, min_col=1, max_col=1, min_row=7, max_row=32)
-    # Shared category reference for years 1-25 only
-    _cat_yr1 = Reference(ws3, min_col=1, max_col=1, min_row=8, max_row=32)
+    _cat = Reference(ws3, min_col=1, max_col=1, min_row=7, max_row=r0 + ANALYSIS_YEARS)
+    # Shared category reference for years 1-20 only
+    _cat_yr1 = Reference(ws3, min_col=1, max_col=1, min_row=8, max_row=r0 + ANALYSIS_YEARS)
 
-    # Chart 1: Cumulative CF line (col P=16, rows 6-32)
+    # Chart 1: Cumulative CF line (col P=16, rows 6-27)
     ch1 = LineChart()
-    ch1.title = T("25年累计现金流 / Cumulative Cash Flow (ZAR)")
+    ch1.title = T("20年累计现金流 / Cumulative Cash Flow (ZAR)")
     ch1.style = 10; ch1.width = 17; ch1.height = 11
     ch1.y_axis.title = "ZAR"; ch1.x_axis.title = "Year"
-    ch1.add_data(Reference(ws3, min_col=16, max_col=16, min_row=6, max_row=32),
+    ch1.add_data(Reference(ws3, min_col=16, max_col=16, min_row=6, max_row=r0 + ANALYSIS_YEARS),
                  titles_from_data=True)
     ch1.set_categories(_cat)
     ws5.add_chart(ch1, "B3")
 
-    # Chart 2: Annual NCF bar (col N=14, rows 6-32)
+    # Chart 2: Annual NCF bar (col N=14, rows 6-27)
     ch2 = BarChart()
     ch2.type = "col"
     ch2.title = T("年度净现金流 / Annual Net Cash Flow (ZAR)")
     ch2.style = 10; ch2.width = 17; ch2.height = 11
     ch2.y_axis.title = "ZAR"; ch2.x_axis.title = "Year"
-    ch2.add_data(Reference(ws3, min_col=14, max_col=14, min_row=6, max_row=32),
+    ch2.add_data(Reference(ws3, min_col=14, max_col=14, min_row=6, max_row=r0 + ANALYSIS_YEARS),
                  titles_from_data=True)
     ch2.set_categories(_cat)
     ws5.add_chart(ch2, "L3")
@@ -2309,7 +2407,7 @@ def generate_excel_report() -> bytes:
         ch3.title = T("BESS SOH 衰减 / Battery SOH Degradation (%)")
         ch3.style = 10; ch3.width = 17; ch3.height = 11
         ch3.y_axis.title = "SOH (%)"; ch3.x_axis.title = "Year"
-        ch3.add_data(Reference(ws3, min_col=3, max_col=3, min_row=6, max_row=32),
+        ch3.add_data(Reference(ws3, min_col=3, max_col=3, min_row=6, max_row=r0 + ANALYSIS_YEARS),
                      titles_from_data=True)
         ch3.set_categories(_cat_yr1)
         ws5.add_chart(ch3, chart3_anchor)
@@ -2321,12 +2419,12 @@ def generate_excel_report() -> bytes:
         ch4.grouping = "stacked"
         ch4.title = T("PV & BESS 年度节省 / Annual Savings Breakdown (ZAR)")
         # D=PV savings, E=BESS savings — both series
-        ch4.add_data(Reference(ws3, min_col=4, max_col=5, min_row=6, max_row=32),
+        ch4.add_data(Reference(ws3, min_col=4, max_col=5, min_row=6, max_row=r0 + ANALYSIS_YEARS),
                      titles_from_data=True)
     else:
         ch4.title = T("PV 年度节省 / Annual PV Savings (ZAR)")
         # Only D=PV savings when no BESS
-        ch4.add_data(Reference(ws3, min_col=4, max_col=4, min_row=6, max_row=32),
+        ch4.add_data(Reference(ws3, min_col=4, max_col=4, min_row=6, max_row=r0 + ANALYSIS_YEARS),
                      titles_from_data=True)
     ch4.style = 10; ch4.width = 17; ch4.height = 11
     ch4.y_axis.title = "ZAR"; ch4.x_axis.title = "Year"
@@ -2369,11 +2467,25 @@ def generate_excel_report() -> bytes:
 
 
 # ─────────────────────────────────────────────────────────────
-# 顶部栏：语言选择（右上角）
-# Top bar: language selector (top-right)
+# 页头 + 语言选择（同行）/ Header + Language selector (same row)
 # ─────────────────────────────────────────────────────────────
-_top_l, _top_r = st.columns([8, 2])
-with _top_r:
+_is_en = st.session_state.get("lang") == "english"
+_main_title = ("Professional BTM PV+BESS Financial Modelling System"
+               if _is_en else
+               "专业级 BTM 光储财务测算系统 &nbsp;·&nbsp; Professional BTM PV+BESS Financial Modelling System")
+
+_hdr_col, _lang_col = st.columns([9, 1], gap="small")
+with _hdr_col:
+    st.markdown(f"""
+<div class="main-header">
+    <div style="font-size:1.8rem">⚡</div>
+    <div>
+        <div class="main-title">{_main_title}</div>
+        <div class="sub-title">SA MEGAFLEX / MINIFLEX TARIFF 2025/26 &nbsp;·&nbsp; 8760H PHYSICAL DISPATCH ENGINE &nbsp;·&nbsp; SECTION 12B &nbsp;·&nbsp; HUAWEI SA DIGITAL POWER</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+with _lang_col:
     _lang_opt = st.radio(
         "🌐",
         options=["双语", "EN"],
@@ -2383,23 +2495,6 @@ with _top_r:
         label_visibility="collapsed",
     )
     st.session_state["lang"] = "bilingual" if _lang_opt == "双语" else "english"
-
-# ─────────────────────────────────────────────────────────────
-# 页头 / Header
-# ─────────────────────────────────────────────────────────────
-_is_en = st.session_state.get("lang") == "english"
-_main_title = ("Professional BTM PV+BESS Financial Modelling System"
-               if _is_en else
-               "专业级 BTM 光储财务测算系统 &nbsp;·&nbsp; Professional BTM PV+BESS Financial Modelling System")
-st.markdown(f"""
-<div class="main-header">
-    <div style="font-size:1.8rem">⚡</div>
-    <div>
-        <div class="main-title">{_main_title}</div>
-        <div class="sub-title">SA MEGAFLEX / MINIFLEX TARIFF 2025/26 &nbsp;·&nbsp; 8760H PHYSICAL DISPATCH ENGINE &nbsp;·&nbsp; SECTION 12B &nbsp;·&nbsp; HUAWEI SA DIGITAL POWER</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
 # 主布局：内容区（左7）+ 参数面板（右3）
@@ -2464,6 +2559,9 @@ with _scroll:
                         abs(_tmp_lon - st.session_state.lon) > 1e-5):
                     st.session_state.lat = _tmp_lat
                     st.session_state.lon = _tmp_lon
+                    # Sync widget-state keys so number_inputs display the clicked values
+                    st.session_state["_lat_in"] = _tmp_lat
+                    st.session_state["_lon_in"] = _tmp_lon
                     st.session_state.tilt = round(abs(_tmp_lat), 1)
                     # 南半球朝北=180°，北半球朝南=0° / SH north-facing=180°, NH south-facing=0°
                     st.session_state.azimuth = 180.0 if _tmp_lat < 0 else 0.0
@@ -2779,6 +2877,64 @@ with _scroll:
             T("企业税率 Corp Tax (%)"), value=st.session_state.tax_rate,
             min_value=0.0, max_value=50.0, step=1.0)
 
+        # ── 项目工期 / Project Timeline ───────────────────────
+        st.markdown("---")
+        st.markdown(f"**{T('🗓️ 项目工期 / Timeline')}**")
+
+        import datetime as _dt_ui
+        _tl_c1, _tl_c2 = st.columns(2)
+        with _tl_c1:
+            st.session_state.bess_lead_months = st.number_input(
+                T("BESS 交货周期 (月)"),
+                value=int(st.session_state.get("bess_lead_months", 6)),
+                min_value=1, max_value=36, step=1,
+                help=("Months from PO issuance to BESS commissioning"
+                      if _is_en else "从PO下发到BESS上线的月数"),
+            )
+        with _tl_c2:
+            st.session_state.pv_lead_months = st.number_input(
+                T("PV 交货周期 (月)"),
+                value=int(st.session_state.get("pv_lead_months", 12)),
+                min_value=1, max_value=36, step=1,
+                help=("Months from PO issuance to PV commissioning"
+                      if _is_en else "从PO下发到PV上线的月数"),
+            )
+
+        # Derived timeline display
+        _po_today = _dt_ui.date.today()
+        try:
+            from dateutil.relativedelta import relativedelta as _rdelta_ui
+            _bess_live_dt = _po_today + _rdelta_ui(months=int(st.session_state.bess_lead_months))
+            _pv_live_dt   = _po_today + _rdelta_ui(months=int(st.session_state.pv_lead_months))
+            _end_dt       = _pv_live_dt + _rdelta_ui(years=ANALYSIS_YEARS)
+            _precomm_mo   = max(0, int(st.session_state.pv_lead_months) - int(st.session_state.bess_lead_months))
+        except Exception:
+            _bess_live_dt = _po_today
+            _pv_live_dt   = _po_today
+            _end_dt       = _po_today
+            _precomm_mo   = 0
+
+        if _is_en:
+            _tl_lines = [
+                f"📅 **PO Date:** {_po_today.strftime('%Y-%m-%d')}",
+                f"⚡ **BESS Go-Live:** {_bess_live_dt.strftime('%Y-%m-%d')}  (+{st.session_state.bess_lead_months} mo)",
+                f"☀️ **PV Go-Live:** {_pv_live_dt.strftime('%Y-%m-%d')}  (+{st.session_state.pv_lead_months} mo)",
+                f"🏁 **Model End:** {_end_dt.strftime('%Y-%m-%d')}  (PV+{ANALYSIS_YEARS}yr)",
+            ]
+            if _precomm_mo > 0:
+                _tl_lines.append(f"💡 **BESS pre-commission:** {_precomm_mo} months of BESS-only revenue included in Year-0")
+        else:
+            _tl_lines = [
+                f"📅 **PO日期:** {_po_today.strftime('%Y-%m-%d')}",
+                f"⚡ **BESS上线:** {_bess_live_dt.strftime('%Y-%m-%d')}  (+{st.session_state.bess_lead_months}个月)",
+                f"☀️ **PV上线:** {_pv_live_dt.strftime('%Y-%m-%d')}  (+{st.session_state.pv_lead_months}个月)",
+                f"🏁 **模型终止:** {_end_dt.strftime('%Y-%m-%d')}  (PV上线后{ANALYSIS_YEARS}年)",
+            ]
+            if _precomm_mo > 0:
+                _tl_lines.append(f"💡 **BESS预运营:** {_precomm_mo}个月 BESS单独运行收益计入Year-0")
+
+        st.markdown("\n\n".join(_tl_lines))
+
 
 # ══════════════════════════════════════════════════════════════
 # 左侧内容区 / LEFT — Content Area (Tabs)
@@ -2814,7 +2970,7 @@ with col_content:
 
     _tab_labels = [
         T("📊 计算与结果 / Run & Results"),
-        T("📋 25年财务报表 / 25Y Model"),
+        T("📋 20年财务报表 / 20Y Model"),
         T("⏱️ 8760小时调度 / Hourly Dispatch"),
         T("🔍 AI 寻优 / Optimization"),
     ]
@@ -2886,8 +3042,19 @@ with col_content:
                 }
 
                 _c_rate_val = C_RATE_OPTIONS[st.session_state.c_rate_label]
-                with st.spinner(T("📊 计算 25 年财务模型...")):
-                    fin_df = run_25yr_financial_model(
+
+                # ── Commissioning timeline ────────────────────────────────
+                import datetime as _dt_sim
+                _bess_lead = int(st.session_state.get("bess_lead_months", 6))
+                _pv_lead   = int(st.session_state.get("pv_lead_months",  12))
+                _po_date   = _dt_sim.date.today()
+                # Pre-commissioning BESS-only months: gap between BESS live and PV live
+                # Only applicable when both PV and BESS are installed
+                _both = (st.session_state.pv_kwp > 0 and st.session_state.bess_kwh > 0)
+                _precomm_months = max(0, _pv_lead - _bess_lead) if _both else 0
+
+                with st.spinner(T("📊 计算 20 年财务模型...")):
+                    fin_df, _precomm_ncf = run_20yr_financial_model(
                         dispatch_yr1=dispatch_yr1,
                         pv_kwp=st.session_state.pv_kwp,
                         bess_kwh=st.session_state.bess_kwh,
@@ -2895,11 +3062,15 @@ with col_content:
                         params=params,
                         annual_cycles=annual_cycles,
                         c_rate=_c_rate_val,
+                        precomm_bess_months=_precomm_months,
                     )
 
                 total_capex = (st.session_state.pv_kwp * pv_zar_kwp +
                                st.session_state.bess_kwh * bess_zar_kwh)
-                npv, irr = compute_npv_irr(fin_df, total_capex, params["discount_rate"])
+                npv, irr = compute_npv_irr(
+                    fin_df, total_capex, params["discount_rate"],
+                    year0_extra_cf=_precomm_ncf,
+                )
 
                 cum = fin_df["累计CF (ZAR)"].tolist()
                 # 线性插值：精确计算回收期（小数年）
@@ -2915,12 +3086,27 @@ with col_content:
                             payback = _y0 + (-_v0) / (_v - _v0)   # interpolate
                         break
 
+                # Derived timeline dates
+                from dateutil.relativedelta import relativedelta as _rdelta
+                _bess_golive = _po_date + _rdelta(months=_bess_lead)
+                _pv_golive   = _po_date + _rdelta(months=_pv_lead)
+                _model_end   = _pv_golive + _rdelta(years=ANALYSIS_YEARS)
+
                 st.session_state.results = {
-                    "dispatch_yr1": dispatch_yr1, "eol_years": eol_years,
+                    "dispatch_yr1": dispatch_yr1, "eol_years": min(20.0, eol_years),
                     "annual_cycles": annual_cycles, "pvgis_data": pvgis_data,
                     "npv": npv, "irr": irr, "payback": payback,
                     "total_capex": total_capex, "bess_kw": bess_kw_use,
                     "c_rate": _c_rate_val,
+                    # timeline
+                    "po_date":          _po_date.isoformat(),
+                    "bess_lead_months": _bess_lead,
+                    "pv_lead_months":   _pv_lead,
+                    "bess_golive":      _bess_golive.isoformat(),
+                    "pv_golive":        _pv_golive.isoformat(),
+                    "model_end":        _model_end.isoformat(),
+                    "precomm_months":   _precomm_months,
+                    "precomm_ncf":      float(_precomm_ncf),
                 }
                 st.session_state.hourly_df = dispatch_yr1["hourly_df"]
                 st.session_state.fin_df = fin_df
@@ -2944,7 +3130,7 @@ with col_content:
             with m2:
                 c = "var(--primary)" if res['npv'] > 0 else "var(--danger)"
                 st.markdown(f"""<div class="metric-card">
-                    <div class="metric-label">{T("净现值 NPV (25yr)")}</div>
+                    <div class="metric-label">{T("净现值 NPV (20yr)")}</div>
                     <div class="metric-value" style="color:{c}">R{res['npv']/1e6:.2f}M</div>
                     <div class="metric-unit">@ {st.session_state.discount_rate:.1f}% disc</div>
                 </div>""", unsafe_allow_html=True)
@@ -2953,11 +3139,11 @@ with col_content:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">{T("内部收益率 IRR")}</div>
                     <div class="metric-value">{res['irr']:.1f}%</div>
-                    <div class="metric-unit">25-Year Project IRR</div>
+                    <div class="metric-unit">20-Year Project IRR</div>
                 </div>""", unsafe_allow_html=True)
 
             with m4:
-                pb = f"{res['payback']:.2f}yr" if res['payback'] else "25yr+"
+                pb = f"{res['payback']:.2f}yr" if res['payback'] else "20yr+"
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">{T("回收期 Payback")}</div>
                     <div class="metric-value">{pb}</div>
@@ -2967,9 +3153,39 @@ with col_content:
             with m5:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">{"BESS EoL" if _is_en else "BESS 寿命 EoL"}</div>
-                    <div class="metric-value" style="color:var(--secondary)">Yr {int(res['eol_years'])}</div>
+                    <div class="metric-value" style="color:var(--secondary)">Yr {min(20, int(res['eol_years']))}</div>
                     <div class="metric-unit">{res['annual_cycles']:.1f} cycles/yr</div>
                 </div>""", unsafe_allow_html=True)
+
+            # ── Project Timeline banner ───────────────────────────
+            _tl = {k: res.get(k) for k in ("po_date","bess_golive","pv_golive","model_end","precomm_months","precomm_ncf")}
+            if _tl.get("po_date"):
+                _pc_mo  = _tl["precomm_months"] or 0
+                _pc_ncf = _tl["precomm_ncf"] or 0.0
+                if _is_en:
+                    _tl_html = (
+                        f"<b>Project Timeline:</b>&nbsp;&nbsp;"
+                        f"📅 PO: <b>{_tl['po_date']}</b>"
+                        f" &rarr; ⚡ BESS: <b>{_tl['bess_golive']}</b>"
+                        f" &rarr; ☀️ PV: <b>{_tl['pv_golive']}</b>"
+                        f" &rarr; 🏁 End: <b>{_tl['model_end']}</b>"
+                        + (f"&nbsp;&nbsp;|&nbsp;&nbsp;💡 BESS pre-commission: <b>{_pc_mo} months</b>"
+                           f" → Year-0 BESS net saving: <b>R {_pc_ncf/1000:.1f}K</b>" if _pc_mo > 0 else "")
+                    )
+                else:
+                    _tl_html = (
+                        f"<b>项目工期：</b>&nbsp;&nbsp;"
+                        f"📅 PO下发: <b>{_tl['po_date']}</b>"
+                        f" &rarr; ⚡ BESS上线: <b>{_tl['bess_golive']}</b>"
+                        f" &rarr; ☀️ PV上线: <b>{_tl['pv_golive']}</b>"
+                        f" &rarr; 🏁 模型终止: <b>{_tl['model_end']}</b>"
+                        + (f"&nbsp;&nbsp;|&nbsp;&nbsp;💡 BESS预运营: <b>{_pc_mo}个月</b>"
+                           f"，Year-0 BESS净收益: <b>R {_pc_ncf/1000:.1f}K</b>" if _pc_mo > 0 else "")
+                    )
+                st.markdown(
+                    f'<div class="info-box" style="font-size:0.82rem;padding:6px 12px;">{_tl_html}</div>',
+                    unsafe_allow_html=True
+                )
 
             # 运营指标
             st.markdown(f'<div class="section-header">{T("⚡ 年度运营指标 / Year 1 Operations")}</div>',
@@ -3007,7 +3223,7 @@ with col_content:
                 </div>""", unsafe_allow_html=True)
 
             # 现金流图表
-            st.markdown(f'<div class="section-header">{T("📊 25年现金流图表 / 25Y Cash Flow")}</div>',
+            st.markdown(f'<div class="section-header">{T("📊 20年现金流图表 / 20Y Cash Flow")}</div>',
                         unsafe_allow_html=True)
 
             if st.session_state.fin_df is not None:
@@ -3015,7 +3231,7 @@ with col_content:
                 from plotly.subplots import make_subplots
 
                 df = st.session_state.fin_df
-                eol_yr = int(res['eol_years'])
+                eol_yr = min(20, int(res['eol_years']))
 
                 fig = make_subplots(rows=1, cols=2,
                                     subplot_titles=(T("年净现金流 Annual NCF (ZAR)"),
@@ -3068,21 +3284,24 @@ with col_content:
 
             with dl2:
                 if st.session_state.fin_df is not None:
+                    _is_en_exp = (st.session_state.get("lang") == "english")
+                    _mk = "Metric" if _is_en_exp else "指标"
+                    _vk = "Value"  if _is_en_exp else "值"
                     xbuf = io.BytesIO()
                     with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
-                        st.session_state.fin_df.to_excel(
-                            writer, sheet_name="25yr_Financial_Model", index=False)
+                        st.session_state.fin_df.rename(columns=_col_map()).to_excel(
+                            writer, sheet_name="20yr_Financial_Model", index=False)
                         ops = pd.DataFrame([
-                            {"指标": "Annual Saving (ZAR)", "值": res['dispatch_yr1']['annual_saving_ZAR']},
-                            {"指标": "PV Saving (ZAR)", "值": res['dispatch_yr1']['annual_pv_saving_ZAR']},
-                            {"指标": "BESS Net Saving (ZAR)", "值": res['dispatch_yr1']['annual_bess_saving_ZAR']},
-                            {"指标": "Annual PV Gen (kWh)", "值": res['dispatch_yr1']['annual_pv_gen_kWh']},
-                            {"指标": "Throughput (kWh)", "值": res['dispatch_yr1']['tot_throughput_kWh']},
-                            {"指标": "Annual Cycles", "值": res['annual_cycles']},
-                            {"指标": "BESS EoL (yr)", "值": res['eol_years']},
-                            {"指标": "NPV (ZAR)", "值": res['npv']},
-                            {"指标": "IRR (%)", "值": res['irr']},
-                            {"指标": "USD/ZAR Rate", "值": st.session_state.forex_usd_zar},
+                            {_mk: "Annual Saving (ZAR)",   _vk: res['dispatch_yr1']['annual_saving_ZAR']},
+                            {_mk: "PV Saving (ZAR)",       _vk: res['dispatch_yr1']['annual_pv_saving_ZAR']},
+                            {_mk: "BESS Net Saving (ZAR)", _vk: res['dispatch_yr1']['annual_bess_saving_ZAR']},
+                            {_mk: "Annual PV Gen (kWh)",   _vk: res['dispatch_yr1']['annual_pv_gen_kWh']},
+                            {_mk: "Throughput (kWh)",      _vk: res['dispatch_yr1']['tot_throughput_kWh']},
+                            {_mk: "Annual Cycles",         _vk: res['annual_cycles']},
+                            {_mk: "BESS EoL (yr)",         _vk: min(20.0, res['eol_years'])},
+                            {_mk: "NPV (ZAR)",             _vk: res['npv']},
+                            {_mk: "IRR (%)",               _vk: res['irr']},
+                            {_mk: "USD/ZAR Rate",          _vk: st.session_state.forex_usd_zar},
                         ])
                         ops.to_excel(writer, sheet_name="Summary", index=False)
                     st.download_button("⬇ BTM_Pure_Data_Export.xlsx",
@@ -3099,13 +3318,13 @@ with col_content:
             )
             if _is_en:
                 st.markdown("""<div class="info-box">
-                    6-sheet report: Cover · Parameters (with Excel formulas) · 25Y Financial Model · Monthly Summary · Charts · 8760h Raw Data
+                    6-sheet report: Cover · Parameters (with Excel formulas) · 20Y Financial Model · Monthly Summary · Charts · 8760h Raw Data
                     &nbsp;|&nbsp; White cells in Parameters sheet are editable; Sheet3 recalculates automatically
                     &nbsp;|&nbsp; 🔵 <b>Pro / Admin feature</b>
                 </div>""", unsafe_allow_html=True)
             else:
                 st.markdown("""<div class="info-box">
-                    6-sheet 完整报告：封面 · 参数（含 Excel 公式）· 25年财务模型 · 月度汇总 · 图表 · 8760h 原始数据
+                    6-sheet 完整报告：封面 · 参数（含 Excel 公式）· 20年财务模型 · 月度汇总 · 图表 · 8760h 原始数据
                     &nbsp;|&nbsp; 参数页白色单元格可调，Sheet3 财务模型自动重算
                     &nbsp;|&nbsp; 🔵 <b>Pro / Admin 专属功能</b>
                 </div>""", unsafe_allow_html=True)
@@ -3156,10 +3375,10 @@ with col_content:
                         )
 
     # ──────────────────────────────────────────────────────────
-    # Tab 2: 25年财务报表
+    # Tab 2: 20年财务报表
     # ──────────────────────────────────────────────────────────
     with tab2:
-        st.markdown(T("### 📋 25年逐年财务报表 / 25-Year Annual Financial Statement"))
+        st.markdown(T("### 📋 20年逐年财务报表 / 20-Year Annual Financial Statement"))
 
         if st.session_state.fin_df is not None:
             if _is_en:
@@ -3171,11 +3390,11 @@ with col_content:
             else:
                 st.markdown("""<div class="info-box">
                     📌 <b>Section 12B</b> 加速折旧（有PV，>1MW）：第1年50% · 第2年30% · 第3年20% · 纯储能：20%×5年直线折旧（南非所得税法）&nbsp;|&nbsp;
-                    已建模评估亏损结转（SA Assessed Loss Carry-Forward）— 前期亏损在未来盈利年度抵减应税收入 &nbsp;|&nbsp;
+                    <b>BTM税务处理</b>：折旧在当年立即冲减公司整体应税收入（税盾即时兑现）— 净税额 = EBIT × 税率（可为负值，负值即公司少缴税款） &nbsp;|&nbsp;
                     PV 与 BESS 节省分开列示 &nbsp;|&nbsp; BESS 超期（SOH &lt; 60%）后收入及运维归零
                 </div>""", unsafe_allow_html=True)
 
-            eol_yr = int(st.session_state.results["eol_years"]) if st.session_state.results else 999
+            eol_yr = min(20, int(st.session_state.results["eol_years"])) if st.session_state.results else 999
 
             # Rename columns for display (bilingual keeps originals; english → English labels)
             _display_fin = st.session_state.fin_df.rename(columns=_col_map())
@@ -3423,17 +3642,24 @@ with col_content:
                                 d_o["tot_throughput_kWh"], bess_o,
                                 int(st.session_state.bess_cycles), st.session_state.dod,
                             )
-                            fin_o = run_25yr_financial_model(
+                            _precomm_m_o = max(0, int(st.session_state.get("pv_lead_months", 12))
+                                               - int(st.session_state.get("bess_lead_months", 6))
+                                               ) if (pv_o > 0 and bess_o > 0) else 0
+                            fin_o, _precomm_ncf_o = run_20yr_financial_model(
                                 dispatch_yr1=d_o, pv_kwp=pv_o, bess_kwh=bess_o,
                                 eol_years=eol_o, params=params_opt,
                                 annual_cycles=ac_o, c_rate=c_actual,
+                                precomm_bess_months=_precomm_m_o,
                             )
                             cap_o = pv_o * pv_zar_k + bess_o * bess_zar_k
-                            npv_o, irr_o = compute_npv_irr(fin_o, cap_o, params_opt["discount_rate"])
+                            npv_o, irr_o = compute_npv_irr(
+                                fin_o, cap_o, params_opt["discount_rate"],
+                                year0_extra_cf=_precomm_ncf_o,
+                            )
                             results_opt.append({
                                 "PV (kWp)": pv_o, "BESS (kWh)": bess_o,
                                 "CAPEX (ZAR)": cap_o, "NPV (ZAR)": npv_o,
-                                "IRR (%)": irr_o, "EoL (yr)": eol_o,
+                                "IRR (%)": irr_o, "EoL (yr)": min(20.0, eol_o),
                                 "Annual Cycles": ac_o,
                                 "Yr1 Saving (ZAR)": d_o["annual_saving_ZAR"],
                             })

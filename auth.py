@@ -44,27 +44,47 @@ def _js_clear_session() -> None:
 def _inject_auth_loader() -> None:
     """
     JS bridge: read localStorage and, if a valid saved session exists,
-    redirect the parent window to ?_btm_rt=<token>&_btm_e=<email>.
-    This triggers a Streamlit rerun that Python can intercept.
-    Guard: skips if params already present (avoids infinite loop).
+    navigate the TOP-LEVEL window to ?_btm_rt=<token>&_btm_e=<email>.
+    Uses window.top (not window.parent) because Streamlit components run
+    inside a nested srcdoc iframe — window.parent is Streamlit's own frame,
+    not the browser window. window.top bypasses all intermediate frames.
+    A 200 ms setTimeout lets the Streamlit DOM settle before we access
+    window.top.location (avoids "not initialized" races on cold load).
     """
     components.html(f"""<script>
 (function(){{
-  try{{
-    var url = new URL(window.parent.location.href);
-    if(url.searchParams.has('_btm_rt')) return;   // already bridged
-    var raw = localStorage.getItem('{_LS_KEY}');
-    if(!raw) return;
-    var auth = JSON.parse(raw);
-    if(!auth || !auth.rt) return;
-    // Expire after 30 days
-    if(Date.now() - (auth.ts||0) > 30*86400000){{
-      localStorage.removeItem('{_LS_KEY}'); return;
-    }}
-    url.searchParams.set('_btm_rt', auth.rt);
-    url.searchParams.set('_btm_e',  auth.e||'');
-    window.parent.location.replace(url.href);
-  }}catch(ex){{ console.log('BTM auth-loader', ex); }}
+  setTimeout(function(){{
+    try{{
+      var top = window.top || window.parent;
+      var url = new URL(top.location.href);
+      if(url.searchParams.has('_btm_rt')){{ return; }}   // already bridged
+
+      var raw = localStorage.getItem('{_LS_KEY}');
+      if(!raw){{ return; }}
+      var auth;
+      try{{ auth = JSON.parse(raw); }}catch(e){{
+        localStorage.removeItem('{_LS_KEY}'); return;
+      }}
+      if(!auth || !auth.rt){{ return; }}
+
+      // Client-side 30-day expiry guard
+      if(Date.now() - (auth.ts||0) > 30*86400000){{
+        localStorage.removeItem('{_LS_KEY}'); return;
+      }}
+
+      url.searchParams.set('_btm_rt', auth.rt);
+      url.searchParams.set('_btm_e',  auth.e||'');
+
+      // window.top is the actual browser tab — should always be accessible
+      // on the same origin. Try .replace() first (no back-button entry);
+      // fall back to .href assignment if .replace() throws.
+      try{{ top.location.replace(url.href); }}
+      catch(e1){{
+        try{{ top.location.href = url.href; }}
+        catch(e2){{ console.warn('BTM auth-loader: redirect blocked', e2); }}
+      }}
+    }}catch(ex){{ console.warn('BTM auth-loader error:', ex); }}
+  }}, 200);
 }})();
 </script>""", height=0)
 
@@ -203,11 +223,13 @@ def render_auth_gate():
             with st.spinner("自动登录中 / Auto sign-in…"):
                 resp = refresh_session(_rt)
                 if resp and resp.session:
-                    # Refresh token is valid — update localStorage with new token
+                    # Refresh token is valid — rotate token in localStorage and log in
                     _js_save_session(_email, resp.session.refresh_token)
                     _on_login_success(resp, _email)
                     return
-        # Token expired or invalid — fall through to normal login form
+        # Token expired or invalid — wipe stale localStorage so next visit shows
+        # a clean login form instead of looping through "session expired" forever.
+        _js_clear_session()
         st.info("登录已过期，请重新登录 / Session expired — please sign in again")
 
     st.markdown(_AUTH_CSS, unsafe_allow_html=True)
@@ -236,11 +258,14 @@ def _render_login():
 
     st.markdown("#### 登录 Sign In")
 
-    # ── Pre-fill email from localStorage bridge ──
-    # Only inject the loader if we haven't tried this session AND no bridge param
+    # ── Auto-login bridge: inject loader ONCE per session ──
+    # Set the guard flag BEFORE injecting so that if the JS redirect fails
+    # silently (cross-origin block, empty localStorage, etc.) we don't keep
+    # re-injecting the loader on every subsequent Streamlit rerun.
     _ls_checked = st.session_state.get("_btm_ls_checked", False)
     if not _ls_checked and "_btm_rt" not in st.query_params:
-        _inject_auth_loader()   # JS: read localStorage → redirect with ?_btm_rt
+        st.session_state["_btm_ls_checked"] = True   # mark before inject
+        _inject_auth_loader()   # JS: read localStorage → window.top redirect
 
     # Pre-filled email (set if user clicked "remember me" last time)
     _prefill = st.session_state.pop("_btm_prefill_email", "")
