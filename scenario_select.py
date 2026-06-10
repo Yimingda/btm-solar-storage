@@ -139,7 +139,7 @@ def render_scenario_selector() -> None:
         _lo = st.radio(
             "🌐", options=["双语", "EN"],
             index=_lang_idx, horizontal=True,
-            key="sc_lang_radio", label_visibility="collapsed",
+            key="lang_radio", label_visibility="collapsed",
         )
         st.session_state["lang"] = "bilingual" if _lo == "双语" else "english"
     _en = st.session_state.get("lang") == "english"
@@ -303,7 +303,7 @@ def render_wheeling_placeholder() -> None:
         _lo = st.radio(
             "🌐", options=["双语", "EN"],
             index=_lang_idx, horizontal=True,
-            key="whl_lang_radio", label_visibility="collapsed",
+            key="lang_radio", label_visibility="collapsed",
         )
         st.session_state["lang"] = "bilingual" if _lo == "双语" else "english"
         _en = st.session_state.get("lang") == "english"

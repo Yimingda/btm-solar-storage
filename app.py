@@ -2502,7 +2502,7 @@ _main_title = ("Professional BTM PV+BESS Financial Modelling System"
                if _is_en else
                "专业级 BTM 光储财务测算系统 &nbsp;·&nbsp; Professional BTM PV+BESS Financial Modelling System")
 
-_back_col, _hdr_col, _lang_col = st.columns([1, 8, 1], gap="small")
+_back_col, _hdr_col, _lang_col = st.columns([1, 7, 2], gap="small")
 with _back_col:
     if st.button("◀", key="btm_back_to_scenarios",
                  help="Back to scenarios / 返回场景选择",
@@ -2520,12 +2520,15 @@ with _hdr_col:
 </div>
 """, unsafe_allow_html=True)
 with _lang_col:
+    # key="lang_radio" is SHARED with the scenario page radio.
+    # Since only one page renders at a time, they use the same session-state
+    # slot — language selected on the scenario page is instantly reflected here,
+    # and vice versa. No index= needed: stored value is always authoritative.
     _lang_opt = st.radio(
         "🌐",
         options=["双语", "EN"],
-        index=0 if st.session_state.get("lang", "bilingual") == "bilingual" else 1,
         horizontal=True,
-        key="lang_radio_sel",
+        key="lang_radio",
         label_visibility="collapsed",
     )
     st.session_state["lang"] = "bilingual" if _lang_opt == "双语" else "english"
