@@ -41,6 +41,30 @@ def _js_clear_session() -> None:
 </script>""", height=0)
 
 
+def flush_token_to_storage() -> None:
+    """Execute a deferred localStorage save or clear.
+
+    MUST be called from a *stable* render — i.e. a render that does NOT
+    immediately call st.rerun() afterwards.  Calling components.html()
+    right before st.rerun() races: Streamlit starts the new render before
+    the iframe's JS has time to execute, so the write silently never
+    happens.
+
+    Pattern:
+      - Login / auto-login → set  st.session_state["_ls_cmd"] = ("save", email, token)
+      - Logout             → set  st.session_state["_ls_cmd"] = ("clear",)
+      - app.py calls flush_token_to_storage() once, right after the auth gate,
+        in the first stable logged-in render.
+    """
+    cmd = st.session_state.pop("_ls_cmd", None)
+    if cmd is None:
+        return
+    if cmd[0] == "save" and len(cmd) == 3:
+        _js_save_session(cmd[1], cmd[2])
+    elif cmd[0] == "clear":
+        _js_clear_session()
+
+
 def _inject_auth_loader() -> None:
     """
     JS bridge: read localStorage and, if a valid saved session exists,
@@ -48,8 +72,8 @@ def _inject_auth_loader() -> None:
     Uses window.top (not window.parent) because Streamlit components run
     inside a nested srcdoc iframe — window.parent is Streamlit's own frame,
     not the browser window. window.top bypasses all intermediate frames.
-    A 200 ms setTimeout lets the Streamlit DOM settle before we access
-    window.top.location (avoids "not initialized" races on cold load).
+    A 500 ms setTimeout lets the Streamlit DOM fully settle (cold loads on
+    Streamlit Cloud can be slow) before we access window.top.location.
     """
     components.html(f"""<script>
 (function(){{
@@ -84,7 +108,7 @@ def _inject_auth_loader() -> None:
         catch(e2){{ console.warn('BTM auth-loader: redirect blocked', e2); }}
       }}
     }}catch(ex){{ console.warn('BTM auth-loader error:', ex); }}
-  }}, 200);
+  }}, 500);
 }})();
 </script>""", height=0)
 
@@ -145,7 +169,10 @@ def logout():
     for k in ("_user_profile", "_auth_mode", "_pending_email",
               "_btm_ls_checked"):
         st.session_state.pop(k, None)
-    _js_clear_session()   # wipe localStorage so auto-login won't fire next visit
+    # Queue the clear — render_auth_gate() will execute it in the next stable
+    # render (login page).  Calling _js_clear_session() here directly would
+    # race with st.rerun(): the iframe JS never fires before the page changes.
+    st.session_state["_ls_cmd"] = ("clear",)
     st.rerun()
 
 
@@ -205,6 +232,14 @@ def render_auth_gate():
     Full-page auth UI.  Renders in the centre of the wide-layout page.
     Caller must call st.stop() after this.
     """
+    # ── Deferred localStorage clear (queued by logout()) ─────────────────────
+    # logout() can't call _js_clear_session() directly before st.rerun()
+    # because the iframe JS races with the rerun.  It queues ("clear",) here
+    # so the clear runs in this stable render (no immediate rerun follows).
+    _deferred = st.session_state.pop("_ls_cmd", None)
+    if _deferred is not None and _deferred[0] == "clear":
+        _js_clear_session()
+
     # ── Auto-login from saved session (Remember Me) ──────────────────────────
     # JS bridge writes ?_btm_rt=<token> to trigger this block.
     # Guard: only try once per Streamlit session (session_state persists across
@@ -223,8 +258,10 @@ def render_auth_gate():
             with st.spinner("自动登录中 / Auto sign-in…"):
                 resp = refresh_session(_rt)
                 if resp and resp.session:
-                    # Refresh token is valid — rotate token in localStorage and log in
-                    _js_save_session(_email, resp.session.refresh_token)
+                    # Token valid — defer the rotated-token save to the first
+                    # stable logged-in render (flush_token_to_storage in app.py)
+                    # so the write isn't racing with st.rerun() inside _on_login_success.
+                    st.session_state["_ls_cmd"] = ("save", _email, resp.session.refresh_token)
                     _on_login_success(resp, _email)
                     return
         # Token expired or invalid — wipe stale localStorage so next visit shows
@@ -304,11 +341,16 @@ def _render_login():
         with st.spinner("登录中 / Signing in…"):
             try:
                 resp = sign_in(email.strip(), password)
-                # ── Remember Me: save session to localStorage ──
+                # ── Remember Me ────────────────────────────────────────────
+                # Queue the localStorage op so it runs in the first *stable*
+                # logged-in render (flush_token_to_storage in app.py).
+                # Direct calls here race with the st.rerun() inside
+                # _on_login_success: the iframe JS never executes.
                 if remember_me and resp and resp.session:
-                    _js_save_session(email.strip(), resp.session.refresh_token)
+                    st.session_state["_ls_cmd"] = ("save", email.strip(),
+                                                    resp.session.refresh_token)
                 else:
-                    _js_clear_session()   # ensure no stale data if unchecked
+                    st.session_state["_ls_cmd"] = ("clear",)
                 _on_login_success(resp, email.strip())
             except Exception as exc:
                 _handle_login_error(exc, email.strip())

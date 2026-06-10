@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 # ── Auth / User system ──────────────────────────────────────────────────────
 # Imported here so auth helpers are available throughout app.py
 from auth import (is_logged_in, render_auth_gate, get_current_user,
-                  get_tier, is_pro, is_admin, logout)
+                  get_tier, is_pro, is_admin, logout, flush_token_to_storage)
 from snapshots import render_snapshot_panel
 from admin import render_admin_panel
 
@@ -869,6 +869,11 @@ DEFAULT_PARAMS = {
 if not is_logged_in():
     render_auth_gate()
     st.stop()
+
+# Flush any deferred localStorage op (token save / clear) that was queued
+# during login or logout.  Must run here — in the first *stable* logged-in
+# render — so the component iframe has time to execute before any st.rerun().
+flush_token_to_storage()
 
 # ─────────────────────────────────────────────────────────────
 # Session State 初始化 / Session State Initialization
