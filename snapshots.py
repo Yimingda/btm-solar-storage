@@ -445,26 +445,17 @@ def _show_limit_msg(tier: str, limit: int) -> None:
 
 _CARD_CSS = """
 <style>
-/* Project card: name truncation + metric colours */
-.proj-card {
-    border: 1px solid #2D3748;
-    border-radius: 6px;
-    background: #111827;
-    padding: 7px 10px 5px;
-    margin-bottom: 3px;
-    min-height: 58px;
-    box-sizing: border-box;
+/* ── Project picker: widen ONLY the popover that contains .proj-picker-marker ── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) {
+    min-width: min(92vw, 960px) !important;
+    width:     min(92vw, 960px) !important;
 }
-.proj-card.active-clean  { border-color: #27ae60; }
-.proj-card.active-dirty  { border-color: #e67e22; }
-.proj-card.pinned        { border-color: #4488ff; }
-.proj-card .pname {
-    font-size: 0.80em; font-weight: 600; color: #E8ECF0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    max-width: 100%;
+/* Compact name buttons inside the project picker */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button {
+    font-size: 0.78em !important;
+    padding: 2px 6px !important;
+    min-height: 30px !important;
 }
-.proj-card .pmeta { font-size: 0.72em; color: #00E5A0; margin-top: 2px; }
-.proj-card .pdate { font-size: 0.67em; color: #667; margin-top: 1px; }
 </style>
 """
 
@@ -473,15 +464,12 @@ def render_project_bar() -> None:
     """
     Full-width project picker bar — sits ABOVE the main col split in app.py.
 
-    Closed state  (1 compact line):
-        [📂 N ▼]   ·  [active project status ...........]  ·  [💾]
+    Always 1 compact line:
+        [📂 N/∞ ▼ (popover)]  ·  [active project status ...........]  ·  [💾]
 
-    Open state  (card grid below the bar):
-        ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │ Site A   │ │ Site B   │ │ Site C   │ │ Site D   │
-        │ +2.1M 18%│ │ +1.8M15%│ │    —     │ │ +3.2M22%│
-        │ 10-01[⋮] │ │ 10-02[⋮] │ │ 09-28[⋮] │ │ 09-27[⋮] │
-        └──────────┘ └──────────┘ └──────────┘ └──────────┘
+    Clicking [📂] opens a floating dropdown (st.popover) with a 5-column grid.
+    Each card is a compact [name button] [⋮] row — clicking the name loads the project.
+    No NPV/IRR metrics; date/full name shown in the button tooltip.
     """
     user = get_current_user()
     if not user:
@@ -498,24 +486,37 @@ def render_project_bar() -> None:
     snapshots = get_snapshots(user_id)
     count     = len(snapshots)
 
-    _is_open = st.session_state.get("_proj_panel_open", False)
-
     # ── Save dialog (full-width, shown inline when triggered) ──────────────
     if st.session_state.get("_snap_save_open"):
         _render_save_dialog(user_id)
         return   # hide rest of bar while dialog is open
 
-    # ── Top bar: [toggle] [status] [save] ──────────────────────────────────
+    # ── Top bar: [project picker popover] [status] [save] ──────────────────
     _bc1, _bc2, _bc3 = st.columns([2, 8, 2])
 
     with _bc1:
-        arrow = "▲" if _is_open else "▼"
-        _tier_icon = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(tier, "🆓")
-        btn_lbl = f"📂 {count}/{limit_str} {arrow}"
-        if st.button(btn_lbl, key="proj_toggle_btn", use_container_width=True,
-                     help="Toggle project list / 展开/收起项目列表"):
-            st.session_state["_proj_panel_open"] = not _is_open
-            st.rerun()
+        _btn_lbl = f"📂 {count}/{limit_str} ▼"
+        with st.popover(_btn_lbl, use_container_width=True):
+            # Invisible marker — CSS :has(.proj-picker-marker) widens THIS popover only
+            st.markdown(
+                '<span class="proj-picker-marker" style="display:none"></span>',
+                unsafe_allow_html=True,
+            )
+            if not snapshots:
+                _empty = ("No projects yet — click 💾 Save to create one" if _en()
+                          else "暂无项目，点击 💾 保存 以创建第一个项目")
+                st.markdown(
+                    f"<div style='color:#667;font-size:0.82em;padding:4px 0'>{_empty}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                COLS = 5
+                for _row_start in range(0, len(snapshots), COLS):
+                    _chunk = snapshots[_row_start: _row_start + COLS]
+                    _cols  = st.columns(COLS)
+                    for _col, _snap in zip(_cols, _chunk):
+                        with _col:
+                            _render_project_card(_snap)
 
     with _bc2:
         _aid, _aname, _dirty = get_active_project()
@@ -544,36 +545,14 @@ def render_project_bar() -> None:
         if not _can_save:
             _show_limit_msg(tier, limit)
 
-    # ── Project card grid ───────────────────────────────────────────────────
-    if not _is_open:
-        return
-
-    if not snapshots:
-        empty = ("No projects yet — click 💾 Save to create one" if _en()
-                 else "暂无项目，点击 💾 保存 以创建第一个项目")
-        st.markdown(
-            f"<div style='color:#667;font-size:0.82em;padding:10px 0 6px'>{empty}</div>",
-            unsafe_allow_html=True,
-        )
-        return
-
-    COLS = 5   # cards per row; adjust to taste
-    for _row_start in range(0, len(snapshots), COLS):
-        _chunk = snapshots[_row_start: _row_start + COLS]
-        _cols  = st.columns(COLS)
-        for _col, _snap in zip(_cols, _chunk):
-            with _col:
-                _render_project_card(_snap)
-
 
 # ── Individual project card ───────────────────────────────────────────────────
 
 def _render_project_card(snap: dict) -> None:
-    """Compact card: styled HTML header + [▶ Load] [⋮] action row."""
+    """Compact card: name-as-load-button + ⋮ management popover."""
     snap_id = snap["id"]
     name    = snap["name"]
     pinned  = snap.get("is_pinned", False)
-    results = snap.get("results_json") or {}
 
     try:
         dt = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
@@ -581,49 +560,31 @@ def _render_project_card(snap: dict) -> None:
     except Exception:
         ts = ""
 
-    npv = results.get("npv", 0) or 0
-    irr = results.get("irr", 0) or 0
-    metric = (f"NPV {npv/1e6:+.1f}M · IRR {irr:.0f}%"
-              if npv else ("Not run" if _en() else "未运算"))
-
     is_active = snap_id == st.session_state.get("_active_snap_id")
     _dirty    = _is_dirty() if is_active else False
 
-    # CSS card class
-    if is_active:
-        _css_cls = "active-dirty" if _dirty else "active-clean"
-    elif pinned:
-        _css_cls = "pinned"
-    else:
-        _css_cls = ""
-
     _pin_icon    = "★ " if pinned else ""
     _active_icon = "▶ " if is_active else ""
+    # Truncate to keep columns tight
+    _short = (name[:12] + "…") if len(name) > 14 else name
+    _btn_lbl = f"{_active_icon}{_pin_icon}{_short}"
+    _tooltip  = f"{name}  ·  {ts}" + ("  ·  ✏️ unsaved" if _dirty else "")
 
-    # ── Card visual (HTML) ──────────────────────────────────────────────────
-    st.markdown(
-        f'<div class="proj-card {_css_cls}">'
-        f'<div class="pname">{_active_icon}{_pin_icon}{name}</div>'
-        f'<div class="pmeta">{metric}</div>'
-        f'<div class="pdate">{ts}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+    # ── [name button (loads project)]  [⋮ popover] ─────────────────────────
+    _nc, _mc = st.columns([5, 1], gap="small")
 
-    # ── Action row: [Load] [⋮] ──────────────────────────────────────────────
-    _lc, _mc = st.columns([5, 1])
-
-    with _lc:
-        _load_lbl = ("▶ Active" if is_active else "▶ Load") if _en() else \
-                    ("▶ 已加载" if is_active else "▶ 加载")
-        if st.button(_load_lbl, key=f"pc_load_{snap_id}",
-                     use_container_width=True,
-                     disabled=is_active,
-                     help=f"Load: {name}"):
+    with _nc:
+        if st.button(
+            _btn_lbl,
+            key=f"pc_load_{snap_id}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+            disabled=is_active,
+            help=_tooltip,
+        ):
             _full = get_snapshot_full(snap_id)
             if _full and _full.get("params_json"):
                 restore_snapshot(_full["params_json"], snap_id=snap_id, snap_name=name)
-                st.session_state["_proj_panel_open"] = False
                 st.toast(f"✅ {'Loaded' if _en() else '已加载'}: {name}")
                 st.rerun()
             else:
@@ -707,7 +668,6 @@ def _render_project_card(snap: dict) -> None:
                                "_snap_loaded_params"):
                         st.session_state.pop(_k, None)
                 st.session_state.pop(f"_pc_del_{snap_id}", None)
-                st.session_state["_proj_panel_open"] = True   # keep panel open
                 st.toast(f"🗑️ {'Deleted' if _en() else '已删除'}: {name}")
                 st.rerun()
         with _d2:
