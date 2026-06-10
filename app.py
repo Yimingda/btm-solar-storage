@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 # Imported here so auth helpers are available throughout app.py
 from auth import (is_logged_in, render_auth_gate, get_current_user,
                   get_tier, is_pro, is_admin, logout, flush_token_to_storage)
-from snapshots import render_snapshot_panel
+from snapshots import render_snapshot_panel, render_project_bar
 from admin import render_admin_panel
 
 # SA 2025 公众假期 / SA 2025 Public Holidays (off-peak all day like weekends)
@@ -2502,6 +2502,13 @@ with _lang_col:
     st.session_state["lang"] = "bilingual" if _lang_opt == "双语" else "english"
 
 # ─────────────────────────────────────────────────────────────
+# 项目栏（全宽）/ Project bar — full-width, above column split
+# ─────────────────────────────────────────────────────────────
+render_project_bar()
+st.markdown("<hr style='margin:4px 0 8px;border-color:#1e2a3a'>",
+            unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
 # 主布局：内容区（左7）+ 参数面板（右3）
 # Main layout: content (left 7) + params panel (right 3)
 # ─────────────────────────────────────────────────────────────
@@ -2534,9 +2541,7 @@ with _scroll:
                          help="Sign out / 退出登录"):
                 logout()
 
-    # ── 快照管理 / Snapshot Panel ──
-    render_snapshot_panel()
-    st.markdown("---")
+    st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════
     # 1. 项目选址 / Site Location
@@ -2945,33 +2950,6 @@ with _scroll:
 # 左侧内容区 / LEFT — Content Area (Tabs)
 # ══════════════════════════════════════════════════════════════
 with col_content:
-
-    # ── Active-project context bar (always visible at top of content area) ──
-    # Reads directly from session_state — no extra import needed
-    _proj_id   = st.session_state.get("_active_snap_id")
-    _proj_name = st.session_state.get("_active_snap_name")
-    _proj_dirty = False
-    if _proj_id:
-        # Compare current session values against the baseline snapshot when loaded
-        _loaded_baseline = st.session_state.get("_snap_loaded_params") or {}
-        _proj_dirty = any(st.session_state.get(k) != v
-                          for k, v in _loaded_baseline.items())
-    if _proj_name:
-        _pb_bg  = "#2a1800" if _proj_dirty else "#07180e"
-        _pb_bdr = "#e67e22" if _proj_dirty else "#27ae60"
-        _pb_ico = "✏️" if _proj_dirty else "✅"
-        _pb_lbl = (("Unsaved changes — click ♻️ Update Config or 💾 Save"
-                    if _proj_dirty else "Synced with project")
-                   if _is_en else
-                   ("有未保存的修改 — 点击 ♻️ 更新配置 或 💾 保存新项目"
-                    if _proj_dirty else "已同步 / Synced"))
-        st.markdown(
-            f'<div style="background:{_pb_bg};border-left:4px solid {_pb_bdr};'
-            f'padding:5px 10px;border-radius:4px;font-size:0.82em;margin-bottom:6px">'
-            f'{_pb_ico} <b>{"Project" if _is_en else "当前项目"}:</b>'
-            f' {_proj_name} &nbsp;·&nbsp; {_pb_lbl}</div>',
-            unsafe_allow_html=True,
-        )
 
     _tab_labels = [
         T("📊 计算与结果 / Run & Results"),
