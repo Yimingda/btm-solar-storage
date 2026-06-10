@@ -19,6 +19,7 @@ warnings.filterwarnings("ignore")
 from auth import (is_logged_in, render_auth_gate, get_current_user,
                   get_tier, is_pro, is_admin, logout, flush_token_to_storage)
 from snapshots import render_snapshot_panel, render_project_bar
+from scenario_select import render_scenario_selector, render_wheeling_placeholder
 from admin import render_admin_panel
 
 # SA 2025 公众假期 / SA 2025 Public Holidays (off-peak all day like weekends)
@@ -117,7 +118,7 @@ st.markdown("""
         min-height: 2.8rem !important;
         background: #080C18 !important;
     }
-    /* 语言选择行与主标题同行：整行统一底边框 + 深色背景 */
+    /* 页头行：整行统一底边框 + 深色背景（3列：返回 | 标题 | 语言）*/
     div[data-testid="stHorizontalBlock"]:first-of-type {
         border-bottom: 1px solid var(--primary);
         margin-bottom: 1rem;
@@ -127,6 +128,14 @@ st.markdown("""
         padding-top: 0 !important;
         padding-bottom: 0 !important;
     }
+    /* 返回按钮列（第一列）：垂直居中 */
+    div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"]:first-child {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding-left: 0.5rem !important;
+    }
+    /* 语言选择列（最后一列）：右对齐 */
     div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"]:last-child {
         display: flex !important;
         align-items: center !important;
@@ -874,6 +883,19 @@ if not is_logged_in():
 # during login or logout.  Must run here — in the first *stable* logged-in
 # render — so the component iframe has time to execute before any st.rerun().
 flush_token_to_storage()
+
+# ─────────────────────────────────────────────────────────────
+# 场景选择门禁 / Scenario Gate
+# Shows the landing page until the user picks a scenario.
+# ─────────────────────────────────────────────────────────────
+_scenario = st.session_state.get("_scenario")
+if not _scenario:
+    render_scenario_selector()
+    st.stop()
+elif _scenario == "wheeling":
+    render_wheeling_placeholder()
+    st.stop()
+# _scenario == "btm"  →  fall through to the BTM app below
 
 # ─────────────────────────────────────────────────────────────
 # Session State 初始化 / Session State Initialization
@@ -2472,14 +2494,21 @@ def generate_excel_report() -> bytes:
 
 
 # ─────────────────────────────────────────────────────────────
-# 页头 + 语言选择（同行）/ Header + Language selector (same row)
+# 页头 + 返回 + 语言选择（同行）
+# Header + back-to-scenarios + language selector (same row)
 # ─────────────────────────────────────────────────────────────
 _is_en = st.session_state.get("lang") == "english"
 _main_title = ("Professional BTM PV+BESS Financial Modelling System"
                if _is_en else
                "专业级 BTM 光储财务测算系统 &nbsp;·&nbsp; Professional BTM PV+BESS Financial Modelling System")
 
-_hdr_col, _lang_col = st.columns([9, 1], gap="small")
+_back_col, _hdr_col, _lang_col = st.columns([1, 8, 1], gap="small")
+with _back_col:
+    if st.button("◀", key="btm_back_to_scenarios",
+                 help="Back to scenarios / 返回场景选择",
+                 use_container_width=True):
+        st.session_state.pop("_scenario", None)
+        st.rerun()
 with _hdr_col:
     st.markdown(f"""
 <div class="main-header">
