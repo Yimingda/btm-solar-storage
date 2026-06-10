@@ -447,8 +447,8 @@ _CARD_CSS = """
 <style>
 /* ── Project picker: widen ONLY the popover that contains .proj-picker-marker ── */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker) {
-    min-width: min(92vw, 960px) !important;
-    width:     min(92vw, 960px) !important;
+    min-width: min(96vw, 1320px) !important;
+    width:     min(96vw, 1320px) !important;
 }
 /* Compact name buttons inside the project picker */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button {
@@ -535,10 +535,9 @@ def render_project_bar() -> None:
 
     with _bc3:
         _can_save = count < limit
-        _save_lbl = "💾 Save" if _en() else "💾 保存"
-        if st.button(_save_lbl, key="snap_save_btn", type="primary",
+        if st.button("💾 Save as New Project", key="snap_save_btn", type="primary",
                      use_container_width=True, disabled=not _can_save,
-                     help="Save current parameters as a project"):
+                     help="Save current parameters as a new project"):
             st.session_state["_snap_save_open"]    = True
             st.session_state["_snap_default_name"] = _default_name()
             st.rerun()

@@ -2498,9 +2498,7 @@ def generate_excel_report() -> bytes:
 # Header + back-to-scenarios + language selector (same row)
 # ─────────────────────────────────────────────────────────────
 _is_en = st.session_state.get("lang") == "english"
-_main_title = ("Professional BTM PV+BESS Financial Modelling System"
-               if _is_en else
-               "专业级 BTM 光储财务测算系统 &nbsp;·&nbsp; Professional BTM PV+BESS Financial Modelling System")
+_main_title = "BTM PV+BESS Financial Modelling System"
 
 _back_col, _hdr_col, _lang_col = st.columns([1, 7, 2], gap="small")
 with _back_col:
