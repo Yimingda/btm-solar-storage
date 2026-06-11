@@ -1601,83 +1601,48 @@ def compute_lcoe(
     bess_kwh: float,
     params: dict,
     dispatch_yr1: dict,
-    annual_cycles: float,
-    c_rate: float,
+    annual_cycles: float = 0.0,   # unused — kept for call-site compatibility
+    c_rate: float = 0.25,         # unused — kept for call-site compatibility
 ) -> dict:
     """
-    Levelised Cost of Energy (LCOE) for a BTM PV+BESS system.
+    Levelised Cost of Energy (LCOE) — Year-1 annualised basis.
 
-    LCOE (ZAR/kWh) = NPV(lifecycle costs) / NPV(avoided grid kWh)
+    LCOE (ZAR/kWh) = annualised cost / Year-1 avoided grid kWh
 
-    Avoided kWh = total site load − grid purchases after PV+BESS dispatch.
-    PV contribution degrades at pv_degradation %/yr.
-    BESS contribution scales with SOH (set to 0 after EoL).
+    Annualised cost = CAPEX / project_life  +  Year-1 O&M (PV + BESS)
+
+    This is the industry standard for a quick, transparent LCOE that
+    clients can verify from a single year of dispatch data.
 
     Returns a dict with:
-      lcoe_zar_kwh       – discounted LCOE
-      lcoe_simple_zar_kwh– simple (undiscounted) LCOE
-      npv_costs_zar      – NPV of all costs (CAPEX + O&M)
-      npv_energy_kwh     – NPV of avoided kWh denominator
-      total_avoided_mwh  – lifetime avoided energy (undiscounted, MWh)
+      lcoe_zar_kwh        – LCOE in ZAR/kWh
+      annual_cost_zar     – annualised cost used in numerator
+      avoided_kwh_yr1     – Year-1 avoided grid kWh (denominator)
+      total_avoided_mwh   – indicative lifetime avoided energy (× years, MWh)
     """
-    pv_capex    = pv_kwp   * params["pv_capex_per_kwp"]
-    bess_capex  = bess_kwh * params["bess_capex_per_kwh"]
-    total_capex = pv_capex + bess_capex
+    total_capex = (pv_kwp   * params["pv_capex_per_kwp"] +
+                   bess_kwh * params["bess_capex_per_kwh"])
 
-    disc = params["discount_rate"]    / 100.0
-    deg  = params["pv_degradation"]   / 100.0
-    esc  = params["tariff_escalation"]/ 100.0
+    # Year-1 O&M (base rates, no escalation)
+    yr1_opex = (pv_kwp   * params["pv_opex_per_kwp"] +
+                bess_kwh * params["bess_opex_per_kwh"])
 
-    # ── Year-1 avoided energy decomposition ─────────────────────
-    # Total avoided = load served by PV/BESS instead of grid
-    annual_load_yr1     = dispatch_yr1["annual_load_kWh"]
-    annual_grid_yr1     = dispatch_yr1["annual_grid_buy_kWh"]
-    annual_discharge_yr1 = dispatch_yr1["annual_discharge_kWh"]
-    annual_gridchg_yr1  = dispatch_yr1["annual_grid_charge_kWh"]
+    # Annualised capital cost = straight-line over project life
+    annual_capex = total_capex / ANALYSIS_YEARS
+    annual_cost  = annual_capex + yr1_opex
 
-    total_avoided_yr1 = max(0.0, annual_load_yr1 - annual_grid_yr1)
+    # Year-1 avoided grid purchases = what the site no longer buys from grid
+    avoided_kwh = max(0.0,
+                      dispatch_yr1["annual_load_kWh"] -
+                      dispatch_yr1["annual_grid_buy_kWh"])
 
-    # Split into PV-origin and BESS-net contributions for multi-year degradation
-    # Net BESS benefit = discharge − energy drawn from grid to charge (accounting for RTE)
-    bess_net_yr1 = max(0.0, annual_discharge_yr1 - annual_gridchg_yr1)
-    pv_net_yr1   = max(0.0, total_avoided_yr1 - bess_net_yr1)
-
-    soh_arr = get_soh_by_year(annual_cycles, c_rate=c_rate)
-
-    npv_costs  = float(total_capex)  # Year-0 CAPEX
-    npv_energy = 0.0
-    total_costs   = float(total_capex)
-    total_avoided = 0.0
-
-    for yr in range(1, ANALYSIS_YEARS + 1):
-        deg_mult = (1.0 - deg) ** (yr - 1)
-        soh      = soh_arr[yr] if yr < len(soh_arr) else 0.0
-        bess_alive = soh >= BESS_EOL_SOH
-
-        # O&M (OPEX grows at 50 % of tariff escalation)
-        pv_opex   = pv_kwp   * params["pv_opex_per_kwp"]   * (1 + esc * 0.5) ** (yr - 1)
-        bess_opex = (bess_kwh * params["bess_opex_per_kwh"] * (1 + esc * 0.5) ** (yr - 1)
-                     if bess_alive else 0.0)
-        total_opex = pv_opex + bess_opex
-
-        disc_f = (1.0 + disc) ** yr
-        npv_costs  += total_opex / disc_f
-        total_costs += total_opex
-
-        # Avoided energy: PV degrades annually; BESS scales with SOH
-        avoided_yr = pv_net_yr1 * deg_mult + (bess_net_yr1 * soh if bess_alive else 0.0)
-        npv_energy    += avoided_yr / disc_f
-        total_avoided += avoided_yr
-
-    lcoe        = npv_costs / npv_energy        if npv_energy > 0 else 0.0
-    lcoe_simple = total_costs / total_avoided   if total_avoided > 0 else 0.0
+    lcoe = annual_cost / avoided_kwh if avoided_kwh > 0 else 0.0
 
     return {
-        "lcoe_zar_kwh":         round(lcoe, 4),
-        "lcoe_simple_zar_kwh":  round(lcoe_simple, 4),
-        "npv_costs_zar":        round(npv_costs, 0),
-        "npv_energy_kwh":       round(npv_energy, 0),
-        "total_avoided_mwh":    round(total_avoided / 1_000, 1),
+        "lcoe_zar_kwh":      round(lcoe, 4),
+        "annual_cost_zar":   round(annual_cost, 0),
+        "avoided_kwh_yr1":   round(avoided_kwh, 0),
+        "total_avoided_mwh": round(avoided_kwh * ANALYSIS_YEARS / 1_000, 1),
     }
 
 
@@ -3420,8 +3385,9 @@ with col_content:
                             {_mk: "NPV (ZAR)",                  _vk: res['npv']},
                             {_mk: "IRR (%)",                    _vk: res['irr']},
                             {_mk: "LCOE (ZAR/kWh)",             _vk: _lcoe_x.get("lcoe_zar_kwh", "")},
-                            {_mk: "LCOE Simple (ZAR/kWh)",      _vk: _lcoe_x.get("lcoe_simple_zar_kwh", "")},
-                            {_mk: "Lifetime Avoided (MWh)",     _vk: _lcoe_x.get("total_avoided_mwh", "")},
+                            {_mk: "Year-1 Avoided (kWh)",       _vk: _lcoe_x.get("avoided_kwh_yr1", "")},
+                            {_mk: "Annualised Cost (ZAR/yr)",   _vk: _lcoe_x.get("annual_cost_zar", "")},
+                            {_mk: "Indicative Lifetime (MWh)",  _vk: _lcoe_x.get("total_avoided_mwh", "")},
                             {_mk: "USD/ZAR Rate",               _vk: st.session_state.forex_usd_zar},
                         ])
                         ops.to_excel(writer, sheet_name="Summary", index=False)
