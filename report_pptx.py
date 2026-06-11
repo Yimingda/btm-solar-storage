@@ -237,9 +237,9 @@ def _s1_cover(prs, project_name: str, client_name: str,
     # Zone A (top  0.00 – 4.10"):  dark forest-green overlay — text area
     # Zone B (mid  4.10 – 6.40"):  solar + vineyard photo visible
     # Zone C (bot  6.40 – 7.50"):  dark overlay — footer / confidential
-    _COVER_BG = "041510"          # very dark forest green
+    _COVER_BG = "0B1929"          # Huawei deep navy — matches FusionSolar brand
     _ASSETS   = os.path.join(os.path.dirname(__file__), "assets")
-    _cover_ph = os.path.join(_ASSETS, "hw_winery.png")
+    _cover_ph = os.path.join(_ASSETS, "hw_fusionsolar9.jpg")
 
     if os.path.exists(_cover_ph):
         # Full-panel photo base (z-order: lowest layer)
