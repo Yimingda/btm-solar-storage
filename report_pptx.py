@@ -352,6 +352,9 @@ def _s2_thesis(prs, results: dict, params: dict, company: str,
     capex   = results.get("total_capex", 0) or 0
     lcoe_d  = results.get("lcoe") or {}   # PV-only LCOE (None if no PV)
     lcos_d  = results.get("lcos") or {}   # BESS-only LCOS (None if no BESS)
+    # Lifetime MWh for narrative: PV gen (if PV), else BESS discharge (pure BESS)
+    avoided = (lcoe_d.get("total_avoided_mwh") or
+               lcos_d.get("total_discharge_mwh") or 0)
     esc     = params.get("tariff_escalation", 8.0)
 
     def _m(v): return f"R {abs(v)/1e6:.1f}M" if abs(v) >= 1e6 else \
