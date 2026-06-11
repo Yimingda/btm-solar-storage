@@ -3499,6 +3499,84 @@ with col_content:
                             use_container_width=True,
                         )
 
+            # ── PPTX / PowerPoint Presentation Report ──────────────
+            st.markdown("---")
+            st.markdown(
+                '<div class="section-header">📊 PowerPoint Presentation Report</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown("""<div class="info-box">
+                7-slide deck: Cover · Executive Summary · System Config · Financial Analysis ·
+                Energy Analysis · Tariff &amp; Savings · Assumptions
+                &nbsp;|&nbsp; Includes cash-flow and monthly-generation charts
+            </div>""", unsafe_allow_html=True)
+
+            _pp_btn_col, _pp_dl_col = st.columns([2, 3])
+            with _pp_btn_col:
+                _gen_pptx_btn = st.button(
+                    "📊 Export PowerPoint Report",
+                    key="gen_pptx_btn",
+                    use_container_width=True,
+                )
+
+            if _gen_pptx_btn:
+                with st.spinner("📊 Building 7-slide PPTX report…"):
+                    try:
+                        from report_pptx import generate_pptx as _gen_pptx
+                        import datetime as _edt
+
+                        # Collect all params from session state
+                        _pptx_params = {
+                            k: st.session_state.get(k)
+                            for k in [
+                                "pv_kwp", "bess_kwh", "c_rate_label", "c_rate",
+                                "pv_loss", "tilt", "azimuth", "pv_degradation",
+                                "rte", "dod", "bess_cycles",
+                                "tariff_mode",
+                                "w_morning_peak", "w_evening_peak", "w_standard", "w_off_peak",
+                                "s_morning_peak", "s_evening_peak", "s_standard", "s_off_peak",
+                                "tariff_escalation", "discount_rate", "tax_rate",
+                                "forex_usd_zar", "pv_usd_per_w", "bess_usd_per_wh",
+                                "pv_opex_per_kwp", "bess_opex_per_kwh",
+                                "lat", "lon",
+                            ]
+                        }
+                        # Merge results-derived capex + tax_rate into params
+                        _res = st.session_state.results or {}
+                        _pptx_params["tax_rate"] = _pptx_params.get("tax_rate") or 27
+                        _pptx_params["c_rate"] = C_RATE_OPTIONS.get(
+                            str(st.session_state.get("c_rate_label", "0.25C")), 0.25)
+
+                        _pptx_bytes = _gen_pptx(
+                            params       = _pptx_params,
+                            results      = _res,
+                            fin_df       = st.session_state.fin_df,
+                            pvgis_data   = _res.get("pvgis_data") or st.session_state.get("pvgis_data") or {},
+                            project_name = st.session_state.get("_active_snap_name", ""),
+                            client_name  = "",   # TODO: expose in UI
+                        )
+                        st.session_state["_pptx_bytes"] = _pptx_bytes
+                        _loc = (f"{st.session_state.lat:.1f}_{st.session_state.lon:.1f}"
+                                .replace("-", "S").replace(".", "p"))
+                        st.session_state["_pptx_fname"] = (
+                            f"BTM_Report_{_loc}_{_edt.datetime.now():%Y%m%d}.pptx"
+                        )
+                        st.success("✅ PPTX ready — click below to download")
+                    except Exception as _pe:
+                        st.error(f"❌ PPTX generation failed: {_pe}")
+
+            if "_pptx_bytes" in st.session_state:
+                with _pp_dl_col:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.download_button(
+                        "⬇ Download PowerPoint Report",
+                        data      = st.session_state["_pptx_bytes"],
+                        file_name = st.session_state.get("_pptx_fname", "BTM_Report.pptx"),
+                        mime      = ("application/vnd.openxmlformats-officedocument"
+                                     ".presentationml.presentation"),
+                        use_container_width=True,
+                    )
+
     # ──────────────────────────────────────────────────────────
     # Tab 2: 20-Year Financial Model
     # ──────────────────────────────────────────────────────────
