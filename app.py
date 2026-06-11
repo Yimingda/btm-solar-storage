@@ -2866,8 +2866,8 @@ with _user_col:
         _theme_icon = "☀️" if _light_mode else "🌙"
         _theme_tip  = "Switch to Dark mode" if _light_mode else "Switch to Light mode"
 
-        # ── Layout: [🌙] [mode badge] [👤 name] [⏻] ─────────────────
-        _tc, _mc, _uc, _lc = st.columns([1, 3, 5, 1], gap="small")
+        # ── Layout: [🌙] [badge + name] [⏻]  (3 cols = tighter than 4) ──────
+        _tc, _mc, _lc = st.columns([1, 9, 1], gap="small")
 
         with _tc:
             if st.button(_theme_icon, key="hdr_theme_btn",
@@ -2877,22 +2877,17 @@ with _user_col:
 
         with _mc:
             st.markdown(
-                f"<div style='padding-top:5px'>"
+                f"<div style='padding-top:4px;display:flex;"
+                f"align-items:center;gap:10px;overflow:hidden'>"
                 f"<span style='background:{_s_bg};color:{_s_clr};"
                 f"border:1px solid {_s_clr}44;border-radius:4px;"
-                f"padding:2px 7px;font-size:0.72rem;"
+                f"padding:2px 8px;font-size:0.72rem;"
                 f"font-family:IBM Plex Mono,monospace;letter-spacing:0.05em;"
-                f"white-space:nowrap'>{_s_icon} {_s_name}</span></div>",
-                unsafe_allow_html=True,
-            )
-
-        with _uc:
-            st.markdown(
-                f"<div style='font-size:0.80rem;padding-top:6px;"
-                f"color:var(--text-dim);white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis'>👤 "
-                f"<b style='color:var(--text-main)'>{_uname_short}</b>"
-                f" {_tbadge}</div>",
+                f"white-space:nowrap;flex-shrink:0'>{_s_icon} {_s_name}</span>"
+                f"<span style='font-size:0.80rem;color:var(--text-dim);"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"
+                f"👤 <b style='color:var(--text-main)'>{_uname_short}</b>"
+                f" {_tbadge}</span></div>",
                 unsafe_allow_html=True,
             )
 
@@ -3845,19 +3840,22 @@ with col_content:
             # Report branding inputs
             _rpt_col1, _rpt_col2 = st.columns(2)
             with _rpt_col1:
-                _pptx_consultant = st.text_input(
-                    "EPC",
+                st.text_input(
+                    "EPC / Consultant",
                     value=st.session_state.get("_pptx_consultant", ""),
-                    placeholder="*** Company",
+                    placeholder="e.g. GreenWatt Consulting",
                     key="_pptx_consultant",
                 )
             with _rpt_col2:
-                _pptx_client = st.text_input(
-                    "OEM",
-                    value=st.session_state.get("_pptx_client", "Huawei Technologies SA PTY LTD"),
-                    placeholder="Huawei Technologies SA PTY LTD",
-                    key="_pptx_client",
+                st.text_input(
+                    "Client Name",
+                    value=st.session_state.get("_pptx_client_name", ""),
+                    placeholder="e.g. ABC Manufacturing (Pty) Ltd",
+                    help='Appears on cover: "Confidential · Only For: {Client Name}"',
+                    key="_pptx_client_name",
                 )
+            # OEM is hardcoded per Huawei partner requirement
+            st.caption("🏭 OEM: **Huawei Technologies SA PTY LTD** (fixed — Huawei partner requirement)")
 
             _pp_btn_col, _pp_dl_col = st.columns([2, 3])
             with _pp_btn_col:
@@ -3868,7 +3866,7 @@ with col_content:
                 )
 
             if _gen_pptx_btn:
-                with st.spinner("📊 Building 8-slide executive PPTX report…"):
+                with st.spinner("📊 Building executive PPTX report…"):
                     try:
                         from report_pptx import generate_pptx as _gen_pptx
                         import datetime as _edt
@@ -3901,7 +3899,7 @@ with col_content:
                             fin_df           = st.session_state.fin_df,
                             pvgis_data       = _res.get("pvgis_data") or st.session_state.get("pvgis_data") or {},
                             project_name     = st.session_state.get("_active_snap_name", ""),
-                            client_name      = st.session_state.get("_pptx_client", ""),
+                            client_name      = st.session_state.get("_pptx_client_name", ""),
                             consultant_name  = st.session_state.get("_pptx_consultant", ""),
                         )
                         st.session_state["_pptx_bytes"] = _pptx_bytes

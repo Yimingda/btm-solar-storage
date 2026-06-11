@@ -218,7 +218,8 @@ def _png_monthly(pvgis_data: dict) -> bytes | None:
 
 def _s1_cover(prs, project_name: str, client_name: str,
               consultant_name: str, pv_kwp: float,
-              bess_kwh: float, tariff_mode: str):
+              bess_kwh: float, tariff_mode: str,
+              has_pv: bool = True, has_bess: bool = True):
     """Slide 1 – Cover  (Huawei style: black left panel, white right panel)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     # Black left panel
@@ -228,24 +229,37 @@ def _s1_cover(prs, project_name: str, client_name: str,
     # White right panel
     _rect(slide, 8.98, 0, 4.35, 7.5, _WHT)
 
-    # EPC + OEM — top left
+    # EPC + OEM — top left (OEM hardcoded per Huawei partner requirement)
     epc_label = f"EPC:  {consultant_name}" if consultant_name else "EPC:  —"
-    oem_label = f"OEM:  {client_name}"     if client_name     else "OEM:  —"
     _tb(slide, 0.42, 0.18, 8.0, 0.32, epc_label, 9,
         bold=True, color="AAAAAA")
-    _tb(slide, 0.42, 0.52, 8.0, 0.32, oem_label, 9,
+    _tb(slide, 0.42, 0.52, 8.0, 0.32,
+        "OEM:  Huawei Technologies SA PTY LTD", 9,
         bold=True, color="CCCCCC")
 
     # Thin Huawei-red rule
     _rect(slide, 0.42, 0.92, 8.0, 0.04, _HRD)
 
-    # Main title
-    title = project_name or f"{pv_kwp:,.0f} kWp PV + {bess_kwh:,.0f} kWh BESS"
+    # Main title — adapts to PV/BESS scenario
+    if project_name:
+        title = project_name
+    elif has_pv and has_bess:
+        title = f"{pv_kwp:,.0f} kWp PV + {bess_kwh:,.0f} kWh BESS"
+    elif has_pv:
+        title = f"{pv_kwp:,.0f} kWp Solar PV System"
+    else:
+        title = f"{bess_kwh:,.0f} kWh Battery Energy Storage"
     _tb(slide, 0.42, 1.10, 8.0, 1.80, title, 38, bold=True, color=_WHT)
 
-    # Sub-title
+    # Sub-title — adapts to scenario
+    _sub_map = {
+        (True,  True):  "BTM Solar PV & Battery Energy Storage — Executive Report",
+        (True,  False): "BTM Solar PV System — Executive Report",
+        (False, True):  "Battery Energy Storage System (BESS) — Executive Report",
+    }
     _tb(slide, 0.42, 2.98, 8.0, 0.48,
-        "BTM Solar PV & Battery Energy Storage — Executive Report",
+        _sub_map.get((has_pv, has_bess),
+                     "BTM Energy Solution — Executive Report"),
         12.5, color="BBBBBB")
 
     # Date
@@ -258,21 +272,31 @@ def _s1_cover(prs, project_name: str, client_name: str,
         f"Solution Info: {_SOL_URL}",
         8.5, color=_HRD)
 
-    # Right panel: SYSTEM SIZE
+    # Right panel: SYSTEM SIZE — adapts to scenario
     _tb(slide, 9.22, 1.20, 3.90, 0.38, "SYSTEM SIZE", 9,
         bold=True, color=_MGY, align="center")
     _rect(slide, 9.22, 1.60, 3.78, 0.03, _SEP)
 
-    _tb(slide, 9.22, 1.70, 3.90, 0.85,
-        f"{pv_kwp:,.0f} kWp", 40, bold=True, color=_GLD, align="center")
-    _tb(slide, 9.22, 2.60, 3.90, 0.40,
-        "Solar PV Array", 11, color=_MGY, align="center")
-
-    _rect(slide, 9.22, 3.08, 3.78, 0.03, _SEP)
-    _tb(slide, 9.22, 3.18, 3.90, 0.72,
-        f"{bess_kwh:,.0f} kWh", 32, bold=True, color=_DGY, align="center")
-    _tb(slide, 9.22, 3.95, 3.90, 0.38,
-        "Battery Storage (BESS)", 10, color=_MGY, align="center")
+    if has_pv and has_bess:
+        _tb(slide, 9.22, 1.70, 3.90, 0.85,
+            f"{pv_kwp:,.0f} kWp", 40, bold=True, color=_GLD, align="center")
+        _tb(slide, 9.22, 2.60, 3.90, 0.40,
+            "Solar PV Array", 11, color=_MGY, align="center")
+        _rect(slide, 9.22, 3.08, 3.78, 0.03, _SEP)
+        _tb(slide, 9.22, 3.18, 3.90, 0.72,
+            f"{bess_kwh:,.0f} kWh", 32, bold=True, color=_DGY, align="center")
+        _tb(slide, 9.22, 3.95, 3.90, 0.38,
+            "Battery Storage (BESS)", 10, color=_MGY, align="center")
+    elif has_pv:
+        _tb(slide, 9.22, 2.00, 3.90, 1.10,
+            f"{pv_kwp:,.0f} kWp", 44, bold=True, color=_GLD, align="center")
+        _tb(slide, 9.22, 3.18, 3.90, 0.50,
+            "Solar PV Array", 14, color=_MGY, align="center")
+    else:
+        _tb(slide, 9.22, 2.00, 3.90, 1.10,
+            f"{bess_kwh:,.0f} kWh", 40, bold=True, color=_GLD, align="center")
+        _tb(slide, 9.22, 3.18, 3.90, 0.50,
+            "Battery Storage (BESS)", 14, color=_MGY, align="center")
 
     if tariff_mode:
         _rect(slide, 9.22, 4.80, 3.78, 0.54, _LRD)
@@ -280,13 +304,15 @@ def _s1_cover(prs, project_name: str, client_name: str,
         _tb(slide, 9.36, 4.88, 3.55, 0.36,
             f"Tariff:  {tariff_mode[:28]}", 8.5, color=_DGY)
 
-    # Confidential
-    _tb(slide, 0.42, 7.08, 8.0, 0.30,
-        "CONFIDENTIAL  ·  For executive decision-makers only",
-        8, color="555555")
+    # Confidential — "Only For: {client_name}"
+    conf_text = (f"Confidential  ·  Only For: {client_name}"
+                 if client_name else
+                 "Confidential  ·  For Authorised Recipients Only")
+    _tb(slide, 0.42, 7.08, 8.0, 0.30, conf_text, 8, color="555555")
 
 
-def _s2_thesis(prs, results: dict, params: dict, company: str):
+def _s2_thesis(prs, results: dict, params: dict, company: str,
+               page: int = 2, total: int = 11):
     """Slide 2 – Investment Thesis."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     npv     = results.get("npv", 0) or 0
@@ -349,34 +375,50 @@ def _s2_thesis(prs, results: dict, params: dict, company: str):
             hdr, 10, bold=True, color=_DGY)
         _narrative(slide, 0.44+xi*6.40, 4.88, 5.95, 1.25, body)
 
-    _footer(slide, company, 2)
+    _footer(slide, company, page, total=total)
 
 
-def _s3_system(prs, params: dict, pvgis_data: dict, company: str):
+def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
+               page: int = 3, total: int = 11,
+               has_pv: bool = True, has_bess: bool = True):
     """Slide 3 – System Overview."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     annual_kwh = pvgis_data.get("annual_kwh", 0)
-    pv_kwp = params.get("pv_kwp", 0)
+    pv_kwp  = params.get("pv_kwp", 0)
+    bess_kh = params.get("bess_kwh", 0)
     spec_yield = annual_kwh / pv_kwp if pv_kwp else 0
 
-    headline = (f"{pv_kwp:,.0f} kWp PV + {params.get('bess_kwh',0):,.0f} kWh BESS "
-                f"— specific yield {spec_yield:,.0f} kWh/kWp/yr")
-    _header_bar(slide, headline,
+    # Headline adapts to scenario
+    if has_pv and has_bess:
+        hl = (f"{pv_kwp:,.0f} kWp PV + {bess_kh:,.0f} kWh BESS "
+              f"— specific yield {spec_yield:,.0f} kWh/kWp/yr")
+    elif has_pv:
+        hl = f"{pv_kwp:,.0f} kWp Solar PV — specific yield {spec_yield:,.0f} kWh/kWp/yr"
+    else:
+        c_rate = params.get("c_rate", 0.25)
+        hl = (f"{bess_kh:,.0f} kWh BESS — "
+              f"{bess_kh*c_rate:,.0f} kW max discharge, "
+              f"{params.get('dod',90):.0f}% DoD")
+    _header_bar(slide, hl,
                 f"Lat {params.get('lat',0):.3f}°  Lon {params.get('lon',0):.3f}°  "
                 f"·  Tilt {params.get('tilt',20):.0f}°  ·  Azimuth {params.get('azimuth',180):.0f}°  "
                 f"·  Irradiance: EU PVGIS API (Joint Research Centre)")
 
-    def _spec_col(title, rows, x):
-        W = 6.05
+    # Column width: full-width (12.50) for single component, split for both
+    _W  = 5.95 if (has_pv and has_bess) else 12.50
+    _x2 = 7.05  # x-position of right column (only used in dual mode)
+
+    def _spec_col(title, rows, x, W=_W):
         _section_hdr(slide, x, 1.68, W, 0.46, title)
         for i, (k, v) in enumerate(rows):
-            yy = 2.22 + i*0.54
+            yy = 2.22 + i * 0.54
             bg = _LGRY if i % 2 == 0 else _WHT
             _rect(slide, x, yy, W, 0.52, bg)
-            _tb(slide, x+0.18, yy+0.10, 3.0, 0.36, k, 9.5, color=_MGY)
-            _tb(slide, x+3.2,  yy+0.10, W-3.4, 0.36, v, 10,
+            _tb(slide, x+0.18, yy+0.10, W*0.50, 0.36, k, 9.5, color=_MGY)
+            _tb(slide, x+W*0.52, yy+0.10, W*0.46, 0.36, v, 10,
                 bold=True, color=_DGY, align="right")
 
+    c_rate  = params.get("c_rate", 0.25)
     pv_rows = [
         ("Peak power",          f"{pv_kwp:,.0f} kWp"),
         ("System losses",       f"{params.get('pv_loss',14):.0f}%"),
@@ -388,10 +430,6 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str):
         ("Winter daily avg",    f"{pvgis_data.get('winter_daily_kwh',0):.1f} kWh/day"),
         ("Annual degradation",  f"{params.get('pv_degradation',0.5):.1f}% p.a."),
     ]
-    _spec_col("SOLAR PV ARRAY", pv_rows, 0.28)
-
-    c_rate  = params.get("c_rate", 0.25)
-    bess_kh = params.get("bess_kwh", 0)
     bess_rows = [
         ("Usable capacity",      f"{bess_kh:,.0f} kWh"),
         ("Max charge/discharge", f"{bess_kh*c_rate:,.0f} kW  "
@@ -405,16 +443,24 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str):
         ("Analysis period",      "20 years"),
         ("Dispatch strategy",    "Peak shaving + arbitrage"),
     ]
-    _spec_col("BATTERY ENERGY STORAGE", bess_rows, 6.95)
+
+    if has_pv and has_bess:
+        _spec_col("SOLAR PV ARRAY",       pv_rows,   0.28, _W)
+        _spec_col("BATTERY ENERGY STORAGE", bess_rows, _x2, _W)
+    elif has_pv:
+        _spec_col("SOLAR PV ARRAY",       pv_rows,   0.28, _W)
+    else:
+        _spec_col("BATTERY ENERGY STORAGE", bess_rows, 0.28, _W)
 
     _rect(slide, 0.28, 6.78, 12.78, 0.03, _SEP)
     _narrative(slide, 0.28, 6.85, 12.78, 0.28,
                "Irradiance sourced from EU PVGIS API — crystalline silicon, "
                "free-mounted, site coordinates.  Fallback: 1,650 kWh/kWp/yr.")
-    _footer(slide, company, 3)
+    _footer(slide, company, page, total=total)
 
 
-def _s4_financial(prs, results: dict, fin_df, company: str):
+def _s4_financial(prs, results: dict, fin_df, company: str,
+                  page: int = 4, total: int = 11):
     """Slide 4 – Financial Returns."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     npv     = results.get("npv", 0) or 0
@@ -461,11 +507,12 @@ def _s4_financial(prs, results: dict, fin_df, company: str):
                "BESS SOH decline.  Section 12B (100% Year-1 for <1 MW assets) "
                "materially improves early cash flows.  NPV remains positive across "
                "±2% tariff-escalation sensitivity (available in the full Excel model).")
-    _footer(slide, company, 4)
+    _footer(slide, company, page, total=total)
 
 
-def _s5_energy(prs, pvgis_data: dict, results: dict, company: str):
-    """Slide 5 – Energy Analysis."""
+def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
+               page: int = 5, total: int = 11, has_bess: bool = True):
+    """Slide 5 – Energy Analysis (PV yield + optional BESS dispatch)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     d1          = results.get("dispatch_yr1") or {}
     annual_gen  = pvgis_data.get("annual_kwh", 0)
@@ -489,16 +536,20 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str):
     else:
         _rect(slide, 0.28, 1.68, 8.80, 3.18, _LGRY)
 
-    for i, (lbl, val, sub) in enumerate([
+    kpi_rows = [
         ("PV GENERATION",  f"{annual_gen/1e3:,.0f} MWh",  "Year-1 total"),
         ("SITE LOAD",      f"{annual_load/1e3:,.0f} MWh" if annual_load else "—",
                            "Yr-1 total demand"),
         ("GRID PURCHASE",  f"{annual_grid/1e3:,.0f} MWh" if annual_grid else "—",
-                           "After PV+BESS"),
-        ("BESS DISCHARGE", f"{annual_disc/1e3:,.0f} MWh" if annual_disc else "—",
-                           "Battery output"),
-    ]):
-        _kpi_block(slide, 9.55, 1.68+i*1.26, lbl, val, sub, w=3.20)
+                           "After PV" + ("+BESS" if has_bess else "")),
+    ]
+    if has_bess:
+        kpi_rows.append(("BESS DISCHARGE",
+                         f"{annual_disc/1e3:,.0f} MWh" if annual_disc else "—",
+                         "Battery output"))
+    kpi_h = 5.04 / len(kpi_rows)
+    for i, (lbl, val, sub) in enumerate(kpi_rows):
+        _kpi_block(slide, 9.55, 1.68+i*kpi_h, lbl, val, sub, w=3.20)
 
     # Monthly mini-table
     _rect(slide, 0.28, 4.96, 8.80, 0.03, _SEP)
@@ -517,16 +568,25 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str):
             bold=True, color=clr, align="center")
 
     _rect(slide, 0.28, 5.82, 12.78, 0.03, _SEP)
-    _narrative(slide, 0.28, 5.92, 12.78, 0.65,
-               f"Self-sufficiency of {self_suf:.0f}% means only "
-               f"{annual_grid/1e3:,.0f} MWh is drawn from the grid in Year 1.  "
-               "The BESS charges during off-peak periods and discharges into "
-               "morning (07:00–09:00) and evening (17:00–20:00) Eskom peak "
-               "windows — shaded red columns indicate the high-demand season.")
-    _footer(slide, company, 5)
+    if has_bess:
+        _narrative(slide, 0.28, 5.92, 12.78, 0.65,
+                   f"Self-sufficiency of {self_suf:.0f}% means only "
+                   f"{annual_grid/1e3:,.0f} MWh is drawn from the grid in Year 1.  "
+                   "The BESS charges during off-peak periods and discharges into "
+                   "morning (07:00–09:00) and evening (17:00–20:00) Eskom peak "
+                   "windows — shaded red columns indicate the high-demand season.")
+    else:
+        _narrative(slide, 0.28, 5.92, 12.78, 0.65,
+                   f"Solar PV generates {annual_gen/1e3:,.0f} MWh in Year 1, "
+                   f"displacing {displaced/1e3:,.0f} MWh of grid purchases and "
+                   f"achieving {self_suf:.0f}% self-sufficiency.  "
+                   "Shaded red columns indicate the high-demand winter season "
+                   "(June–August) where PV self-consumption delivers peak savings.")
+    _footer(slide, company, page, total=total)
 
 
-def _s6_tariff(prs, params: dict, results: dict, company: str):
+def _s6_tariff(prs, params: dict, results: dict, company: str,
+               page: int = 6, total: int = 11):
     """Slide 6 – Tariff Opportunity."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     w_pk  = params.get("w_evening_peak", 8.13)
@@ -614,10 +674,11 @@ def _s6_tariff(prs, params: dict, results: dict, company: str):
                "Each R 0.10/kWh of additional escalation adds meaningfully to "
                "project NPV — early commissioning locks in these economics for "
                "the full 20-year analysis period.")
-    _footer(slide, company, 6)
+    _footer(slide, company, page, total=total)
 
 
-def _s7_roadmap(prs, results: dict, params: dict, company: str):
+def _s7_roadmap(prs, results: dict, params: dict, company: str,
+                page: int = 7, total: int = 11):
     """Slide 7 – Implementation Roadmap."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bess_lead = results.get("bess_lead_months",
@@ -691,10 +752,10 @@ def _s7_roadmap(prs, results: dict, params: dict, company: str):
             hdr, 10, bold=True, color=_DGY)
         _narrative(slide, x+0.18, y+0.44, 5.85, 0.95, body)
 
-    _footer(slide, company, 7)
+    _footer(slide, company, page, total=total)
 
 
-def _s8_market(prs, company: str):
+def _s8_market(prs, company: str, page: int = 10, total: int = 11):
     """Slide 8 – South Africa Market Context (2026 industry data)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
@@ -754,10 +815,11 @@ def _s8_market(prs, company: str):
     )
     _narrative(slide, 6.98, 3.94, 6.0, 2.86, right_txt)
 
-    _footer(slide, company, 10, total=11)
+    _footer(slide, company, page, total=total)
 
 
-def _s9_assumptions(prs, params: dict, company: str):
+def _s9_assumptions(prs, params: dict, company: str,
+                    page: int = 11, total: int = 11):
     """Slide 9 – Assumptions & Disclaimer."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _rect(slide, 0, 0, 13.33, 7.5, _BLK)         # black background
@@ -809,10 +871,10 @@ def _s9_assumptions(prs, params: dict, company: str):
         f"Solution Info: {_SOL_URL}"
     )
     _tb(slide, 0.28, 6.80, 12.78, 0.60, disc, 8, color="BBBBBB", wrap=True)
-    _footer(slide, company, 11, total=11)
+    _footer(slide, company, page, total=total)
 
 
-def _s8_huawei_partner(prs, company: str):
+def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
     """Slide 8 — Huawei Digital Power · SA Partner Credentials."""
     import os
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -903,10 +965,10 @@ def _s8_huawei_partner(prs, company: str):
         _tb(slide, x+0.14, 5.43, card_w-0.20, 0.72, val, 22, bold=True, color=_GLD)
         _tb(slide, x+0.14, 6.17, card_w-0.20, 0.60, sub, 7, color="6B7280", wrap=True)
 
-    _footer(slide, company, 8, total=11)
+    _footer(slide, company, page, total=total)
 
 
-def _s9_sa_projects(prs, company: str):
+def _s9_sa_projects(prs, company: str, page: int = 9, total: int = 11):
     """Slide 9 — South Africa Reference Projects  (2 × 2 photo-card grid)."""
     import os
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -1009,7 +1071,7 @@ def _s9_sa_projects(prs, company: str):
     # Thin divider between rows
     _rect(slide, 0.28, 3.77, 12.78, 0.03, _SEP)
 
-    _footer(slide, company, 9, total=11)
+    _footer(slide, company, page, total=total)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -1024,7 +1086,11 @@ def generate_pptx(
     consultant_name: str = "",
 ) -> bytes:
     """
-    Generate an 11-slide executive PPTX report (Huawei Digital Power style).
+    Generate an executive PPTX report (Huawei Digital Power style).
+    Slide count auto-adapts to the configured PV / BESS scenario:
+      • PV + BESS  → 11 slides (full deck)
+      • PV only    → 10 slides (Tariff/BESS slide omitted)
+      • BESS only  → 10 slides (Energy/PV yield slide omitted)
 
     Parameters
     ----------
@@ -1033,7 +1099,7 @@ def generate_pptx(
     fin_df          : 20-year financial DataFrame (or None)
     pvgis_data      : PVGIS dict (annual_kwh, monthly_kwh, …)
     project_name    : cover title
-    client_name     : OEM / client on cover (default blank)
+    client_name     : client name — appears in "Confidential · Only For: …"
     consultant_name : EPC company on all slides (default "Energy Consulting")
 
     Returns bytes — pass directly to st.download_button(data=...)
@@ -1050,21 +1116,56 @@ def generate_pptx(
     prs.slide_width  = _in(13.33)
     prs.slide_height = _in(7.5)
 
-    pv_kwp   = params.get("pv_kwp",   0)
-    bess_kwh = params.get("bess_kwh", 0)
+    pv_kwp   = params.get("pv_kwp",   0) or 0
+    bess_kwh = params.get("bess_kwh", 0) or 0
+    has_pv   = pv_kwp   > 0
+    has_bess = bess_kwh > 0
+    # Fallback: if both are zero (no simulation run) treat as PV+BESS
+    if not has_pv and not has_bess:
+        has_pv = has_bess = True
 
-    _s1_cover(prs, project_name, client_name, consultant_name,
-              pv_kwp, bess_kwh, params.get("tariff_mode", ""))
-    _s2_thesis(prs, results, params, company)
-    _s3_system(prs, params, pvgis_data, company)
-    _s4_financial(prs, results, fin_df, company)
-    _s5_energy(prs, pvgis_data, results, company)
-    _s6_tariff(prs, params, results, company)
-    _s7_roadmap(prs, results, params, company)
-    _s8_huawei_partner(prs, company)          # NEW: Huawei credentials
-    _s9_sa_projects(prs, company)             # NEW: SA reference projects
-    _s8_market(prs, company)                  # now slide 10
-    _s9_assumptions(prs, params, company)     # now slide 11
+    # ── Dynamic slide list: omit PV-only slide if no PV, BESS-only if no BESS ─
+    #   "energy"  (Slide 5) = PV yield analysis  → include only if has_pv
+    #   "tariff"  (Slide 6) = BESS arbitrage      → include only if has_bess
+    _slide_ids = (["cover", "thesis", "system", "financial"]
+                  + (["energy"] if has_pv   else [])
+                  + (["tariff"] if has_bess else [])
+                  + ["roadmap", "huawei_partner", "sa_projects", "market",
+                     "assumptions"])
+    _total = len(_slide_ids)
+
+    for _pg, _sid in enumerate(_slide_ids, start=1):
+        if _sid == "cover":
+            _s1_cover(prs, project_name, client_name, consultant_name,
+                      pv_kwp, bess_kwh, params.get("tariff_mode", ""),
+                      has_pv=has_pv, has_bess=has_bess)
+        elif _sid == "thesis":
+            _s2_thesis(prs, results, params, company,
+                       page=_pg, total=_total)
+        elif _sid == "system":
+            _s3_system(prs, params, pvgis_data, company,
+                       page=_pg, total=_total,
+                       has_pv=has_pv, has_bess=has_bess)
+        elif _sid == "financial":
+            _s4_financial(prs, results, fin_df, company,
+                          page=_pg, total=_total)
+        elif _sid == "energy":
+            _s5_energy(prs, pvgis_data, results, company,
+                       page=_pg, total=_total, has_bess=has_bess)
+        elif _sid == "tariff":
+            _s6_tariff(prs, params, results, company,
+                       page=_pg, total=_total)
+        elif _sid == "roadmap":
+            _s7_roadmap(prs, results, params, company,
+                        page=_pg, total=_total)
+        elif _sid == "huawei_partner":
+            _s8_huawei_partner(prs, company, page=_pg, total=_total)
+        elif _sid == "sa_projects":
+            _s9_sa_projects(prs, company, page=_pg, total=_total)
+        elif _sid == "market":
+            _s8_market(prs, company, page=_pg, total=_total)
+        elif _sid == "assumptions":
+            _s9_assumptions(prs, params, company, page=_pg, total=_total)
 
     buf = io.BytesIO()
     prs.save(buf)
