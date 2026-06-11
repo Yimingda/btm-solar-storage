@@ -843,6 +843,9 @@ def init_session_state():
         st.session_state.pvgis_status = "Pending"
         st.session_state.annual_pv_kwh = None
         st.session_state.pvgis_key = "" # / detect location change
+        # Load profile CSV upload state (not persisted in snapshots)
+        st.session_state["load_profile_8760"] = None
+        st.session_state["load_profile_name"] = ""
 
 init_session_state()
 
@@ -1043,6 +1046,85 @@ def build_hourly_pv_profile(pvgis_data: dict, pv_kwp: float) -> np.ndarray:
     return hourly_pv
 
 
+def parse_load_csv(uploaded_file) -> "tuple[np.ndarray | None, str]":
+    """
+    Parse an uploaded load-profile file (CSV / Excel) → 8760-float array (kW).
+
+    Accepted formats
+    ────────────────
+    • 8760 rows  — 1-hour resolution  (passed through)
+    • 17520 rows — 30-min resolution  (averaged to hourly pairs)
+    • 8784 rows  — leap-year 1-h      (last 24 h trimmed)
+    • 1 or 2+ columns; first purely-numeric column is used
+    • Optional header row (auto-detected)
+    • Delimiters: comma · semicolon · tab · pipe
+    Returns (array, info_msg) on success; (None, error_msg) on failure.
+    """
+    import io as _io
+
+    fname = uploaded_file.name.lower()
+    try:
+        if fname.endswith((".xlsx", ".xls")):
+            df_raw = pd.read_excel(uploaded_file, header=None, dtype=str)
+        else:
+            raw_bytes = uploaded_file.read()
+            raw = raw_bytes.decode("utf-8-sig", errors="replace")
+            first_line = raw.split("\n")[0]
+            sep = ","
+            for _s in (";", "\t", "|"):
+                if _s in first_line:
+                    sep = _s
+                    break
+            df_raw = pd.read_csv(_io.StringIO(raw), header=None, sep=sep, dtype=str)
+
+        # ── Detect numeric column ─────────────────────────────────────
+        def _first_numeric_col(df):
+            for col in df.columns:
+                try:
+                    vals = pd.to_numeric(df[col], errors="raise")
+                    return vals.astype(float).values
+                except Exception:
+                    pass
+            return None
+
+        series = _first_numeric_col(df_raw)
+        if series is None:
+            # First row might be a header — drop it and retry
+            series = _first_numeric_col(df_raw.iloc[1:].reset_index(drop=True))
+        if series is None:
+            return None, "❌ No numeric column found — ensure the file contains load values in kW"
+
+        series = series[~np.isnan(series)]  # drop NaN
+        n = len(series)
+
+        resample_note = ""
+        if n == 17520:
+            series = series.reshape(-1, 2).mean(axis=1)
+            n = 8760
+            resample_note = " (resampled from 30-min → 1-h)"
+        elif n == 8784:
+            series = series[:8760]
+            n = 8760
+            resample_note = " (leap-year trimmed to 8760 h)"
+        elif n != 8760:
+            return None, (f"❌ Got {n} rows — need exactly 8760 (1-h) or 17520 (30-min). "
+                          "Check the file has one value per interval and no extra blank rows.")
+
+        if series.min() < 0:
+            return None, "❌ Negative values found — file should contain positive kW load values"
+        if series.max() > 500_000:
+            return None, "❌ Max value > 500,000 kW — check units (file must be in kW, not W)"
+
+        annual_mwh = series.sum() / 1000
+        msg = (f"✅ {n} hourly values{resample_note} · "
+               f"Min {series.min():.0f} kW · Max {series.max():.0f} kW · "
+               f"Avg {series.mean():.0f} kW · Annual {annual_mwh:.1f} MWh")
+        return series.astype(np.float64), msg
+
+    except Exception as exc:
+        return None, f"❌ Parse error: {exc}"
+
+
 def run_8760_dispatch(
     pv_kwp: float,
     bess_kwh: float,
@@ -1054,6 +1136,7 @@ def run_8760_dispatch(
     dod: float,
     pvgis_data: dict,
     pv_degradation_pct: float = 0.0,
+    load_profile_8760: "np.ndarray | None" = None,  # 8760-element kW array overrides load_map
 ) -> dict:
     """
     ████████ 8760 / 8760-Hour Physical Dispatch Engine ████████
@@ -1101,6 +1184,15 @@ def run_8760_dispatch(
         "off_peak":     load_offpeak_kw,
     }
 
+    # ── If a real 8760-h profile was provided, derive better period averages ──
+    _use_profile = (load_profile_8760 is not None and len(load_profile_8760) == 8760)
+    if _use_profile:
+        _arr = load_profile_8760
+        _eve_peak_avg = float(np.mean([_arr[g] for g in range(8760) if 17 <= (g % 24) < 20]))
+        _eff_load_peak = max(_eve_peak_avg, 1.0)
+    else:
+        _eff_load_peak = load_peak_kw
+
     hourly_pv = build_hourly_pv_profile(pvgis_data, pv_kwp)
     hourly_pv *= (1 - pv_degradation_pct / 100.0)
 
@@ -1112,7 +1204,7 @@ def run_8760_dispatch(
     # Evening target: exactly enough to drain SOC to 0 over 3 evening-peak hours.
     # Formula: 3h × min(C-rate power, peak load), capped at usable capacity.
     _EVE_HRS = 3   # Eskom 2025/26: evening peak 17:00-19:59
-    std_charge_target = min(usable, _EVE_HRS * min(bess_kw, load_peak_kw))
+    std_charge_target = min(usable, _EVE_HRS * min(bess_kw, _eff_load_peak))
 
     # ── Municipal vs Eskom routing ──────────────────
     _tariff_mode   = st.session_state.get("tariff_mode", "Megaflex ≤300km <500V")
@@ -1146,7 +1238,7 @@ def run_8760_dispatch(
                 else:
                     tariff_price, period = get_tariff_for_hour(h, month, day_type)
                 pv_gen  = hourly_pv[g]
-                load    = load_map[period]
+                load    = float(load_profile_8760[g]) if _use_profile else load_map[period]
 
                 pv_to_load   = min(pv_gen, load)
                 pv_excess    = pv_gen - pv_to_load
@@ -2565,34 +2657,128 @@ with _scroll:
     # 4. Site Load Profile
     # ══════════════════════════════════════════════════════════
     with st.expander("🏭 Load Profile", expanded=False):
-        st.markdown(f'<div class="param-label">Peak hours (07-10, 18-20h)</div>',
-                    unsafe_allow_html=True)
-        load_peak = st.number_input("Peak Load (kW)", value=st.session_state.load_peak_kw,
-                                     min_value=0.0, step=10.0,
-                                     label_visibility="collapsed")
-        st.markdown(f'<div class="param-label">Standard hours (06-07, 10-18, 20-22h)</div>',
-                    unsafe_allow_html=True)
-        load_std = st.number_input("Standard Load (kW)", value=st.session_state.load_std_kw,
-                                    min_value=0.0, step=10.0,
-                                    label_visibility="collapsed")
-        st.markdown(f'<div class="param-label">Off-peak hours (22-06h)</div>',
-                    unsafe_allow_html=True)
-        load_offpeak = st.number_input("Off-Peak Load (kW)", value=st.session_state.load_offpeak_kw,
-                                        min_value=0.0, step=5.0,
-                                        label_visibility="collapsed")
 
-        st.session_state.load_peak_kw    = load_peak
-        st.session_state.load_std_kw     = load_std
-        st.session_state.load_offpeak_kw = load_offpeak
-
-        # Estimated daily energy
-        # : 5h(07-10 3h + 18-20 2h), : 8h(22-06), : 11h
-        est_daily = load_peak * 5 + load_std * 11 + load_offpeak * 8
-        st.markdown(
-            f'<div class="derived-value">📊 Est. daily load ≈ {est_daily:.0f} kWh/day'
-            f' ({est_daily*365/1000:.0f} MWh/yr)</div>',
-            unsafe_allow_html=True
+        _lp_mode = st.radio(
+            "Load input mode",
+            ["Manual (3-period average)", "Upload CSV / Excel (8760 h)"],
+            key="load_profile_mode",
+            horizontal=True,
+            label_visibility="collapsed",
         )
+        _csv_mode = _lp_mode.startswith("Upload")
+
+        if _csv_mode:
+            # ── CSV / Excel upload path ──────────────────────────────
+            st.caption(
+                "Upload a file with **8 760 rows** (1-h intervals) or **17 520 rows** "
+                "(30-min intervals, auto-resampled). One numeric column in **kW**."
+            )
+            _uploaded = st.file_uploader(
+                "Load profile file",
+                type=["csv", "txt", "xlsx", "xls"],
+                key="load_profile_uploader",
+                label_visibility="collapsed",
+                help="Comma / semicolon / tab delimited · optional header row · kW positive values",
+            )
+
+            if _uploaded is not None:
+                _arr, _msg = parse_load_csv(_uploaded)
+                if _arr is not None:
+                    st.session_state["load_profile_8760"] = _arr
+                    st.session_state["load_profile_name"] = _uploaded.name
+                    # ── Auto-derive 3-period averages from the real profile ──
+                    _pk_mask  = np.array([(g % 24 in range(7, 10)) or (g % 24 in range(17, 20))
+                                          for g in range(8760)])
+                    _op_mask  = np.array([g % 24 < 6 or g % 24 >= 22 for g in range(8760)])
+                    _std_mask = ~_pk_mask & ~_op_mask
+                    st.session_state.load_peak_kw    = float(np.mean(_arr[_pk_mask]))
+                    st.session_state.load_std_kw     = float(np.mean(_arr[_std_mask]))
+                    st.session_state.load_offpeak_kw = float(np.mean(_arr[_op_mask]))
+                    st.success(_msg)
+                else:
+                    st.error(_msg)
+
+            _active_arr = st.session_state.get("load_profile_8760")
+            if _active_arr is not None:
+                _fname = st.session_state.get("load_profile_name", "profile")
+                st.markdown(
+                    f'<div class="derived-value">📋 Active: <b>{_fname}</b> &nbsp;·&nbsp; '
+                    f'Annual {_active_arr.sum()/1000:.1f} MWh &nbsp;·&nbsp; '
+                    f'Peak {_active_arr.max():.0f} kW &nbsp;·&nbsp; '
+                    f'Avg {_active_arr.mean():.0f} kW</div>',
+                    unsafe_allow_html=True,
+                )
+                # ── First-week preview chart ─────────────────────────
+                _prev = _active_arr[:168].tolist()
+                _pfig = go.Figure(go.Scatter(
+                    x=list(range(168)), y=_prev,
+                    fill="tozeroy", fillcolor="rgba(0,229,160,0.07)",
+                    line=dict(color="#00E5A0", width=1.2),
+                ))
+                _pfig.update_layout(
+                    height=130, margin=dict(l=0, r=0, t=4, b=24),
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#8B95A3", size=9), showlegend=False,
+                    xaxis=dict(gridcolor="#2D3748", title="Hour (first 7 days)",
+                               title_font_size=9, showgrid=True, tickfont_size=8),
+                    yaxis=dict(gridcolor="#2D3748", title="kW",
+                               title_font_size=9, showgrid=True, tickfont_size=8),
+                )
+                st.plotly_chart(_pfig, use_container_width=True,
+                                config={"displayModeBar": False})
+                # Period-average summary (auto-derived)
+                st.markdown(
+                    f'<div class="param-label">Auto-derived period averages '
+                    f'(used for BESS charging strategy):</div>',
+                    unsafe_allow_html=True,
+                )
+                _pa1, _pa2, _pa3 = st.columns(3)
+                _pa1.metric("Peak avg", f"{st.session_state.load_peak_kw:.0f} kW")
+                _pa2.metric("Std avg",  f"{st.session_state.load_std_kw:.0f} kW")
+                _pa3.metric("Off-pk avg", f"{st.session_state.load_offpeak_kw:.0f} kW")
+                if st.button("🗑️ Clear profile — switch to manual",
+                             key="clear_load_profile_btn"):
+                    st.session_state["load_profile_8760"] = None
+                    st.session_state["load_profile_name"] = ""
+                    st.rerun()
+            else:
+                st.info("📂 No profile loaded yet — upload a file above.")
+
+        else:
+            # ── Manual 3-period path (existing logic) ────────────────
+            # Clear any stored CSV profile so dispatch uses manual values
+            st.session_state["load_profile_8760"] = None
+
+            st.markdown('<div class="param-label">Peak hours (07–09 h · 17–20 h)</div>',
+                        unsafe_allow_html=True)
+            load_peak = st.number_input("Peak Load (kW)",
+                                        value=st.session_state.load_peak_kw,
+                                        min_value=0.0, step=10.0,
+                                        label_visibility="collapsed")
+            st.markdown('<div class="param-label">Standard hours (06–07 · 10–17 · 20–22 h)</div>',
+                        unsafe_allow_html=True)
+            load_std = st.number_input("Standard Load (kW)",
+                                       value=st.session_state.load_std_kw,
+                                       min_value=0.0, step=10.0,
+                                       label_visibility="collapsed")
+            st.markdown('<div class="param-label">Off-peak hours (22–06 h)</div>',
+                        unsafe_allow_html=True)
+            load_offpeak = st.number_input("Off-Peak Load (kW)",
+                                           value=st.session_state.load_offpeak_kw,
+                                           min_value=0.0, step=5.0,
+                                           label_visibility="collapsed")
+
+            st.session_state.load_peak_kw    = load_peak
+            st.session_state.load_std_kw     = load_std
+            st.session_state.load_offpeak_kw = load_offpeak
+
+            # Estimated daily energy: peak 5 h, std 11 h, off-peak 8 h
+            est_daily = load_peak * 5 + load_std * 11 + load_offpeak * 8
+            st.markdown(
+                f'<div class="derived-value">📊 Est. daily load ≈ {est_daily:.0f} kWh/day'
+                f' · {est_daily*365/1000:.0f} MWh/yr</div>',
+                unsafe_allow_html=True,
+            )
 
     # ══════════════════════════════════════════════════════════
     # 5. Eskom 2025/26 Tariffs
@@ -2859,6 +3045,7 @@ with col_content:
                         rte=st.session_state.rte,
                         dod=st.session_state.dod,
                         pvgis_data=pvgis_data,
+                        load_profile_8760=st.session_state.get("load_profile_8760"),
                     )
 
                 eol_years, annual_cycles = compute_bess_eol(
@@ -3437,6 +3624,7 @@ with col_content:
                                 rte=st.session_state.rte,
                                 dod=st.session_state.dod,
                                 pvgis_data=pvgis_s,
+                                load_profile_8760=st.session_state.get("load_profile_8760"),
                             )
                             eol_o, ac_o = compute_bess_eol(
                                 d_o["tot_throughput_kWh"], bess_o,
