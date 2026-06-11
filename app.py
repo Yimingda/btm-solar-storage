@@ -845,6 +845,84 @@ if not is_logged_in():
 # render — so the component iframe has time to execute before any st.rerun().
 flush_token_to_storage()
 
+# ── Light / dark theme CSS injection ─────────────────────────────────────────
+if st.session_state.get("_light_mode", False):
+    st.markdown("""
+<style>
+/* ═══════════════════════════════════════════════════════
+   Light Mode overrides — active when _light_mode is True
+   ═══════════════════════════════════════════════════════ */
+:root {
+    --bg-dark:   #F5F7FA !important;
+    --bg-card:   #FFFFFF !important;
+    --bg-input:  #EEF2F7 !important;
+    --text-main: #1A202C !important;
+    --text-dim:  #4A5568 !important;
+    --border:    #CBD5E0 !important;
+    --border-hi: #A0AEC0 !important;
+}
+html, body, .stApp {
+    background-color: #F5F7FA !important;
+    color: #1A202C !important;
+}
+/* Streamlit's own surfaces */
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stVerticalBlock"],
+section[data-testid="stSidebar"] {
+    background-color: #F5F7FA !important;
+}
+/* Cards & inputs */
+[data-testid="stMetric"],
+[data-testid="stNumberInputContainer"],
+[data-testid="stTextInputRootElement"],
+[data-testid="stSelectboxVirtualDropdown"],
+.metric-card {
+    background: #FFFFFF !important;
+    border-color: #CBD5E0 !important;
+    color: #1A202C !important;
+}
+/* Labels & text */
+label, p, li, .stMarkdown, [data-testid="stMarkdownContainer"] p {
+    color: #1A202C !important;
+}
+/* Header bar */
+div[data-testid="stHorizontalBlock"]:first-of-type {
+    background: linear-gradient(180deg, #EEF2F7 0%, #F5F7FA 100%) !important;
+    border-bottom: 1px solid #00C48C !important;
+}
+/* Expanders */
+[data-testid="stExpander"] {
+    background: #FFFFFF !important;
+    border-color: #CBD5E0 !important;
+}
+[data-testid="stExpander"] summary {
+    color: #1A202C !important;
+}
+/* Tabs */
+[data-testid="stTabs"] [role="tab"] {
+    color: #4A5568 !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+    color: #00C48C !important;
+    border-bottom-color: #00C48C !important;
+}
+/* Dividers & hr */
+hr { border-color: #CBD5E0 !important; }
+/* Popover body */
+[data-testid="stPopoverBody"] {
+    background: #FFFFFF !important;
+    border-color: #CBD5E0 !important;
+}
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] {
+    color: #1A202C !important;
+}
+[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p {
+    color: #1A202C !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ─────────────────────────────────────────────────────────────
 # Scenario Gate
 # Shows the landing page until the user picks a scenario.
@@ -2540,7 +2618,7 @@ def generate_excel_report() -> bytes:
 # App header — back | title | user info
 # ─────────────────────────────────────────────────────────────
 _main_title = "BTM PV+BESS Financial Modelling System"
-_back_col, _hdr_col, _user_col = st.columns([1, 6, 3], gap="small")
+_back_col, _hdr_col, _user_col = st.columns([1, 5, 4], gap="small")
 
 with _back_col:
     if st.button("◀", key="btm_back_to_scenarios",
@@ -2565,16 +2643,54 @@ with _user_col:
     if _u_hdr:
         _tbadge = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(
             _u_hdr.get("tier", "free"), "🆓")
-        _uname = _u_hdr.get("full_name") or _u_hdr.get("email", "User")
-        _u1, _u2 = st.columns([4, 1])
-        with _u1:
+        _uname  = _u_hdr.get("full_name") or _u_hdr.get("email", "User")
+        _uname_short = (_uname[:16] + "…") if len(_uname) > 18 else _uname
+
+        # ── Business-mode badge ──────────────────────────────────────
+        _scen_now = st.session_state.get("_scenario", "btm")
+        _scen_cfg = {
+            "btm":      ("⚡", "BTM",      "#00E5A0", "#0d2b1e"),
+            "wheeling": ("🔄", "Wheeling", "#4ECDC4", "#0d2424"),
+        }
+        _s_icon, _s_name, _s_clr, _s_bg = _scen_cfg.get(
+            _scen_now, ("⚡", "BTM", "#00E5A0", "#0d2b1e"))
+
+        # ── Light / dark mode toggle ─────────────────────────────────
+        _light_mode = st.session_state.get("_light_mode", False)
+        _theme_icon = "☀️" if _light_mode else "🌙"
+        _theme_tip  = "Switch to Dark mode" if _light_mode else "Switch to Light mode"
+
+        # ── Layout: [🌙] [mode badge] [👤 name] [⏻] ─────────────────
+        _tc, _mc, _uc, _lc = st.columns([1, 3, 5, 1], gap="small")
+
+        with _tc:
+            if st.button(_theme_icon, key="hdr_theme_btn",
+                         help=_theme_tip, use_container_width=True):
+                st.session_state["_light_mode"] = not _light_mode
+                st.rerun()
+
+        with _mc:
             st.markdown(
-                f"<div style='font-size:0.82rem;padding-top:6px;text-align:right;"
-                f"color:var(--text-dim)'>👤 <b style='color:var(--text-main)'>"
-                f"{_uname}</b> {_tbadge}</div>",
+                f"<div style='padding-top:5px'>"
+                f"<span style='background:{_s_bg};color:{_s_clr};"
+                f"border:1px solid {_s_clr}44;border-radius:4px;"
+                f"padding:2px 7px;font-size:0.72rem;"
+                f"font-family:IBM Plex Mono,monospace;letter-spacing:0.05em;"
+                f"white-space:nowrap'>{_s_icon} {_s_name}</span></div>",
                 unsafe_allow_html=True,
             )
-        with _u2:
+
+        with _uc:
+            st.markdown(
+                f"<div style='font-size:0.80rem;padding-top:6px;"
+                f"color:var(--text-dim);white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis'>👤 "
+                f"<b style='color:var(--text-main)'>{_uname_short}</b>"
+                f" {_tbadge}</div>",
+                unsafe_allow_html=True,
+            )
+
+        with _lc:
             if st.button("⏻", key="logout_btn_hdr", help="Sign out"):
                 logout()
 
