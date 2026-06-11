@@ -5,7 +5,7 @@ BTM PV+BESS Financial Modelling System
 from __future__ import annotations
 
 import streamlit as st
-from auth import get_current_user, logout
+from auth import logout
 
 
 # ── Shared CSS ────────────────────────────────────────────────────────────────
@@ -13,30 +13,24 @@ from auth import get_current_user, logout
 _LANDING_CSS = """
 <style>
 /* ── Scenario landing page ── */
+
+/* Neutralise the global first-of-type header-bar rule on this page */
+div[data-testid="stHorizontalBlock"]:first-of-type {
+    background: transparent !important;
+    border-bottom: none !important;
+    padding: 0 !important;
+    margin-bottom: 0 !important;
+}
+div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"] {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
 .sc-page {
     max-width: 820px;
     margin: 0 auto;
     padding: 0 16px 40px;
 }
-.sc-brand {
-    text-align: center;
-    padding: 28px 0 18px;
-}
-.sc-brand .sc-logo   { font-size: 2.2rem; }
-.sc-brand .sc-appname {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 1.45rem; font-weight: 700;
-    color: #00E5A0; letter-spacing: 0.05em;
-    margin: 6px 0 3px;
-}
-.sc-brand .sc-tagline { font-size: 0.8rem; color: #8B95A3; }
-
-.sc-welcome {
-    text-align: center;
-    padding: 0 0 22px;
-}
-.sc-welcome .sc-hi  { font-size: 1.05rem; color: #E8ECF0; }
-.sc-welcome .sc-sub { font-size: 0.82rem; color: #8B95A3; margin-top: 3px; }
 
 /* Scenario cards */
 .sc-card {
@@ -119,40 +113,10 @@ def render_scenario_selector() -> None:
     """
     st.markdown(_LANDING_CSS, unsafe_allow_html=True)
 
-    # ── Top bar: user info ──────────────────────────────────────────────────
-    _u = get_current_user()
-    if _u:
-        _name = _u.get("full_name") or _u.get("email", "User")
-        _tier = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(
-            _u.get("tier", "free"), "🆓")
-        st.markdown(
-            f"<div style='font-size:0.85em;padding-top:6px'>"
-            f"👤 <b>{_name}</b> &nbsp;{_tier} &nbsp;"
-            f"<span style='color:#667;font-size:0.9em'>"
-            f"</span></div>",
-            unsafe_allow_html=True,
-        )
-
     # ── Centred content ─────────────────────────────────────────────────────
     _, _centre, _ = st.columns([1, 5, 1])
     with _centre:
-
-        # Brand header
-        st.markdown("""
-<div class="sc-brand">
-  <div class="sc-logo">⚡</div>
-  <div class="sc-appname">BTM Solar+BESS Platform</div>
-  <div class="sc-tagline">Professional Solar Energy Financial Modelling System</div>
-</div>""", unsafe_allow_html=True)
-
-        # Welcome
-        if _u:
-            _name = _u.get("full_name") or _u.get("email", "User")
-            st.markdown(f"""
-<div class="sc-welcome">
-  <div class="sc-hi">👋 Welcome back, <b>{_name}</b></div>
-  <div class="sc-sub">Please select a scenario to continue.</div>
-</div>""", unsafe_allow_html=True)
+        st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
 
         # ── Two scenario cards ──────────────────────────────────────────────
         _c1, _c2 = st.columns(2, gap="large")
