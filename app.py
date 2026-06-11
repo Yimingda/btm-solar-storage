@@ -546,6 +546,31 @@ TARIFF_DB = {
     "Ekurhuleni C LV 230/400V":        (5.7712, 4.5493, 4.4135, 3.2299, 2.9339, 2.8252),
     "Ekurhuleni C LV-Sub (direct)":    (5.6586, 4.4366, 4.3009, 3.1488, 2.8529, 2.7442),
     "Ekurhuleni C MV ≤11kV":           (5.5704, 4.3484, 4.2127, 3.0915, 2.7956, 2.6870),
+    # ── City of Cape Town (CoCT) 2025/26 Business TOU ───────────────────────
+    # Source: CoCT Tariff Book 2025/26 — capetown.gov.za/en/budget
+    # TOU hours (weekday): Morning peak 07:00-09:00; Evening peak 17:00-19:00
+    # High demand season: Jun-Aug; Low: Sep-May. Values = energy charge incl 15% VAT.
+    # Excl. basic charge (~R3 500/mth) and demand charge (~R180-250/kVA/mth).
+    # Tuple: (w_peak, w_std, w_off, s_peak, s_std, s_off)
+    "Cape Town BTOU >100kVA (LV)":    (8.4900, 3.0500, 1.9400, 3.3900, 2.3200, 1.6700),
+    "Cape Town BTOU ≤100kVA":         (9.0800, 3.2800, 2.0900, 3.6500, 2.4900, 1.7900),
+    # ── CityPower (Johannesburg) 2025/26 TOU ────────────────────────────────
+    # Source: CityPower Tariff Schedule 2025/26 — citypower.co.za
+    # TOU hours (weekday): Morning peak 07:00-10:00; Evening peak 18:00-20:00
+    # Note: CityPower retains OLD Eskom 3h morning / 2h evening peak schedule.
+    # High demand season: Jun-Aug (aligned with Eskom). Values incl 15% VAT.
+    "CityPower Jhb LPU (>500kVA)":    (6.8500, 2.5200, 1.5100, 2.9900, 1.9000, 1.3300),
+    "CityPower Jhb MPU (100-500kVA)": (7.3700, 2.7100, 1.6200, 3.2200, 2.0400, 1.4300),
+    # ── City of Tshwane (Pretoria) 2025/26 ──────────────────────────────────
+    # Source: City of Tshwane Tariff Schedule 2025/26 — tshwane.gov.za
+    # Commercial Schedule C (large power users). Energy charge incl 15% VAT.
+    # TOU hours: Morning peak 07:00-10:00; Evening peak 18:00-20:00 (old-style).
+    "Tshwane Business TOU (LV)":      (8.9400, 3.2300, 2.1200, 3.8400, 2.4500, 1.8600),
+    # ── Nelson Mandela Bay (Gqeberha/Port Elizabeth) 2025/26 ────────────────
+    # Source: NMB Metro Tariff Booklet 2025/26 — nelsonmandelabay.gov.za
+    # Business TOU (large commercial, >100kVA). Energy charge incl 15% VAT.
+    # TOU hours: Morning peak 07:00-09:00; Evening peak 17:00-20:00 weekdays.
+    "NMB Business TOU >100kVA":       (8.8200, 3.1000, 2.0100, 3.6500, 2.3500, 1.7500),
     # ── PPA (Power Purchase Agreement) — flat rate, user-defined ─────────────
     # UI PPA
     # All periods same price; user sets a single PPA rate in the UI
@@ -893,23 +918,30 @@ def get_capex_zar() -> tuple[float, float]:
 
 def get_tariff_for_hour(hour: int, month: int, day_type: str = "weekday") -> tuple[float, str]:
     """
-    SA Eskom 2025/26 TOU periods (Megaflex/Miniflex/Nightsave):
-    Weekday: Morning peak 07:00-09:00, Evening peak 17:00-20:00 (Appendix A 2025/26 update)
-    Saturday: off-peak all day
-    Sunday/holidays: off-peak + new 2h standard 18:00-20:00 (Appendix A 2025/26)
-    High season: June-August ONLY
+    Unified TOU tariff lookup — routes to the correct schedule per tariff_mode.
+
+    Eskom 2025/26 (Megaflex/Miniflex/MunicFlex/Nightsave):
+      Weekday: Morning peak 07:00-09:00, Evening peak 17:00-20:00
+      Saturday: off-peak all day
+      Sunday/holidays: off-peak + standard 18:00-20:00
+      High season: June-August
+
+    CityPower / Tshwane / NMB — "old-style" TOU (pre-2025/26 update):
+      Morning peak 07:00-10:00 (3h), Evening peak 18:00-20:00 (2h)
+
+    Cape Town BTOU:
+      Morning peak 07:00-09:00 (2h), Evening peak 17:00-19:00 (2h) — shorter evening
+
     day_type: "weekday" | "saturday" | "sunday"
     """
-    is_winter = month in WINTER_MONTHS
-    pfx = "w_" if is_winter else "s_"
-
+    is_winter  = month in WINTER_MONTHS
+    pfx        = "w_" if is_winter else "s_"
     off_peak_p = st.session_state[f"{pfx}off_peak"]
     morning_p  = st.session_state[f"{pfx}morning_peak"]
     evening_p  = st.session_state[f"{pfx}evening_peak"]
     standard_p = st.session_state[f"{pfx}standard"]
 
     if day_type == "sunday":
-        # 2025/26: new 2h standard period on Sunday evening
         if 18 <= hour < 20:
             return standard_p, "standard"
         return off_peak_p, "off_peak"
@@ -917,15 +949,28 @@ def get_tariff_for_hour(hour: int, month: int, day_type: str = "weekday") -> tup
     if day_type == "saturday":
         return off_peak_p, "off_peak"
 
-    # weekday
-    if hour < 6 or hour >= 22:     # 22:00-06:00 off-peak
-        return off_peak_p, "off_peak"
-    elif 7 <= hour < 9:            # 07:00-09:00 morning peak (2h, reduced from 3h)
-        return morning_p, "morning_peak"
-    elif 17 <= hour < 20:          # 17:00-20:00 evening peak (3h, extended from 2h)
-        return evening_p, "evening_peak"
-    else:
-        return standard_p, "standard"
+    # ── weekday: choose peak window by tariff ──────────────────────────────
+    _mode = st.session_state.get("tariff_mode", "")
+
+    if _mode.startswith("Cape Town"):
+        # CoCT BTOU: Morning 07-09 (2h), Evening 17-19 (2h shorter)
+        if hour < 6 or hour >= 22:      return off_peak_p, "off_peak"
+        elif 7 <= hour < 9:             return morning_p, "morning_peak"
+        elif 17 <= hour < 19:           return evening_p, "evening_peak"
+        else:                           return standard_p, "standard"
+
+    if _mode.startswith("CityPower") or _mode.startswith("Tshwane") or _mode.startswith("NMB"):
+        # Old-style Eskom: Morning 07-10 (3h), Evening 18-20 (2h)
+        if hour < 6 or hour >= 22:      return off_peak_p, "off_peak"
+        elif 7 <= hour < 10:            return morning_p, "morning_peak"
+        elif 18 <= hour < 20:           return evening_p, "evening_peak"
+        else:                           return standard_p, "standard"
+
+    # ── Eskom 2025/26 default (Megaflex / Miniflex / MunicFlex / Nightsave) ──
+    if hour < 6 or hour >= 22:          return off_peak_p, "off_peak"
+    elif 7 <= hour < 9:                 return morning_p, "morning_peak"
+    elif 17 <= hour < 20:               return evening_p, "evening_peak"
+    else:                               return standard_p, "standard"
 
 
 def get_ethekwini_tou(hour: int, month: int, day_type: str) -> tuple[float, str]:
@@ -3241,7 +3286,7 @@ with col_content:
                 _lcoe_c = "var(--primary)" if _lcoe_val > 0 else "var(--text-dim)"
                 _avoided = _lcoe.get("total_avoided_mwh", 0)
                 st.markdown(f"""<div class="metric-card">
-                    <div class="metric-label">LCOE</div>
+                    <div class="metric-label">1st yr LCOE</div>
                     <div class="metric-value" style="color:{_lcoe_c}">R{_lcoe_val:.2f}</div>
                     <div class="metric-unit">/kWh · {_avoided:,.0f} MWh avoided</div>
                 </div>""", unsafe_allow_html=True)
