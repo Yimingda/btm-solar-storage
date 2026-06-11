@@ -12,6 +12,15 @@ import requests
 import io
 import re
 import warnings
+
+# ── Auto-scale unit helper ────────────────────────────────────────────────────
+_MW_UP = {"kWp": "MWp", "kWh": "MWh", "kW": "MW", "kWh/yr": "MWh/yr"}
+
+def _fmw(v: float, unit: str = "kWp") -> str:
+    """Return formatted string: auto-upgrades to MW/MWh/MWp when v ≥ 1 000."""
+    if v >= 1000:
+        return f"{v / 1000:,.1f} {_MW_UP.get(unit, unit)}"
+    return f"{v:,.0f} {unit}"
 from datetime import date as _date, timedelta
 warnings.filterwarnings("ignore")
 
@@ -2094,23 +2103,23 @@ def generate_excel_report() -> bytes:
     if _en_mode:
         info_rows = [
             ("Location",             f"Lat {ss.lat:.3f}°  /  Lon {ss.lon:.3f}°"),
-            ("System Size",          f"PV  {ss.pv_kwp:,.0f} kWp  +  BESS  {ss.bess_kwh:,.0f} kWh"),
+            ("System Size",          f"PV  {_fmw(ss.pv_kwp,'kWp')}  +  BESS  {_fmw(ss.bess_kwh,'kWh')}"),
             ("Tariff Mode",          ss.get("tariff_mode", "—")),
             ("Forex Rate",           f"1 USD = {ss.forex_usd_zar:.2f} ZAR"),
             ("Tariff Escalation",    f"{ss.tariff_escalation:.1f}% / yr"),
             ("Discount Rate",        f"{ss.discount_rate:.1f}%"),
-            ("PVGIS Annual PV Gen",  f"{pvg.get('annual_kwh', 0):,.0f} kWh/yr"),
+            ("PVGIS Annual PV Gen",  _fmw(pvg.get('annual_kwh', 0), "kWh/yr")),
             ("Export Time",          _dt.datetime.now().strftime("%Y-%m-%d  %H:%M")),
         ]
     else:
         info_rows = [
             (" Location", f"Lat {ss.lat:.3f}° / Lon {ss.lon:.3f}°"),
-            (" System Size", f"PV {ss.pv_kwp:,.0f} kWp + BESS {ss.bess_kwh:,.0f} kWh"),
+            (" System Size", f"PV {_fmw(ss.pv_kwp,'kWp')} + BESS {_fmw(ss.bess_kwh,'kWh')}"),
             ("Tariff Mode",    ss.get("tariff_mode", "—")),
             (" Forex Rate", f"1 USD = {ss.forex_usd_zar:.2f} ZAR"),
             (" Tariff Escalation", f"{ss.tariff_escalation:.1f}% / yr"),
             (" Discount Rate", f"{ss.discount_rate:.1f}%"),
-            ("PVGIS PV Gen", f"{pvg.get('annual_kwh', 0):,.0f} kWh/yr"),
+            ("PVGIS PV Gen", _fmw(pvg.get('annual_kwh', 0), "kWh/yr")),
             (" Export Time", _dt.datetime.now().strftime("%Y-%m-%d %H:%M")),
         ]
     for i, (lbl, val) in enumerate(info_rows):
@@ -2982,7 +2991,7 @@ with _scroll:
         if st.session_state.annual_pv_kwh:
             eq_h = st.session_state.annual_pv_kwh / max(st.session_state.pv_kwp, 1)
             st.markdown(
-                f'<div class="derived-value">☀️ {st.session_state.annual_pv_kwh:,.0f} kWh/yr'
+                f'<div class="derived-value">☀️ {_fmw(st.session_state.annual_pv_kwh,"kWh/yr")}'
                 f' ({eq_h:.0f}h equiv)</div>',
                 unsafe_allow_html=True
             )
@@ -3031,7 +3040,7 @@ with _scroll:
         if st.session_state.annual_pv_kwh and not pv_dis:
             _eq_h = st.session_state.annual_pv_kwh / max(st.session_state.pv_kwp, 1)
             st.markdown(
-                f'<div class="derived-value">☀️ {st.session_state.annual_pv_kwh:,.0f} kWh/yr'
+                f'<div class="derived-value">☀️ {_fmw(st.session_state.annual_pv_kwh,"kWh/yr")}'
                 f' ({_eq_h:.0f} h equiv)</div>',
                 unsafe_allow_html=True,
             )
@@ -3056,7 +3065,7 @@ with _scroll:
         bess_kw_max = bess_kwh * c_rate_val # = C ×
         _bess_pw_lbl = ("Max Power" )
         st.markdown(
-            f'<div class="derived-value">⚡ {_bess_pw_lbl}: <b>{bess_kw_max:.0f} kW</b> '
+            f'<div class="derived-value">⚡ {_bess_pw_lbl}: <b>{_fmw(bess_kw_max,"kW")}</b> '
             f'({c_rate_label}) — dispatch engine auto-optimises output</div>',
             unsafe_allow_html=True
         )
@@ -3153,9 +3162,9 @@ with _scroll:
                     unsafe_allow_html=True,
                 )
                 _pa1, _pa2, _pa3 = st.columns(3)
-                _pa1.metric("Peak avg", f"{st.session_state.load_peak_kw:.0f} kW")
-                _pa2.metric("Std avg",  f"{st.session_state.load_std_kw:.0f} kW")
-                _pa3.metric("Off-pk avg", f"{st.session_state.load_offpeak_kw:.0f} kW")
+                _pa1.metric("Peak avg",    _fmw(st.session_state.load_peak_kw,    "kW"))
+                _pa2.metric("Std avg",     _fmw(st.session_state.load_std_kw,     "kW"))
+                _pa3.metric("Off-pk avg",  _fmw(st.session_state.load_offpeak_kw, "kW"))
                 if st.button("🗑️ Clear profile — switch to manual",
                              key="clear_load_profile_btn"):
                     st.session_state["load_profile_8760"] = None
@@ -4103,12 +4112,12 @@ with col_content:
 
         oc1, oc2 = st.columns(2)
         with oc1:
-            st.markdown(f"**PV Range** (current {cur_pv:.0f} kWp × 60–150%)")
+            st.markdown(f"**PV Range** (current {_fmw(cur_pv,'kWp')} × 60–150%)")
             pv_min = st.number_input("PV Min (kWp)", value=auto_pv_min, min_value=100.0, step=100.0)
             pv_max = st.number_input("PV Max (kWp)", value=auto_pv_max, min_value=100.0, step=100.0)
             pv_stp = st.number_input("PV Step (kWp)", value=200.0, min_value=100.0, step=100.0)
         with oc2:
-            st.markdown(f"**BESS Range** (current {cur_bess/1000:.0f} MWh × 60–150%, fixed 5 MWh step)")
+            st.markdown(f"**BESS Range** (current {_fmw(cur_bess,'kWh')} × 60–150%, fixed 5 MWh step)")
             bess_min = st.number_input("BESS Min (kWh)", value=auto_bess_min,
                                         min_value=_BESS_STEP, step=_BESS_STEP)
             bess_max = st.number_input("BESS Max (kWh)", value=auto_bess_max,
@@ -4227,15 +4236,17 @@ with col_content:
                     st.markdown("#### 🏆 Optimal Configuration")
                     bc1, bc2, bc3, bc4 = st.columns(4)
                     with bc1:
+                        _opv = best['PV (kWp)']
                         st.markdown(f"""<div class="metric-card">
-                            <div class="metric-label">Optimal PV (kWp)</div>
-                            <div class="metric-value">{best['PV (kWp)']:.0f}</div>
-                            <div class="metric-unit">kWp</div></div>""", unsafe_allow_html=True)
+                            <div class="metric-label">Optimal PV</div>
+                            <div class="metric-value">{_fmw(_opv,'kWp')}</div>
+                            <div class="metric-unit">Solar PV capacity</div></div>""", unsafe_allow_html=True)
                     with bc2:
+                        _obs = best['BESS (kWh)']
                         st.markdown(f"""<div class="metric-card">
-                            <div class="metric-label">Optimal BESS (kWh)</div>
-                            <div class="metric-value">{best['BESS (kWh)']:.0f}</div>
-                            <div class="metric-unit">kWh ({best['BESS (kWh)']*c_actual:.0f}kW)</div></div>""",
+                            <div class="metric-label">Optimal BESS</div>
+                            <div class="metric-value">{_fmw(_obs,'kWh')}</div>
+                            <div class="metric-unit">{_fmw(_obs*c_actual,'kW')} max power</div></div>""",
                             unsafe_allow_html=True)
                     with bc3:
                         st.markdown(f"""<div class="metric-card">

@@ -54,6 +54,15 @@ _FONT = "Calibri"   # Huawei Sans substitute
 _SOL_URL  = "https://info.support.huawei.com/Energy/info/en_US/all/index"
 _SOL_LBL  = "Solution Info"
 
+# ── Auto-scale unit helper ────────────────────────────────────────────────────
+_MW_UP = {"kWp": "MWp", "kWh": "MWh", "kW": "MW", "kWh/yr": "MWh/yr"}
+
+def _fmw(v: float, unit: str = "kWp") -> str:
+    """Return formatted string: auto-upgrades to MW/MWh/MWp when v ≥ 1 000."""
+    if v >= 1000:
+        return f"{v / 1000:,.1f} {_MW_UP.get(unit, unit)}"
+    return f"{v:,.0f} {unit}"
+
 # ── python-pptx micro-helpers ─────────────────────────────────────────────────
 
 def _rgb(h: str):
@@ -244,11 +253,11 @@ def _s1_cover(prs, project_name: str, client_name: str,
     if project_name:
         title = project_name
     elif has_pv and has_bess:
-        title = f"{pv_kwp:,.0f} kWp PV + {bess_kwh:,.0f} kWh BESS"
+        title = f"{_fmw(pv_kwp, 'kWp')} PV + {_fmw(bess_kwh, 'kWh')} BESS"
     elif has_pv:
-        title = f"{pv_kwp:,.0f} kWp Solar PV System"
+        title = f"{_fmw(pv_kwp, 'kWp')} Solar PV System"
     else:
-        title = f"{bess_kwh:,.0f} kWh Battery Energy Storage"
+        title = f"{_fmw(bess_kwh, 'kWh')} Battery Energy Storage"
     _tb(slide, 0.42, 1.10, 8.0, 1.80, title, 38, bold=True, color=_WHT)
 
     # Sub-title — adapts to scenario
@@ -279,22 +288,22 @@ def _s1_cover(prs, project_name: str, client_name: str,
 
     if has_pv and has_bess:
         _tb(slide, 9.22, 1.70, 3.90, 0.85,
-            f"{pv_kwp:,.0f} kWp", 40, bold=True, color=_GLD, align="center")
+            _fmw(pv_kwp, "kWp"), 40, bold=True, color=_GLD, align="center")
         _tb(slide, 9.22, 2.60, 3.90, 0.40,
             "Solar PV Array", 11, color=_MGY, align="center")
         _rect(slide, 9.22, 3.08, 3.78, 0.03, _SEP)
         _tb(slide, 9.22, 3.18, 3.90, 0.72,
-            f"{bess_kwh:,.0f} kWh", 32, bold=True, color=_DGY, align="center")
+            _fmw(bess_kwh, "kWh"), 32, bold=True, color=_DGY, align="center")
         _tb(slide, 9.22, 3.95, 3.90, 0.38,
             "Battery Storage (BESS)", 10, color=_MGY, align="center")
     elif has_pv:
         _tb(slide, 9.22, 2.00, 3.90, 1.10,
-            f"{pv_kwp:,.0f} kWp", 44, bold=True, color=_GLD, align="center")
+            _fmw(pv_kwp, "kWp"), 44, bold=True, color=_GLD, align="center")
         _tb(slide, 9.22, 3.18, 3.90, 0.50,
             "Solar PV Array", 14, color=_MGY, align="center")
     else:
         _tb(slide, 9.22, 2.00, 3.90, 1.10,
-            f"{bess_kwh:,.0f} kWh", 40, bold=True, color=_GLD, align="center")
+            _fmw(bess_kwh, "kWh"), 40, bold=True, color=_GLD, align="center")
         _tb(slide, 9.22, 3.18, 3.90, 0.50,
             "Battery Storage (BESS)", 14, color=_MGY, align="center")
 
@@ -390,14 +399,14 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
 
     # Headline adapts to scenario
     if has_pv and has_bess:
-        hl = (f"{pv_kwp:,.0f} kWp PV + {bess_kh:,.0f} kWh BESS "
+        hl = (f"{_fmw(pv_kwp,'kWp')} PV + {_fmw(bess_kh,'kWh')} BESS "
               f"— specific yield {spec_yield:,.0f} kWh/kWp/yr")
     elif has_pv:
-        hl = f"{pv_kwp:,.0f} kWp Solar PV — specific yield {spec_yield:,.0f} kWh/kWp/yr"
+        hl = f"{_fmw(pv_kwp,'kWp')} Solar PV — specific yield {spec_yield:,.0f} kWh/kWp/yr"
     else:
         c_rate = params.get("c_rate", 0.25)
-        hl = (f"{bess_kh:,.0f} kWh BESS — "
-              f"{bess_kh*c_rate:,.0f} kW max discharge, "
+        hl = (f"{_fmw(bess_kh,'kWh')} BESS — "
+              f"{_fmw(bess_kh*c_rate,'kW')} max discharge, "
               f"{params.get('dod',90):.0f}% DoD")
     _header_bar(slide, hl,
                 f"Lat {params.get('lat',0):.3f}°  Lon {params.get('lon',0):.3f}°  "
@@ -420,19 +429,19 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
 
     c_rate  = params.get("c_rate", 0.25)
     pv_rows = [
-        ("Peak power",          f"{pv_kwp:,.0f} kWp"),
+        ("Peak power",          _fmw(pv_kwp, "kWp")),
         ("System losses",       f"{params.get('pv_loss',14):.0f}%"),
         ("Tilt / Azimuth",      f"{params.get('tilt',20):.0f}° / "
                                 f"{params.get('azimuth',180):.0f}°"),
-        ("Annual generation",   f"{annual_kwh:,.0f} kWh/yr"),
+        ("Annual generation",   _fmw(annual_kwh, "kWh/yr")),
         ("Specific yield",      f"{spec_yield:,.0f} kWh/kWp/yr"),
         ("Summer daily avg",    f"{pvgis_data.get('summer_daily_kwh',0):.1f} kWh/day"),
         ("Winter daily avg",    f"{pvgis_data.get('winter_daily_kwh',0):.1f} kWh/day"),
         ("Annual degradation",  f"{params.get('pv_degradation',0.5):.1f}% p.a."),
     ]
     bess_rows = [
-        ("Usable capacity",      f"{bess_kh:,.0f} kWh"),
-        ("Max charge/discharge", f"{bess_kh*c_rate:,.0f} kW  "
+        ("Usable capacity",      _fmw(bess_kh, "kWh")),
+        ("Max charge/discharge", f"{_fmw(bess_kh*c_rate,'kW')}  "
                                  f"({params.get('c_rate_label','0.25C')})"),
         ("Depth of discharge",   f"{params.get('dod',90):.0f}%"),
         ("Round-trip efficiency",f"{params.get('rte',90):.0f}%"),
