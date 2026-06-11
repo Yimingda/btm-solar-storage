@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 import requests
 import io
+import re
 import warnings
 from datetime import date as _date, timedelta
 warnings.filterwarnings("ignore")
@@ -3802,10 +3803,11 @@ with col_content:
                             _xlsx_bytes = generate_excel_report()
                             st.session_state["_excel_rpt_bytes"] = _xlsx_bytes
                             import datetime as _edt
-                            _loc = (f"{st.session_state.lat:.1f}_{st.session_state.lon:.1f}"
-                                    .replace("-", "S").replace(".", "p"))
+                            _xproj = (st.session_state.get("_active_snap_name") or "BTM_Project")
+                            _xproj_safe = re.sub(r'[^\w\-]', '_', _xproj).strip('_')
+                            _xirr = ((st.session_state.results or {}).get("irr") or 0)
                             st.session_state["_excel_rpt_fname"] = (
-                                f"BTM_Report_{_loc}_{_edt.datetime.now():%Y%m%d}.xlsx"
+                                f"{_xproj_safe}_IRR{_xirr:.1f}pct_{_edt.datetime.now():%Y%m%d}.xlsx"
                             )
                             st.success("✅ Report ready — click below to download")
                         except Exception as _e:
@@ -3903,10 +3905,11 @@ with col_content:
                             consultant_name  = st.session_state.get("_pptx_consultant", ""),
                         )
                         st.session_state["_pptx_bytes"] = _pptx_bytes
-                        _loc = (f"{st.session_state.lat:.1f}_{st.session_state.lon:.1f}"
-                                .replace("-", "S").replace(".", "p"))
+                        _pproj = (st.session_state.get("_active_snap_name") or "BTM_Project")
+                        _pproj_safe = re.sub(r'[^\w\-]', '_', _pproj).strip('_')
+                        _ppirr = (_res.get("irr") or 0)
                         st.session_state["_pptx_fname"] = (
-                            f"BTM_Report_{_loc}_{_edt.datetime.now():%Y%m%d}.pptx"
+                            f"{_pproj_safe}_IRR{_ppirr:.1f}pct_{_edt.datetime.now():%Y%m%d}.pptx"
                         )
                         st.success("✅ PPTX ready — click below to download")
                     except Exception as _pe:
