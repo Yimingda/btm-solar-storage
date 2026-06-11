@@ -211,9 +211,11 @@ def _s1_cover(prs, project_name:str, client_name:str, consultant_name:str,
     # Thin amber accent strip
     _rect(slide, 8.78,0,0.07,7.5, _AMBR)
 
-    # Consultant name (top-left, small)
-    _tb(slide, 0.55,0.38,7.5,0.40, consultant_name.upper(), 10,
-        bold=True, color="A7F3D0")   # pale green tint
+    # EPC + OEM — top-left, two fields on one line
+    epc_label = f"EPC:  {consultant_name}" if consultant_name else "EPC:  —"
+    oem_label = f"OEM:  {client_name}"     if client_name     else "OEM:  —"
+    _tb(slide, 0.55,0.18,5.5,0.30, epc_label, 9, bold=True, color="A7F3D0")
+    _tb(slide, 0.55,0.52,5.5,0.30, oem_label, 9, bold=True, color="6EE7B7")
 
     # Horizontal rule
     _rect(slide, 0.55,0.90,7.7,0.03, "1D4034")
@@ -227,11 +229,8 @@ def _s1_cover(prs, project_name:str, client_name:str, consultant_name:str,
         "BTM Solar PV & Battery Energy Storage — Executive Report",
         13, color="6EE7B7")
 
-    # Client, date
-    if client_name:
-        _tb(slide, 0.55,3.50,7.7,0.42,
-            f"Prepared for:  {client_name}", 12, color="A7F3D0")
-    _tb(slide, 0.55,3.98,7.7,0.38,
+    # Date
+    _tb(slide, 0.55,3.50,7.7,0.38,
         f"Report Date:   {date.today().strftime('%B %Y')}", 11, color="6EE7B7")
 
     # Right panel: system-size callout
