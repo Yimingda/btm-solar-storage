@@ -350,9 +350,8 @@ def _s2_thesis(prs, results: dict, params: dict, company: str,
     irr     = results.get("irr", 0) or 0
     payback = results.get("payback") or 0
     capex   = results.get("total_capex", 0) or 0
-    lcoe_d  = results.get("lcoe") or {}
-    lcoe    = lcoe_d.get("lcoe_zar_kwh", 0) or 0
-    avoided = lcoe_d.get("total_avoided_mwh", 0) or 0
+    lcoe_d  = results.get("lcoe") or {}   # PV-only LCOE (None if no PV)
+    lcos_d  = results.get("lcos") or {}   # BESS-only LCOS (None if no BESS)
     esc     = params.get("tariff_escalation", 8.0)
 
     def _m(v): return f"R {abs(v)/1e6:.1f}M" if abs(v) >= 1e6 else \
@@ -364,14 +363,25 @@ def _s2_thesis(prs, results: dict, params: dict, company: str,
                 "Capital is recovered before Year 6 — the system then generates "
                 "free cash flow for 14+ years with no incremental CAPEX.")
 
-    for i, (lbl, val, sub) in enumerate([
+    # Build KPI block list — always CAPEX/NPV/IRR/Payback, then LCOE and/or LCOS
+    _kpis = [
         ("TOTAL CAPEX",    _m(capex),          "All-in investment"),
         ("20-YEAR NPV",    _m(npv),            "After tax & escalation"),
         ("PROJECT IRR",    f"{irr:.1f}%",      "Unlevered, after-tax"),
         ("SIMPLE PAYBACK", f"{payback:.1f} yr","Grid-savings basis"),
-        ("1ST YR LCOE",    f"R {lcoe:.2f}",   "Per kWh avoided"),
-    ]):
-        _kpi_block(slide, 0.28+i*2.56, 1.68, lbl, val, sub, w=2.45)
+    ]
+    if lcoe_d:
+        _lcoe_v = lcoe_d.get("lcoe_zar_kwh", 0) or 0
+        _kpis.append(("1ST YR LCOE",  f"R {_lcoe_v:.2f}", "PV cost / kWh generated"))
+    if lcos_d:
+        _lcos_v = lcos_d.get("lcos_zar_kwh", 0) or 0
+        _kpis.append(("1ST YR LCOS",  f"R {_lcos_v:.2f}", "BESS cost / kWh discharged"))
+
+    # Distribute KPI blocks evenly across slide width (0.28" to 13.06" = 12.78")
+    _n = len(_kpis)
+    _blk_w  = 12.78 / _n
+    for i, (lbl, val, sub) in enumerate(_kpis):
+        _kpi_block(slide, 0.28 + i * _blk_w, 1.68, lbl, val, sub, w=_blk_w - 0.10)
 
     story = (
         f"The project displaces expensive {params.get('tariff_mode','Eskom Megaflex')} "

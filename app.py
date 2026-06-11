@@ -1942,64 +1942,57 @@ def compute_lcoe(
     c_rate: float = 0.25,         # unused — kept for call-site compatibility
 ) -> dict:
     """
-    Levelised cost metric — auto-selects formula based on scenario:
+    Returns separate LCOE and LCOS metrics, each based on Year-1 data only.
 
-    PV (+ optional BESS)  →  LCOE = annualised_cost / Year-1 avoided grid kWh
-      Denominator: load_kWh - grid_buy_kWh  (PV self-consumption + BESS shift)
+    LCOE (PV component only)  — present when pv_kwp > 0
+      Cost  = PV CAPEX/life + PV Year-1 O&M   (BESS costs excluded)
+      Denom = annual_pv_gen_kWh  (all PV generation avoids grid in BTM)
+      → ZAR per kWh of solar generated
 
-    Pure BESS (pv_kwp=0)  →  LCOS = annualised_BESS_cost / Year-1 discharge kWh
-      WHY different: BESS arbitrage only shifts WHEN you buy, not HOW MUCH.
-      Net grid purchase ≈ load + RTE_losses  (slightly MORE, not less), so
-      avoided_kWh ≈ 0 or negative — making LCOE undefined.
-      LCOS = "cost to store & deliver 1 kWh"; compare vs peak-offpeak spread.
+    LCOS (BESS component only) — present when bess_kwh > 0
+      Cost  = BESS CAPEX/life + BESS Year-1 O&M  (PV costs excluded)
+      Denom = annual_discharge_kWh  (kWh the battery actually delivered)
+      → ZAR per kWh cycled through the BESS
+      BESS arbitrage shifts WHEN you buy, not HOW MUCH, so net avoided kWh
+      ≈ 0; discharge kWh is the only meaningful cost denominator.
 
     Returns:
-      lcoe_zar_kwh    ZAR/kWh  (LCOE for PV scenarios, LCOS for BESS-only)
-      metric_label    "LCOE" | "LCOS"
-      metric_basis    short denominator description (for display)
-      annual_cost_zar, avoided_kwh_yr1, total_avoided_mwh
+      {"lcoe": {...} | None, "lcos": {...} | None}
+      Each sub-dict: lcoe/lcos_zar_kwh, annual_cost_zar, kwh_yr1, total_mwh
     """
     has_pv   = pv_kwp   > 0
     has_bess = bess_kwh > 0
-
-    total_capex  = (pv_kwp   * params["pv_capex_per_kwp"] +
-                    bess_kwh * params["bess_capex_per_kwh"])
-    yr1_opex     = (pv_kwp   * params["pv_opex_per_kwp"] +
-                    bess_kwh * params["bess_opex_per_kwh"])
-    annual_cost  = total_capex / ANALYSIS_YEARS + yr1_opex
+    result   = {"lcoe": None, "lcos": None}
 
     if has_pv:
-        # ── LCOE: PV (+ optional BESS) ───────────────────────────────────
-        avoided_kwh = max(0.0,
-                          dispatch_yr1["annual_load_kWh"] -
-                          dispatch_yr1["annual_grid_buy_kWh"])
-        lcoe = annual_cost / avoided_kwh if avoided_kwh > 0 else 0.0
-        return {
-            "lcoe_zar_kwh":      round(lcoe, 4),
-            "metric_label":      "LCOE",
-            "metric_basis":      "grid kWh avoided",
-            "annual_cost_zar":   round(annual_cost, 0),
-            "avoided_kwh_yr1":   round(avoided_kwh, 0),
-            "total_avoided_mwh": round(avoided_kwh * ANALYSIS_YEARS / 1_000, 1),
+        # ── LCOE: PV costs only ──────────────────────────────────────────
+        pv_capex      = pv_kwp * params["pv_capex_per_kwp"]
+        pv_opex_yr1   = pv_kwp * params["pv_opex_per_kwp"]
+        pv_annual_cost = pv_capex / ANALYSIS_YEARS + pv_opex_yr1
+        pv_gen_kwh    = max(0.0, dispatch_yr1.get("annual_pv_gen_kWh", 0))
+        lcoe_val      = pv_annual_cost / pv_gen_kwh if pv_gen_kwh > 0 else 0.0
+        result["lcoe"] = {
+            "lcoe_zar_kwh":      round(lcoe_val, 4),
+            "annual_cost_zar":   round(pv_annual_cost, 0),
+            "avoided_kwh_yr1":   round(pv_gen_kwh, 0),
+            "total_avoided_mwh": round(pv_gen_kwh * ANALYSIS_YEARS / 1_000, 1),
         }
-    elif has_bess:
-        # ── LCOS: Pure BESS ──────────────────────────────────────────────
-        # Denominator = kWh the BESS actually discharged (not net grid change)
-        discharge_kwh = max(0.0, dispatch_yr1.get("annual_discharge_kWh", 0))
-        lcos = annual_cost / discharge_kwh if discharge_kwh > 0 else 0.0
-        return {
-            "lcoe_zar_kwh":      round(lcos, 4),
-            "metric_label":      "LCOS",
-            "metric_basis":      "kWh discharged",
-            "annual_cost_zar":   round(annual_cost, 0),
-            "avoided_kwh_yr1":   round(discharge_kwh, 0),
-            "total_avoided_mwh": round(discharge_kwh * ANALYSIS_YEARS / 1_000, 1),
+
+    if has_bess:
+        # ── LCOS: BESS costs only ────────────────────────────────────────
+        bess_capex       = bess_kwh * params["bess_capex_per_kwh"]
+        bess_opex_yr1    = bess_kwh * params["bess_opex_per_kwh"]
+        bess_annual_cost = bess_capex / ANALYSIS_YEARS + bess_opex_yr1
+        discharge_kwh    = max(0.0, dispatch_yr1.get("annual_discharge_kWh", 0))
+        lcos_val         = bess_annual_cost / discharge_kwh if discharge_kwh > 0 else 0.0
+        result["lcos"] = {
+            "lcos_zar_kwh":        round(lcos_val, 4),
+            "annual_cost_zar":     round(bess_annual_cost, 0),
+            "discharge_kwh_yr1":   round(discharge_kwh, 0),
+            "total_discharge_mwh": round(discharge_kwh * ANALYSIS_YEARS / 1_000, 1),
         }
-    else:
-        return {
-            "lcoe_zar_kwh": 0.0, "metric_label": "LCOE", "metric_basis": "—",
-            "annual_cost_zar": 0, "avoided_kwh_yr1": 0, "total_avoided_mwh": 0,
-        }
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -3580,7 +3573,8 @@ with col_content:
                     "npv": npv, "irr": irr, "payback": payback,
                     "total_capex": total_capex, "bess_kw": bess_kw_use,
                     "c_rate": _c_rate_val,
-                    "lcoe": lcoe_result,
+                    "lcoe": lcoe_result.get("lcoe"),   # None if no PV
+                    "lcos": lcoe_result.get("lcos"),   # None if no BESS
                     # timeline
                     "po_date":          _po_date.isoformat(),
                     "bess_lead_months": _bess_lead,
@@ -3601,7 +3595,9 @@ with col_content:
 
             st.markdown('<div class="section-header">📈 Key Financial Metrics</div>',
                         unsafe_allow_html=True)
-            m1, m2, m3, m4, m5, m6 = st.columns(6)
+
+            # ── Row 1: core financials (always 4 columns) ──────────────────
+            m1, m2, m3, m4 = st.columns(4)
 
             with m1:
                 st.markdown(f"""<div class="metric-card">
@@ -3633,25 +3629,45 @@ with col_content:
                     <div class="metric-unit">Cumulative CF = 0</div>
                 </div>""", unsafe_allow_html=True)
 
-            with m5:
-                _lcoe = res.get("lcoe", {})
-                _lcoe_val   = _lcoe.get("lcoe_zar_kwh", 0)
-                _lcoe_lbl   = _lcoe.get("metric_label",  "LCOE")
-                _lcoe_basis = _lcoe.get("metric_basis",  "kWh")
-                _lcoe_mwh   = _lcoe.get("total_avoided_mwh", 0)
-                _lcoe_c = "var(--primary)" if _lcoe_val > 0 else "var(--text-dim)"
-                st.markdown(f"""<div class="metric-card">
-                    <div class="metric-label">1st yr {_lcoe_lbl}</div>
-                    <div class="metric-value" style="color:{_lcoe_c}">R{_lcoe_val:.2f}</div>
-                    <div class="metric-unit">/kWh · {_lcoe_mwh:,.0f} MWh {_lcoe_basis}</div>
-                </div>""", unsafe_allow_html=True)
-
-            with m6:
-                st.markdown(f"""<div class="metric-card">
-                    <div class="metric-label">BESS EoL</div>
-                    <div class="metric-value" style="color:var(--secondary)">Yr {min(20, int(res['eol_years']))}</div>
-                    <div class="metric-unit">{res['annual_cycles']:.1f} cycles/yr</div>
-                </div>""", unsafe_allow_html=True)
+            # ── Row 2: LCOE / LCOS / BESS EoL (scenario-adaptive) ──────────
+            # LCOE: PV cost only / PV gen kWh  — shown only when PV present
+            # LCOS: BESS cost only / discharge kWh — shown only when BESS present
+            # BESS EoL: always shown when BESS present
+            _lcoe_d = res.get("lcoe")   # dict or None
+            _lcos_d = res.get("lcos")   # dict or None
+            _r2_items = (
+                (["lcoe"] if _lcoe_d else [])
+                + (["lcos"] if _lcos_d else [])
+                + (["eol"]  if _lcos_d else [])   # BESS EoL when BESS present
+            )
+            if _r2_items:
+                _r2_cols = st.columns(len(_r2_items))
+                for _ri, _rt in enumerate(_r2_items):
+                    with _r2_cols[_ri]:
+                        if _rt == "lcoe":
+                            _lv  = _lcoe_d["lcoe_zar_kwh"]
+                            _lc  = "var(--primary)" if _lv > 0 else "var(--text-dim)"
+                            _lmwh = _lcoe_d["total_avoided_mwh"]
+                            st.markdown(f"""<div class="metric-card">
+                                <div class="metric-label">1st yr LCOE · PV only</div>
+                                <div class="metric-value" style="color:{_lc}">R{_lv:.2f}</div>
+                                <div class="metric-unit">/kWh · {_lmwh:,.0f} MWh generated</div>
+                            </div>""", unsafe_allow_html=True)
+                        elif _rt == "lcos":
+                            _sv   = _lcos_d["lcos_zar_kwh"]
+                            _sc   = "var(--primary)" if _sv > 0 else "var(--text-dim)"
+                            _smwh = _lcos_d["total_discharge_mwh"]
+                            st.markdown(f"""<div class="metric-card">
+                                <div class="metric-label">1st yr LCOS · BESS only</div>
+                                <div class="metric-value" style="color:{_sc}">R{_sv:.2f}</div>
+                                <div class="metric-unit">/kWh · {_smwh:,.0f} MWh discharged</div>
+                            </div>""", unsafe_allow_html=True)
+                        elif _rt == "eol":
+                            st.markdown(f"""<div class="metric-card">
+                                <div class="metric-label">BESS EoL</div>
+                                <div class="metric-value" style="color:var(--secondary)">Yr {min(20, int(res['eol_years']))}</div>
+                                <div class="metric-unit">{res['annual_cycles']:.1f} cycles/yr</div>
+                            </div>""", unsafe_allow_html=True)
 
             # ── Project Timeline banner ───────────────────────────
             _tl = {k: res.get(k) for k in ("po_date","bess_golive","pv_golive","model_end","precomm_months","precomm_ncf")}
@@ -3773,10 +3789,9 @@ with col_content:
                     with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
                         st.session_state.fin_df.rename(columns=_COL_MAP).to_excel(
                             writer, sheet_name="20yr_Financial_Model", index=False)
-                        _lcoe_x = res.get("lcoe", {})
-                        _lcoe_lbl_x  = _lcoe_x.get("metric_label", "LCOE")
-                        _lcoe_basis_x = _lcoe_x.get("metric_basis", "grid kWh avoided")
-                        ops = pd.DataFrame([
+                        _lcoe_x = res.get("lcoe") or {}
+                        _lcos_x = res.get("lcos") or {}
+                        _xrows  = [
                             {_mk: "Annual Saving (ZAR)",        _vk: res['dispatch_yr1']['annual_saving_ZAR']},
                             {_mk: "PV Saving (ZAR)",            _vk: res['dispatch_yr1']['annual_pv_saving_ZAR']},
                             {_mk: "BESS Net Saving (ZAR)",      _vk: res['dispatch_yr1']['annual_bess_saving_ZAR']},
@@ -3787,12 +3802,25 @@ with col_content:
                             {_mk: "BESS EoL (yr)",              _vk: min(20.0, res['eol_years'])},
                             {_mk: "NPV (ZAR)",                  _vk: res['npv']},
                             {_mk: "IRR (%)",                    _vk: res['irr']},
-                            {_mk: f"{_lcoe_lbl_x} (ZAR/kWh)",  _vk: _lcoe_x.get("lcoe_zar_kwh", "")},
-                            {_mk: f"Year-1 {_lcoe_basis_x} (kWh)", _vk: _lcoe_x.get("avoided_kwh_yr1", "")},
-                            {_mk: "Annualised Cost (ZAR/yr)",   _vk: _lcoe_x.get("annual_cost_zar", "")},
-                            {_mk: "Indicative Lifetime (MWh)",  _vk: _lcoe_x.get("total_avoided_mwh", "")},
                             {_mk: "USD/ZAR Rate",               _vk: st.session_state.forex_usd_zar},
-                        ])
+                        ]
+                        # LCOE — PV only, shown only if PV present
+                        if _lcoe_x:
+                            _xrows += [
+                                {_mk: "LCOE · PV only (ZAR/kWh)",    _vk: _lcoe_x.get("lcoe_zar_kwh", "")},
+                                {_mk: "  Year-1 PV Generation (kWh)", _vk: _lcoe_x.get("avoided_kwh_yr1", "")},
+                                {_mk: "  PV Annualised Cost (ZAR/yr)",_vk: _lcoe_x.get("annual_cost_zar", "")},
+                                {_mk: "  PV Lifetime Gen (MWh)",      _vk: _lcoe_x.get("total_avoided_mwh", "")},
+                            ]
+                        # LCOS — BESS only, shown only if BESS present
+                        if _lcos_x:
+                            _xrows += [
+                                {_mk: "LCOS · BESS only (ZAR/kWh)",       _vk: _lcos_x.get("lcos_zar_kwh", "")},
+                                {_mk: "  Year-1 BESS Discharge (kWh)",     _vk: _lcos_x.get("discharge_kwh_yr1", "")},
+                                {_mk: "  BESS Annualised Cost (ZAR/yr)",   _vk: _lcos_x.get("annual_cost_zar", "")},
+                                {_mk: "  BESS Lifetime Discharge (MWh)",   _vk: _lcos_x.get("total_discharge_mwh", "")},
+                            ]
+                        ops = pd.DataFrame(_xrows)
                         ops.to_excel(writer, sheet_name="Summary", index=False)
                     st.download_button("⬇ BTM_Pure_Data_Export.xlsx",
                                        data=xbuf.getvalue(),
