@@ -454,6 +454,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
+# Theme helpers
+# ─────────────────────────────────────────────────────────────
+
+def _plt():
+    """Return (paper_bg, plot_bg, font_col, grid_col, legend_bg) for the
+    current light/dark theme.  Call once at render time; reads session_state."""
+    if st.session_state.get("_light_mode", False):
+        return "#F0F4F8", "#FFFFFF", "#1A202C", "#E2E8F0", "#F7FAFC"
+    return "#0A0E1A", "#111827", "#E8ECF0", "#2D3748", "#111827"
+
+
+# ─────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────
 
@@ -2835,12 +2847,19 @@ with _user_col:
 
         # ── Business-mode badge ──────────────────────────────────────
         _scen_now = st.session_state.get("_scenario", "btm")
+        _lm_badge = st.session_state.get("_light_mode", False)
         _scen_cfg = {
-            "btm":      ("⚡", "BTM",      "#00E5A0", "#0d2b1e"),
-            "wheeling": ("🔄", "Wheeling", "#4ECDC4", "#0d2424"),
+            "btm":      ("⚡", "BTM",
+                         "#059669" if _lm_badge else "#00E5A0",
+                         "rgba(0,168,112,0.12)" if _lm_badge else "#0d2b1e"),
+            "wheeling": ("🔄", "Wheeling",
+                         "#0E7490" if _lm_badge else "#4ECDC4",
+                         "rgba(78,205,196,0.12)" if _lm_badge else "#0d2424"),
         }
         _s_icon, _s_name, _s_clr, _s_bg = _scen_cfg.get(
-            _scen_now, ("⚡", "BTM", "#00E5A0", "#0d2b1e"))
+            _scen_now, ("⚡", "BTM",
+                        "#059669" if _lm_badge else "#00E5A0",
+                        "rgba(0,168,112,0.12)" if _lm_badge else "#0d2b1e"))
 
         # ── Light / dark mode toggle ─────────────────────────────────
         _light_mode = st.session_state.get("_light_mode", False)
@@ -2885,7 +2904,8 @@ with _user_col:
 # Project bar — full-width, above column split
 # ─────────────────────────────────────────────────────────────
 render_project_bar()
-st.markdown("<hr style='margin:4px 0 8px;border-color:#1e2a3a'>",
+_hr_bc = "#CBD5E0" if st.session_state.get("_light_mode", False) else "#1e2a3a"
+st.markdown(f"<hr style='margin:4px 0 8px;border-color:{_hr_bc}'>",
             unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
@@ -3118,13 +3138,14 @@ with _scroll:
                     fill="tozeroy", fillcolor="rgba(0,229,160,0.07)",
                     line=dict(color="#00E5A0", width=1.2),
                 ))
+                _pb, _plb, _fc, _gc, _lb = _plt()
                 _pfig.update_layout(
                     height=130, margin=dict(l=0, r=0, t=4, b=24),
                     paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#8B95A3", size=9), showlegend=False,
-                    xaxis=dict(gridcolor="#2D3748", title="Hour (first 7 days)",
+                    font=dict(color=_fc, size=9), showlegend=False,
+                    xaxis=dict(gridcolor=_gc, title="Hour (first 7 days)",
                                title_font_size=9, showgrid=True, tickfont_size=8),
-                    yaxis=dict(gridcolor="#2D3748", title="kW",
+                    yaxis=dict(gridcolor=_gc, title="kW",
                                title_font_size=9, showgrid=True, tickfont_size=8),
                 )
                 st.plotly_chart(_pfig, use_container_width=True,
@@ -3697,12 +3718,13 @@ with col_content:
                               annotation_text="BESS EoL", annotation_font_color="#FF6B35",
                               row=1, col=2)
 
-                fig.update_layout(paper_bgcolor="#0A0E1A", plot_bgcolor="#111827",
-                                  font=dict(color="#E8ECF0", family="IBM Plex Mono"),
+                _pb, _plb, _fc, _gc, _lb = _plt()
+                fig.update_layout(paper_bgcolor=_pb, plot_bgcolor=_plb,
+                                  font=dict(color=_fc, family="IBM Plex Mono"),
                                   showlegend=False, height=380,
                                   margin=dict(l=10, r=10, t=50, b=10))
-                fig.update_xaxes(gridcolor="#2D3748", title_text="Year")
-                fig.update_yaxes(gridcolor="#2D3748")
+                fig.update_xaxes(gridcolor=_gc, title_text="Year")
+                fig.update_yaxes(gridcolor=_gc)
                 st.plotly_chart(fig, use_container_width=True)
 
             st.markdown('<div class="section-header">📥 Data Export</div>', unsafe_allow_html=True)
@@ -3985,12 +4007,13 @@ with col_content:
                     fig_m.add_vrect(x0=mn, x1=mn, fillcolor="#4ECDC4",
                                     opacity=0.08, line_width=0)
 
+            _pb, _plb, _fc, _gc, _lb = _plt()
             fig_m.update_layout(
-                barmode="stack", paper_bgcolor="#0A0E1A", plot_bgcolor="#111827",
-                font=dict(color="#E8ECF0", family="IBM Plex Mono"),
-                yaxis=dict(title="Energy (kWh)", gridcolor="#2D3748"),
+                barmode="stack", paper_bgcolor=_pb, plot_bgcolor=_plb,
+                font=dict(color=_fc, family="IBM Plex Mono"),
+                yaxis=dict(title="Energy (kWh)", gridcolor=_gc),
                 yaxis2=dict(title="Saving (ZAR)", overlaying="y", side="right"),
-                legend=dict(bgcolor="#111827", bordercolor="#2D3748", orientation="h"),
+                legend=dict(bgcolor=_lb, bordercolor=_gc, orientation="h"),
                 height=320, margin=dict(l=10, r=10, t=20, b=10),
                 annotations=[dict(text="❄️ High Season Jun–Aug", x="Jun", y=1.05,
                                   xref="x", yref="paper", showarrow=False,
@@ -4032,15 +4055,16 @@ with col_content:
                                                    y=ddata["tariff_ZAR_kWh"] * 50,
                                                    name="Tariff×50", yaxis="y2",
                                                    line=dict(color="#E040FB", width=1.5, dash="dash")))
+                        _pb, _plb, _fc, _gc, _lb = _plt()
                         fig_d.update_layout(
-                            paper_bgcolor="#0A0E1A", plot_bgcolor="#111827",
-                            font=dict(color="#E8ECF0", family="IBM Plex Mono"),
+                            paper_bgcolor=_pb, plot_bgcolor=_plb,
+                            font=dict(color=_fc, family="IBM Plex Mono"),
                             barmode="overlay",
-                            yaxis=dict(title="kWh/h", gridcolor="#2D3748"),
+                            yaxis=dict(title="kWh/h", gridcolor=_gc),
                             yaxis2=dict(title="SOC/Tariff", overlaying="y", side="right"),
-                            legend=dict(bgcolor="#111827", orientation="h"),
+                            legend=dict(bgcolor=_lb, orientation="h"),
                             height=360, margin=dict(l=10, r=10, t=20, b=10),
-                            xaxis=dict(title="Hour", tickvals=list(range(24)), gridcolor="#2D3748"),
+                            xaxis=dict(title="Hour", tickvals=list(range(24)), gridcolor=_gc),
                         )
                         st.plotly_chart(fig_d, use_container_width=True)
 
@@ -4226,9 +4250,11 @@ with col_content:
                     # NPV
                     st.markdown(f"#### 🗺️ NPV Heatmap")
                     pivot = opt_df.pivot_table(index="BESS (kWh)", columns="PV (kWp)", values="NPV (ZAR)")
+                    _pb, _plb, _fc, _gc, _lb = _plt()
+                    _cs_mid = "#FFFFFF" if st.session_state.get("_light_mode", False) else "#111827"
                     fig_h = go.Figure(data=go.Heatmap(
                         z=pivot.values / 1e6, x=pivot.columns, y=pivot.index,
-                        colorscale=[[0,"#FF4444"],[0.5,"#111827"],[1,"#00E5A0"]],
+                        colorscale=[[0,"#FF4444"],[0.5,_cs_mid],[1,"#00E5A0"]],
                         colorbar=dict(title="NPV (M ZAR)"),
                         text=[[f"R{v:.1f}M" for v in row] for row in pivot.values / 1e6],
                         texttemplate="%{text}", textfont={"size": 8},
@@ -4241,10 +4267,10 @@ with col_content:
                         name="★ Optimal",
                     ))
                     fig_h.update_layout(
-                        paper_bgcolor="#0A0E1A", plot_bgcolor="#111827",
-                        font=dict(color="#E8ECF0", family="IBM Plex Mono"),
-                        xaxis=dict(title="PV (kWp)", gridcolor="#2D3748"),
-                        yaxis=dict(title="BESS (kWh)", gridcolor="#2D3748"),
+                        paper_bgcolor=_pb, plot_bgcolor=_plb,
+                        font=dict(color=_fc, family="IBM Plex Mono"),
+                        xaxis=dict(title="PV (kWp)", gridcolor=_gc),
+                        yaxis=dict(title="BESS (kWh)", gridcolor=_gc),
                         height=480, margin=dict(l=10, r=10, t=20, b=10),
                     )
                     st.plotly_chart(fig_h, use_container_width=True)

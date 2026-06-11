@@ -161,19 +161,21 @@ def render_snapshot_panel() -> None:
     # ── Active-project context bar ──────────────────────────────────────────
     _aid, _aname, _dirty = get_active_project()
     if _aname:
+        _lm = st.session_state.get("_light_mode", False)
         if _dirty:
-            _bar_bg  = "#2a1a00"
-            _bar_bd  = "#e67e22"
+            _bar_bg  = "rgba(254,243,199,0.55)" if _lm else "#2a1a00"
+            _bar_bd  = "#d97706"                if _lm else "#e67e22"
             _bar_ico = "✏️"
             _bar_lbl = "Unsaved changes"
         else:
-            _bar_bg  = "#0a1f12"
-            _bar_bd  = "#27ae60"
+            _bar_bg  = "rgba(209,250,229,0.55)" if _lm else "#0a1f12"
+            _bar_bd  = "#059669"                if _lm else "#27ae60"
             _bar_ico = "✅"
             _bar_lbl = "Synced"
+        _bar_tx = "#1A202C" if _lm else "#e0e6ed"
         st.markdown(
             f'<div style="background:{_bar_bg};border-left:3px solid {_bar_bd};'
-            f'padding:3px 8px;border-radius:4px;font-size:0.76em;'
+            f'padding:3px 8px;border-radius:4px;font-size:0.76em;color:{_bar_tx};'
             f'margin:2px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
             f'{_bar_ico} <b>{_aname}</b>&nbsp;·&nbsp;{_bar_lbl}</div>',
             unsafe_allow_html=True,
@@ -188,9 +190,11 @@ def render_snapshot_panel() -> None:
         return
 
     if not snapshots:
+        _lm_np = st.session_state.get("_light_mode", False)
+        _np_cl = "#6B7280" if _lm_np else "#888"
         st.markdown(
-            "<div style='color:#888;font-size:0.82em;text-align:center;"
-            "padding:8px 0'>No projects yet</div>",
+            f"<div style='color:{_np_cl};font-size:0.82em;text-align:center;"
+            f"padding:8px 0'>No projects yet</div>",
             unsafe_allow_html=True,
         )
         return
@@ -440,8 +444,10 @@ def _render_snapshot_item(snap: dict) -> None:
                 st.session_state.pop(f"_del_{snap_id}", None)
                 st.rerun()
 
+    _lm_hr = st.session_state.get("_light_mode", False)
+    _hr_cl = "#E2E8F0" if _lm_hr else "#2a2a4a"
     st.markdown(
-        "<hr style='margin:2px 0; border-color:#2a2a4a'>",
+        f"<hr style='margin:2px 0; border-color:{_hr_cl}'>",
         unsafe_allow_html=True,
     )
 
@@ -848,8 +854,10 @@ def render_project_bar() -> None:
                 unsafe_allow_html=True,
             )
             if not snapshots:
+                _lm_pb = st.session_state.get("_light_mode", False)
+                _pb_tc = "#718096" if _lm_pb else "#667"
                 st.markdown(
-                    "<div style='color:#667;font-size:0.85em;padding:6px 2px'>"
+                    f"<div style='color:{_pb_tc};font-size:0.85em;padding:6px 2px'>"
                     "No projects yet — click 💾 Save to create one</div>",
                     unsafe_allow_html=True,
                 )
@@ -886,8 +894,10 @@ def render_project_bar() -> None:
                 components.html(_DND_JS, height=0, scrolling=False)
 
             # ── New Folder — always at bottom of folder list ──────────────
+            _lm_nf = st.session_state.get("_light_mode", False)
+            _nf_hr = "#E5E7EB" if _lm_nf else "#21262d"
             st.markdown(
-                "<hr style='border-color:#21262d;margin:6px 0 4px'>",
+                f"<hr style='border-color:{_nf_hr};margin:6px 0 4px'>",
                 unsafe_allow_html=True,
             )
             if st.session_state.get("_pb_new_folder_mode"):
@@ -940,13 +950,20 @@ def render_project_bar() -> None:
     with _bc2:
         _aid, _aname, _dirty = get_active_project()
         if _aname:
-            _clr  = "#e67e22" if _dirty else "#27ae60"
+            _lm_bc = st.session_state.get("_light_mode", False)
+            if _dirty:
+                _clr  = "#d97706" if _lm_bc else "#e67e22"
+                _sbg  = "rgba(254,243,199,0.55)" if _lm_bc else "#0d1520"
+            else:
+                _clr  = "#059669" if _lm_bc else "#27ae60"
+                _sbg  = "rgba(209,250,229,0.45)" if _lm_bc else "#0d1520"
+            _stx  = "#1A202C"  if _lm_bc else "#e0e6ed"
             _ico  = "✏️"     if _dirty else "✅"
             _hint = "Unsaved changes" if _dirty else "Synced"
             st.markdown(
-                f'<div style="background:#0d1520;border-left:3px solid {_clr};'
+                f'<div style="background:{_sbg};border-left:3px solid {_clr};'
                 f'padding:5px 10px;border-radius:4px;font-size:0.8em;margin-top:3px;'
-                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+                f'color:{_stx};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
                 f'{_ico} <b>{_aname}</b> &nbsp;·&nbsp; {_hint}</div>',
                 unsafe_allow_html=True,
             )

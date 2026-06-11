@@ -10,42 +10,68 @@ from auth import logout
 
 # ── Shared CSS ────────────────────────────────────────────────────────────────
 
-_LANDING_CSS = """
-<style>
-/* ── Scenario landing page ── */
+def _landing_css(light: bool = False) -> str:
+    """Return landing-page CSS tuned for dark (default) or light theme."""
+    if light:
+        card_bg      = "#FFFFFF"
+        card_border  = "#CBD5E0"
+        sc_title     = "#1A202C"
+        sc_sub       = "#4A5568"
+        sc_feat      = "#374151"
+        whl_tagline  = "#4A5568"
+        scope_bg     = "#FFFFFF"
+        scope_border = "#CBD5E0"
+        scope_item   = "#374151"
+        wip_bg       = "#F0FFF4"
+        wip_border   = "#00A870"
+        wip_color    = "#065F46"
+    else:
+        card_bg      = "#111827"
+        card_border  = "#2D3748"
+        sc_title     = "#E8ECF0"
+        sc_sub       = "#8B95A3"
+        sc_feat      = "#B0BEC5"
+        whl_tagline  = "#8B95A3"
+        scope_bg     = "#111827"
+        scope_border = "#2D3748"
+        scope_item   = "#B0BEC5"
+        wip_bg       = "#1a2a1a"
+        wip_border   = "#00E5A0"
+        wip_color    = "#A8D5A2"
 
-/* Neutralise the global first-of-type header-bar rule on this page */
-div[data-testid="stHorizontalBlock"]:first-of-type {
+    return f"""<style>
+/* ── Scenario landing page — {{'light' if light else 'dark'}} ── */
+
+div[data-testid="stHorizontalBlock"]:first-of-type {{
     background: transparent !important;
     border-bottom: none !important;
     padding: 0 !important;
     margin-bottom: 0 !important;
-}
-div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"] {
+}}
+div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"] {{
     padding-top: 0 !important;
     padding-bottom: 0 !important;
-}
+}}
 
-.sc-page {
+.sc-page {{
     max-width: 820px;
     margin: 0 auto;
     padding: 0 16px 40px;
-}
+}}
 
-/* Scenario cards */
-.sc-card {
-    border: 2px solid #2D3748;
+.sc-card {{
+    border: 2px solid {card_border};
     border-radius: 12px;
-    background: #111827;
+    background: {card_bg};
     padding: 22px 20px 16px;
     min-height: 310px;
     box-sizing: border-box;
     position: relative;
-}
-.sc-card.btm     { border-color: #00E5A0; }
-.sc-card.wheeling { border-color: #4ECDC4; }
+}}
+.sc-card.btm      {{ border-color: #00E5A0; }}
+.sc-card.wheeling {{ border-color: #4ECDC4; }}
 
-.sc-badge {
+.sc-badge {{
     display: inline-block;
     border-radius: 4px;
     padding: 2px 8px;
@@ -53,51 +79,51 @@ div[data-testid="stHorizontalBlock"]:first-of-type div[data-testid="stColumn"] {
     font-family: 'IBM Plex Mono', monospace;
     letter-spacing: 0.06em;
     margin-bottom: 10px;
-}
-.sc-badge.btm     { background: #0d2b1e; color: #00E5A0; }
-.sc-badge.wheeling { background: #0d2424; color: #4ECDC4; }
+}}
+.sc-badge.btm      {{ background: {'rgba(0,168,112,0.12)' if light else '#0d2b1e'}; color: {'#059669' if light else '#00E5A0'}; }}
+.sc-badge.wheeling {{ background: {'rgba(78,205,196,0.12)' if light else '#0d2424'}; color: {'#0E7490' if light else '#4ECDC4'}; }}
 
-.sc-icon    { font-size: 2rem; margin-bottom: 6px; }
-.sc-title   { font-size: 1.12rem; font-weight: 700; color: #E8ECF0; margin-bottom: 4px; }
-.sc-sub     { font-size: 0.8rem;  color: #8B95A3;  margin-bottom: 14px; }
-.sc-feature { font-size: 0.78rem; color: #B0BEC5;  margin: 3px 0; }
+.sc-icon    {{ font-size: 2rem; margin-bottom: 6px; }}
+.sc-title   {{ font-size: 1.12rem; font-weight: 700; color: {sc_title}; margin-bottom: 4px; }}
+.sc-sub     {{ font-size: 0.8rem;  color: {sc_sub};  margin-bottom: 14px; }}
+.sc-feature {{ font-size: 0.78rem; color: {sc_feat}; margin: 3px 0; }}
 
-/* Wheeling placeholder page */
-.whl-hero {
+.whl-hero {{
     text-align: center;
     padding: 32px 0 24px;
-}
-.whl-hero .whl-icon    { font-size: 2.8rem; }
-.whl-hero .whl-title   {
+}}
+.whl-hero .whl-icon    {{ font-size: 2.8rem; }}
+.whl-hero .whl-title   {{
     font-family: 'IBM Plex Mono', monospace;
     font-size: 1.35rem; font-weight: 700;
-    color: #4ECDC4; margin: 8px 0 4px;
-}
-.whl-hero .whl-tagline { font-size: 0.82rem; color: #8B95A3; }
+    color: {'#0E7490' if light else '#4ECDC4'}; margin: 8px 0 4px;
+}}
+.whl-hero .whl-tagline {{ font-size: 0.82rem; color: {whl_tagline}; }}
 
-.whl-scope {
-    border: 1px solid #2D3748;
+.whl-scope {{
+    border: 1px solid {scope_border};
     border-radius: 8px;
-    background: #111827;
+    background: {scope_bg};
     padding: 18px 20px;
     margin-bottom: 14px;
-}
-.whl-scope .ws-title {
-    font-size: 0.88rem; font-weight: 600; color: #4ECDC4;
+}}
+.whl-scope .ws-title {{
+    font-size: 0.88rem; font-weight: 600;
+    color: {'#0E7490' if light else '#4ECDC4'};
     margin-bottom: 10px;
-}
-.whl-scope .ws-item { font-size: 0.82rem; color: #B0BEC5; margin: 4px 0; }
+}}
+.whl-scope .ws-item {{ font-size: 0.82rem; color: {scope_item}; margin: 4px 0; }}
 
-.wip-banner {
-    background: #1a2a1a;
-    border: 1px solid #00E5A0;
+.wip-banner {{
+    background: {wip_bg};
+    border: 1px solid {wip_border};
     border-radius: 6px;
     padding: 10px 16px;
     font-size: 0.8rem;
-    color: #A8D5A2;
+    color: {wip_color};
     text-align: center;
     margin: 10px 0 18px;
-}
+}}
 </style>
 """
 
@@ -111,7 +137,8 @@ def render_scenario_selector() -> None:
     Full-page scenario selection shown right after login.
     Writes st.session_state['_scenario'] = 'btm' | 'wheeling' then reruns.
     """
-    st.markdown(_LANDING_CSS, unsafe_allow_html=True)
+    st.markdown(_landing_css(st.session_state.get("_light_mode", False)),
+                unsafe_allow_html=True)
 
     # ── Centred content ─────────────────────────────────────────────────────
     _, _centre, _ = st.columns([1, 5, 1])
@@ -208,7 +235,8 @@ def render_wheeling_placeholder() -> None:
     Wheeling scenario page — structured placeholder pending full build-out.
     Shows intended module scope and framework tabs.
     """
-    st.markdown(_LANDING_CSS, unsafe_allow_html=True)
+    st.markdown(_landing_css(st.session_state.get("_light_mode", False)),
+                unsafe_allow_html=True)
 
     # ── Top bar: back ────────────────────────────────────────────────────────
     _tb1, _tb2 = st.columns([2, 8])
