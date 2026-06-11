@@ -13,39 +13,50 @@ from db import (sign_up, sign_in, refresh_session, verify_otp, resend_verificati
                 log_user_action)
 
 
-# ── localStorage key for "remember me" ───────────────────────────────────────
-_LS_KEY = "btm_auth_v2"
+# ── localStorage keys for "remember me" ──────────────────────────────────────
+_LS_KEY       = "btm_auth_v2"   # full session  {e, rt, ts}
+_LS_EMAIL_KEY = "btm_email_v1"  # email-only, persists even after token expiry
+
+
+def _st_html_js(html_snippet: str) -> None:
+    """Version-safe JS injection via st.html().
+
+    Streamlit ≥1.37 requires ``unsafe_allow_javascript=True``; older builds
+    execute inline <script> tags by default and reject the kwarg.  This wrapper
+    tries the modern form first and falls back silently.
+    """
+    try:
+        st.html(html_snippet, unsafe_allow_javascript=True)
+    except TypeError:
+        st.html(html_snippet)          # pre-1.37: scripts execute without the kwarg
 
 
 def _js_save_session(email: str, refresh_token: str) -> None:
-    """Persist email + refresh_token to browser localStorage.
-
-    Uses st.html(unsafe_allow_javascript=True) which injects the <script>
-    directly into the main page DOM — no iframe, no sandbox restrictions.
-    components.html() was previously used but its iframe sandbox omits
-    allow-top-navigation AND its localStorage writes are unreliable when
-    sandboxed; st.html() eliminates both problems.
-    """
+    """Persist email + refresh_token (and email-only key) to browser localStorage."""
     safe_e  = email.replace("\\", "\\\\").replace('"', '\\"')
     safe_rt = refresh_token.replace("\\", "\\\\").replace('"', '\\"')
-    st.html(f"""<script>
+    _st_html_js(f"""<script>
 (function(){{
   try{{
     localStorage.setItem('{_LS_KEY}', JSON.stringify({{
       e:"{safe_e}", rt:"{safe_rt}", ts:Date.now()
     }}));
+    // Save email separately so prefill works even after token expiry
+    localStorage.setItem('{_LS_EMAIL_KEY}', "{safe_e}");
   }}catch(ex){{ console.warn('BTM auth-save error:', ex); }}
 }})();
-</script>""", unsafe_allow_javascript=True)
+</script>""")
 
 
 def _js_clear_session() -> None:
-    """Remove saved session from browser localStorage."""
-    st.html(f"""<script>
+    """Remove saved session (token) from browser localStorage.
+    Keeps the email-only key so the form stays pre-filled after logout.
+    """
+    _st_html_js(f"""<script>
 (function(){{
   try{{ localStorage.removeItem('{_LS_KEY}'); }}catch(ex){{}}
 }})();
-</script>""", unsafe_allow_javascript=True)
+</script>""")
 
 
 def flush_token_to_storage() -> None:
@@ -73,60 +84,62 @@ def flush_token_to_storage() -> None:
 
 
 def _inject_auth_loader() -> None:
-    """
-    JS bridge: read localStorage and, if a valid saved session exists,
-    navigate the page to ?_btm_rt=<token>&_btm_e=<email>.
+    """JS bridge: read localStorage → redirect with token (auto-login) or email (prefill).
 
-    Uses st.html(unsafe_allow_javascript=True) so the script runs DIRECTLY
-    in the main page DOM — not inside a sandboxed iframe.  The previous
-    components.html() approach failed silently on Streamlit Cloud because
-    the component iframe sandbox omits allow-top-navigation, which blocks
-    window.top.location.replace() regardless of origin.  Running in the main
-    page context means window.location IS the page — no navigation restriction.
+    Priority:
+      1. Full token in btm_auth_v2  → ?_btm_rt=<token>&_btm_e=<email>  (auto-login)
+      2. Email-only in btm_email_v1 → ?_btm_e=<email>                  (form prefill)
+
+    Runs in the main page DOM (not iframe) via st.html() so window.location
+    works without sandbox restrictions.  Delay of 700 ms gives Streamlit's
+    React tree time to mount before the redirect fires.
     """
-    st.html(f"""<script>
+    _st_html_js(f"""<script>
 (function(){{
   setTimeout(function(){{
     try{{
       var url = new URL(window.location.href);
-      if(url.searchParams.has('_btm_rt')){{ return; }}   // already bridged
+      // Already bridged — don't loop
+      if(url.searchParams.has('_btm_rt') || url.searchParams.has('_btm_e')){{ return; }}
 
+      // ── Try full auto-login (token + email) ──────────────────────────────
       var raw = localStorage.getItem('{_LS_KEY}');
-      if(!raw){{ return; }}
-      var auth;
-      try{{ auth = JSON.parse(raw); }}catch(e){{
-        localStorage.removeItem('{_LS_KEY}'); return;
+      if(raw){{
+        var auth;
+        try{{ auth = JSON.parse(raw); }}catch(e){{ localStorage.removeItem('{_LS_KEY}'); }}
+        if(auth && auth.rt && (Date.now() - (auth.ts||0)) < 30*86400000){{
+          url.searchParams.set('_btm_rt', auth.rt);
+          url.searchParams.set('_btm_e',  auth.e || '');
+          window.location.replace(url.href);
+          return;
+        }} else {{
+          localStorage.removeItem('{_LS_KEY}');   // expired — wipe token
+        }}
       }}
-      if(!auth || !auth.rt){{ return; }}
 
-      // Client-side 30-day expiry guard (30 days)
-      if(Date.now() - (auth.ts||0) > 30*86400000){{
-        localStorage.removeItem('{_LS_KEY}'); return;
+      // ── Fallback: email-only prefill ─────────────────────────────────────
+      var savedEmail = localStorage.getItem('{_LS_EMAIL_KEY}');
+      if(savedEmail){{
+        url.searchParams.set('_btm_e', savedEmail);
+        window.location.replace(url.href);
       }}
-
-      url.searchParams.set('_btm_rt', auth.rt);
-      url.searchParams.set('_btm_e',  auth.e||'');
-      window.location.replace(url.href);
     }}catch(ex){{ console.warn('BTM auth-loader error:', ex); }}
-  }}, 300);
+  }}, 700);
 }})();
-</script>""", unsafe_allow_javascript=True)
+</script>""")
 
 
 def _inject_autocomplete() -> None:
-    """Enable browser-native autocomplete on the email + password inputs.
-
-    Script runs in main page context via st.html() — uses document directly
-    (no window.parent indirection needed since we're not in an iframe).
-    """
-    st.html("""<script>
+    """Enable browser-native autocomplete on the email + password inputs."""
+    _st_html_js("""<script>
 setTimeout(function(){
   try{
     var found = 0;
     document.querySelectorAll('input').forEach(function(inp){
-      if(found===0 && inp.type==='text'){
+      if(found===0 && (inp.type==='text' || inp.type==='email')){
         inp.setAttribute('autocomplete','username');
         inp.setAttribute('name','username');
+        inp.setAttribute('type','email');
         found=1;
       } else if(found===1 && inp.type==='password'){
         inp.setAttribute('autocomplete','current-password');
@@ -135,8 +148,8 @@ setTimeout(function(){
       }
     });
   }catch(e){}
-}, 400);
-</script>""", unsafe_allow_javascript=True)
+}, 600);
+</script>""")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -243,34 +256,40 @@ def render_auth_gate():
     if _deferred is not None and _deferred[0] == "clear":
         _js_clear_session()
 
-    # ── Auto-login from saved session (Remember Me) ──────────────────────────
-    # JS bridge writes ?_btm_rt=<token> to trigger this block.
-    # Guard: only try once per Streamlit session (session_state persists across
-    # reruns within the same tab; a full-reload creates a new session).
-    if "_btm_rt" in st.query_params and "_btm_ls_checked" not in st.session_state:
-        _rt    = st.query_params.get("_btm_rt", "")
-        _email = st.query_params.get("_btm_e",  "")
-        st.session_state["_btm_ls_checked"] = True   # prevent loop on rerun
-        # Clear params from URL before attempting login
-        try:
-            del st.query_params["_btm_rt"]
-            del st.query_params["_btm_e"]
-        except Exception:
-            pass
+    # ── Auto-login or email-prefill from localStorage bridge ─────────────────
+    # The JS loader (injected below) redirects to ?_btm_rt=<token>&_btm_e=<email>
+    # for auto-login, OR to ?_btm_e=<email> (no _btm_rt) for email-only prefill.
+    # Guard _btm_ls_checked so we handle this at most once per Streamlit session.
+
+    _rt    = st.query_params.get("_btm_rt", "")
+    _email = st.query_params.get("_btm_e",  "")
+
+    if (_rt or _email) and "_btm_ls_checked" not in st.session_state:
+        st.session_state["_btm_ls_checked"] = True
+        # Clear params from URL before any rerun
+        for _p in ("_btm_rt", "_btm_e"):
+            try:
+                del st.query_params[_p]
+            except Exception:
+                pass
+
         if _rt:
-            with st.spinner("Auto sign-in…"):
+            # ── Full auto-login attempt ──────────────────────────────────────
+            with st.spinner("Signing in…"):
                 resp = refresh_session(_rt)
                 if resp and resp.session:
-                    # Token valid — defer the rotated-token save to the first
-                    # stable logged-in render (flush_token_to_storage in app.py)
-                    # so the write isn't racing with st.rerun() inside _on_login_success.
+                    # Token valid: rotate + defer save
                     st.session_state["_ls_cmd"] = ("save", _email, resp.session.refresh_token)
                     _on_login_success(resp, _email)
                     return
-        # Token expired or invalid — wipe stale localStorage so next visit shows
-        # a clean login form instead of looping through "session expired" forever.
-        _js_clear_session()
-        st.info("Session expired — please sign in again")
+            # Token expired: clear the stale token, keep the email for prefill
+            _js_clear_session()
+            if _email:
+                st.session_state["_btm_prefill_email"] = _email
+            st.info("Session expired — please sign in again")
+        elif _email:
+            # ── Email-only prefill (no token) ────────────────────────────────
+            st.session_state["_btm_prefill_email"] = _email
 
     st.markdown(_AUTH_CSS, unsafe_allow_html=True)
 
@@ -303,11 +322,13 @@ def _render_login():
     # silently (cross-origin block, empty localStorage, etc.) we don't keep
     # re-injecting the loader on every subsequent Streamlit rerun.
     _ls_checked = st.session_state.get("_btm_ls_checked", False)
-    if not _ls_checked and "_btm_rt" not in st.query_params:
+    if (not _ls_checked
+            and "_btm_rt" not in st.query_params
+            and "_btm_e"  not in st.query_params):
         st.session_state["_btm_ls_checked"] = True   # mark before inject
         _inject_auth_loader()   # JS: read localStorage → window.location.replace redirect
 
-    # Pre-filled email (set if user clicked "remember me" last time)
+    # Pre-filled email (set on returning visits or when token expires)
     _prefill = st.session_state.pop("_btm_prefill_email", "")
 
     # Enable browser-native autocomplete so Chrome/Firefox can save passwords
@@ -322,8 +343,8 @@ def _render_login():
     rm_col, _ = st.columns([3, 2])
     with rm_col:
         remember_me = st.checkbox(
-            "Remember me",
-            value=bool(_prefill),
+            "Remember me  (30 days)",
+            value=True,          # default ON — user must actively uncheck to opt out
             key="li_remember",
             help="Stay signed in for 30 days on this browser",
         )
