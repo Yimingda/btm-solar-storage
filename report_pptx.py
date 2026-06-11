@@ -12,7 +12,7 @@ Design language  (Huawei Digital Power style)
 • 2-3 sentence narrative paragraph per content slide
 • Footer: EPC company name  ·  Solution Reference URL  ·  page number
 
-Slide sequence  (8 slides)
+Slide sequence  (9 slides)
 ───────────────────────────
   1. Cover
   2. Investment Thesis
@@ -21,7 +21,8 @@ Slide sequence  (8 slides)
   5. Energy Analysis
   6. Tariff Opportunity
   7. Implementation Roadmap
-  8. Assumptions & Disclaimer
+  8. SA Market Context (2026 industry data)
+  9. Assumptions & Disclaimer
 
 Solution Reference: https://digitalpower.huawei.com/za
 """
@@ -315,8 +316,8 @@ def _s2_thesis(prs, results: dict, params: dict, company: str):
         "with self-generated solar and stored BESS energy.  "
         f"At {esc:.1f}% p.a. tariff escalation, returns compound strongly over "
         "the 20-year model horizon — making early deployment value-accretive.  "
-        "Section 12B (150% Year-1 allowance) materially improves early after-tax "
-        "cash flows."
+        "Section 12B (100% Year-1 for assets <1 MW; 50/30/20% over 3 years for "
+        "larger systems) materially improves early after-tax cash flows."
     )
     _rect(slide, 0.28, 3.35, 12.78, 0.03, _SEP)
     _narrative(slide, 0.28, 3.50, 12.78, 0.75, story)
@@ -687,8 +688,71 @@ def _s7_roadmap(prs, results: dict, params: dict, company: str):
     _footer(slide, company, 7)
 
 
-def _s8_assumptions(prs, params: dict, company: str):
-    """Slide 8 – Assumptions & Disclaimer."""
+def _s8_market(prs, company: str):
+    """Slide 8 – South Africa Market Context (2026 industry data)."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    _header_bar(
+        slide,
+        "Technology costs −90%+ while SA tariffs rise 8.8% p.a. — the BTM ROI window has never been stronger",
+        "Sources: BloombergNEF (2025)  ·  IRENA (2024)  ·  SA DMRE IRP 2025  ·  NERSA FY2026/27 determination  ·  CSIR (2026)",
+    )
+
+    # ── 4 KPI cards ───────────────────────────────────────────────────────────
+    kpis = [
+        ("BESS PACK COST",  "$108/kWh",  "2025 — down from $1,160\nin 2010  (−91%)"),
+        ("PV MODULE PRICE", "$0.13/W",   "2024 global avg — down\nfrom $8.70 in 2010  (−98%)"),
+        ("SA IRP 2025",     "8,500 MW",  "BESS target by 2039\nR 161.2 B opportunity"),
+        ("ESKOM TARIFF",    "+8.76%",    "NERSA-approved FY2026\n+8.83% in FY2027"),
+    ]
+    for i, (lbl, val, sub) in enumerate(kpis):
+        _kpi_block(slide, 0.28 + i * 3.21, 1.68, lbl, val, sub, w=3.08)
+
+    # ── Separator ─────────────────────────────────────────────────────────────
+    _rect(slide, 0.28, 3.36, 12.78, 0.03, _SEP)
+
+    # ── Left panel — technology & tariff context ───────────────────────────────
+    _rect(slide, 0.28, 3.48, 6.25, 3.44, _LRD)
+    _rect(slide, 0.28, 3.48, 0.07, 3.44, _HRD)
+    _section_hdr(slide, 0.35, 3.48, 6.11, 0.38, "TECHNOLOGY & TARIFF COST DRIVERS")
+    left_txt = (
+        "BESS pack prices fell from $1,160/kWh (2010) to $108/kWh (2025) — a 91% "
+        "reduction in 15 years driven by lithium-ion manufacturing scale.  PV modules "
+        "dropped from $8.70/W to $0.13/W over the same period (−98%), following "
+        "Swanson's Law: every doubling of cumulative PV shipments cuts module cost ~20%.\n\n"
+        "NERSA approved an 8.76% Eskom tariff increase for April 2026 and 8.83% for "
+        "April 2027, recovering R 54.7 billion over three years following a High Court "
+        "RAB recalculation.  Municipal bulk purchasers face a 9.01% increase from "
+        "July 2026.  At compound escalation, a site paying R 2.50/kWh today will "
+        "pay ~R 4.50/kWh by 2034 — making solar self-consumption increasingly valuable "
+        "with every passing year."
+    )
+    _narrative(slide, 0.44, 3.94, 6.0, 2.86, left_txt)
+
+    # ── Right panel — SA policy & market ─────────────────────────────────────
+    _rect(slide, 6.82, 3.48, 6.23, 3.44, _LRD)
+    _rect(slide, 6.82, 3.48, 0.07, 3.44, _HRD)
+    _section_hdr(slide, 6.89, 3.48, 6.09, 0.38, "SA POLICY & MARKET OUTLOOK")
+    right_txt = (
+        "SA IRP 2025 (January 2025) targets 105 GW of new capacity by 2039, including "
+        "8,500 MW of utility-scale BESS and a rapid expansion of distributed generation.  "
+        "South Africa recorded 365 consecutive days without load-shedding through "
+        "May 2026 — a milestone — but grid fragility persists; BTM BESS retains "
+        "resilience value beyond the tariff-arbitrage case alone.\n\n"
+        "7.5 GW of rooftop solar is already installed nationally (CSIR, 2026). "
+        "The C&I BTM market is projected to reach 2.6 GW PV + 0.19 GW BESS by 2030 "
+        "(R 35 B combined).  Section 12B of the Income Tax Act provides a 100% "
+        "Year-1 capital allowance for renewable assets below 1 MW, or a 50/30/20% "
+        "three-year schedule for larger systems — materially improving after-tax returns "
+        "and shortening effective payback periods."
+    )
+    _narrative(slide, 6.98, 3.94, 6.0, 2.86, right_txt)
+
+    _footer(slide, company, 8, total=9)
+
+
+def _s9_assumptions(prs, params: dict, company: str):
+    """Slide 9 – Assumptions & Disclaimer."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _rect(slide, 0, 0, 13.33, 7.5, _BLK)         # black background
     _rect(slide, 0, 0, 0.12, 7.5, _HRD)           # Huawei red left strip
@@ -704,7 +768,7 @@ def _s8_assumptions(prs, params: dict, company: str):
         ("Tariff escalation",      f"{params.get('tariff_escalation',8.0):.1f}% per annum (real)"),
         ("Discount rate (WACC)",   f"{params.get('discount_rate',12.0):.1f}%  (nominal, after-tax)"),
         ("Corporate Income Tax",   f"{params.get('tax_rate',27):.0f}%  (CIT)"),
-        ("Section 12B",            "150% accelerated depreciation — Year 1 only"),
+        ("Section 12B",            "100% Year-1 for <1 MW; 50/30/20% over 3 yrs for >1 MW"),
         ("Battery DoD",            f"{params.get('dod',90):.0f}%  (usable capacity)"),
         ("FX rate",                f"USD/ZAR  {params.get('forex_usd_zar',18.5):.2f}"),
         ("Irradiance data",        "EU PVGIS API — crystSi, free-mount, site lat/lon"),
@@ -739,7 +803,7 @@ def _s8_assumptions(prs, params: dict, company: str):
         f"Solution Reference: {_SOL_URL}"
     )
     _tb(slide, 0.28, 6.80, 12.78, 0.60, disc, 8, color="BBBBBB", wrap=True)
-    _footer(slide, company, 8)
+    _footer(slide, company, 9, total=9)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -791,7 +855,8 @@ def generate_pptx(
     _s5_energy(prs, pvgis_data, results, company)
     _s6_tariff(prs, params, results, company)
     _s7_roadmap(prs, results, params, company)
-    _s8_assumptions(prs, params, company)
+    _s8_market(prs, company)
+    _s9_assumptions(prs, params, company)
 
     buf = io.BytesIO()
     prs.save(buf)

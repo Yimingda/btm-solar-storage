@@ -812,7 +812,7 @@ DEFAULT_PARAMS = {
     "bess_usd_per_wh": 0.20,
     "pv_opex_per_kwp": 125.0,
     "bess_opex_per_kwh": 10.0,
-    "tariff_escalation": 8.0,
+    "tariff_escalation": 8.76,   # NERSA FY2026/27 approved average increase
     "discount_rate": 10.0,
     "tax_rate": 27.0,
     "pv_degradation": 0.5,
