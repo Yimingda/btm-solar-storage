@@ -2816,6 +2816,9 @@ with col_content:
     tab1, tab2, tab3, tab4 = _all_tabs[:4]
     _admin_tab = _all_tabs[4] if len(_all_tabs) > 4 else None
 
+    # English-only: no column renaming needed; dict kept for safe .get() calls
+    _COL_MAP: dict = {}
+
     # ──────────────────────────────────────────────────────────
     # Tab 1: Run & Results
     # ──────────────────────────────────────────────────────────
@@ -3202,7 +3205,6 @@ with col_content:
 
             eol_yr = min(20, int(st.session_state.results["eol_years"])) if st.session_state.results else 999
 
-            # Rename columns for display (bilingual keeps originals; english → English labels)
             _display_fin = st.session_state.fin_df.rename(columns=_COL_MAP)
             _yr_col   = _COL_MAP.get("Year", "Year")
             _soh_col  = _COL_MAP.get("SOH%", "SOH%")
