@@ -805,8 +805,8 @@ def render_project_bar() -> None:
         _render_save_dialog(user_id)
         return
 
-    # ── Top bar: [📁 Projects ▾]  [status]  [💾 Save] ──────────────────────
-    _bc1, _bc2, _bc3 = st.columns([2, 8, 2])
+    # ── Top bar: [📁 Projects ▾]  [status]  [♻️ Update]  [💾 Save] ──────────
+    _bc1, _bc2, _bc3, _bc4 = st.columns([2, 6, 2, 2])
 
     with _bc1:
         _btn_lbl = f"📁 Projects  {count}/{limit_str} ▾"
@@ -923,6 +923,25 @@ def render_project_bar() -> None:
             )
 
     with _bc3:
+        # Update Config — only active when a project is loaded
+        _upd_disabled = not bool(_aid)
+        _upd_help = (
+            f"Overwrite '{_aname}' with current params & results"
+            if _aid else "Load a project first"
+        )
+        if st.button("♻️ Update Config", key="snap_update_btn",
+                     use_container_width=True,
+                     disabled=_upd_disabled, help=_upd_help):
+            _cur = get_params_to_save()
+            update_snapshot(_aid,
+                            params_json  = _cur,
+                            results_json = get_results_summary(),
+                            default_name = _default_name())
+            st.session_state["_snap_loaded_params"] = dict(_cur)
+            st.toast(f"✅ Updated: {_aname}")
+            st.rerun()
+
+    with _bc4:
         _can_save = count < limit
         if st.button("💾 Save as New Project", key="snap_save_btn", type="primary",
                      use_container_width=True, disabled=not _can_save,
@@ -1010,20 +1029,6 @@ def _render_project_card(snap: dict, user_id: str = "") -> None:
             # Move to folder
             if st.button("📁 Move to…", key=f"pc_mv_{snap_id}", use_container_width=True):
                 st.session_state[f"_pc_mv_{snap_id}"] = not st.session_state.get(f"_pc_mv_{snap_id}", False)
-                st.rerun()
-
-            # Update config
-            if st.button("♻️ Update Config", key=f"pc_upd_{snap_id}", use_container_width=True,
-                         help="Overwrite with current params"):
-                _cur = get_params_to_save()
-                update_snapshot(snap_id,
-                                params_json  = _cur,
-                                results_json = get_results_summary(),
-                                default_name = _default_name())
-                st.session_state["_active_snap_id"]     = snap_id
-                st.session_state["_active_snap_name"]   = name
-                st.session_state["_snap_loaded_params"] = dict(_cur)
-                st.toast(f"✅ Updated: {name}")
                 st.rerun()
 
             st.divider()
