@@ -3601,6 +3601,12 @@ with col_content:
                         use_container_width=True,
                     )
 
+            st.markdown(
+                "**Solution Reference:** "
+                "[digitalpower.huawei.com/za](https://digitalpower.huawei.com/za)",
+                unsafe_allow_html=False,
+            )
+
     # ──────────────────────────────────────────────────────────
     # Tab 2: 20-Year Financial Model
     # ──────────────────────────────────────────────────────────
