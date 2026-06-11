@@ -824,6 +824,7 @@ def render_project_bar() -> None:
                     "No projects yet — click 💾 Save to create one</div>",
                     unsafe_allow_html=True,
                 )
+                client_groups = {}
             else:
                 # ── Group by client_name ──────────────────────────────────
                 active_id     = st.session_state.get("_active_snap_id")
@@ -854,6 +855,58 @@ def render_project_bar() -> None:
 
                 # ── Drag-and-drop JS component (same-origin iframe) ───────
                 components.html(_DND_JS, height=0, scrolling=False)
+
+            # ── New Folder — always at bottom of folder list ──────────────
+            st.markdown(
+                "<hr style='border-color:#21262d;margin:6px 0 4px'>",
+                unsafe_allow_html=True,
+            )
+            if st.session_state.get("_pb_new_folder_mode"):
+                _nf_inp = st.text_input(
+                    "Folder name",
+                    key="_pb_nf_inp",
+                    placeholder="Client or group name…",
+                    label_visibility="collapsed",
+                )
+                # Duplicate check against existing folders
+                _existing_fol = list(client_groups.keys())
+                _nf_dup = bool(
+                    _nf_inp.strip()
+                    and _nf_inp.strip().lower() in [x.lower() for x in _existing_fol]
+                )
+                if _nf_dup:
+                    st.caption(f"⚠️  **{_nf_inp.strip()}** already exists")
+                _nfa, _nfb = st.columns([3, 1])
+                with _nfa:
+                    if st.button(
+                        "✅ Create Folder",
+                        key="_pb_nf_ok",
+                        use_container_width=True,
+                        type="primary",
+                        disabled=(_nf_dup or not _nf_inp.strip()),
+                        help="Create folder and open Save dialog",
+                    ):
+                        _fn = _nf_inp.strip()
+                        # Pre-populate the Save dialog with this new folder
+                        st.session_state["_snap_save_open"]       = True
+                        st.session_state["_snap_default_name"]    = _default_name()
+                        st.session_state["snap_folder_select"]    = _NEW_FOLDER_SENTINEL
+                        st.session_state["snap_new_folder_input"] = _fn
+                        st.session_state.pop("_pb_new_folder_mode", None)
+                        st.rerun()
+                with _nfb:
+                    if st.button("✖", key="_pb_nf_cx", use_container_width=True):
+                        st.session_state.pop("_pb_new_folder_mode", None)
+                        st.rerun()
+            else:
+                if st.button(
+                    "📁  ＋  New Folder",
+                    key="_pb_new_folder_btn",
+                    use_container_width=True,
+                    help="Create a new client folder",
+                ):
+                    st.session_state["_pb_new_folder_mode"] = True
+                    st.rerun()
 
     with _bc2:
         _aid, _aname, _dirty = get_active_project()
