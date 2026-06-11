@@ -847,81 +847,268 @@ flush_token_to_storage()
 
 # ── Light / dark theme CSS injection ─────────────────────────────────────────
 if st.session_state.get("_light_mode", False):
-    st.markdown("""
-<style>
-/* ═══════════════════════════════════════════════════════
-   Light Mode overrides — active when _light_mode is True
-   ═══════════════════════════════════════════════════════ */
-:root {
-    --bg-dark:   #F5F7FA !important;
-    --bg-card:   #FFFFFF !important;
-    --bg-input:  #EEF2F7 !important;
-    --text-main: #1A202C !important;
-    --text-dim:  #4A5568 !important;
-    --border:    #CBD5E0 !important;
-    --border-hi: #A0AEC0 !important;
-}
-html, body, .stApp {
-    background-color: #F5F7FA !important;
-    color: #1A202C !important;
-}
-/* Streamlit's own surfaces */
+    st.markdown("""<style>
+/* ═══════════════════════════════════════════════════════════════
+   BTM LIGHT MODE — comprehensive overrides
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 1. Root surfaces ──────────────────────────────────────── */
+html, body,
+.stApp,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stVerticalBlockBorderWrapper"],
 [data-testid="stVerticalBlock"],
 section[data-testid="stSidebar"] {
-    background-color: #F5F7FA !important;
+    background-color: #F0F4F8 !important;
+    color:            #1A202C !important;
 }
-/* Cards & inputs */
-[data-testid="stMetric"],
-[data-testid="stNumberInputContainer"],
-[data-testid="stTextInputRootElement"],
-[data-testid="stSelectboxVirtualDropdown"],
-.metric-card {
-    background: #FFFFFF !important;
-    border-color: #CBD5E0 !important;
+
+/* ── 2. All text nodes ─────────────────────────────────────── */
+p, span, li, h1, h2, h3, h4, h5, h6, label, div,
+[data-testid="stMarkdownContainer"] *,
+[data-testid="stCaptionContainer"] *,
+[data-testid="stText"] * {
     color: #1A202C !important;
 }
-/* Labels & text */
-label, p, li, .stMarkdown, [data-testid="stMarkdownContainer"] p {
-    color: #1A202C !important;
-}
-/* Header bar */
-div[data-testid="stHorizontalBlock"]:first-of-type {
-    background: linear-gradient(180deg, #EEF2F7 0%, #F5F7FA 100%) !important;
-    border-bottom: 1px solid #00C48C !important;
-}
-/* Expanders */
-[data-testid="stExpander"] {
-    background: #FFFFFF !important;
-    border-color: #CBD5E0 !important;
-}
-[data-testid="stExpander"] summary {
-    color: #1A202C !important;
-}
-/* Tabs */
-[data-testid="stTabs"] [role="tab"] {
+/* Muted / secondary text */
+small, em, .stCaption,
+[data-testid="stCaptionContainer"] p {
     color: #4A5568 !important;
 }
-[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-    color: #00C48C !important;
-    border-bottom-color: #00C48C !important;
+
+/* ── 3. Metric tiles ───────────────────────────────────────── */
+[data-testid="stMetric"] {
+    background:    #FFFFFF !important;
+    border:        1px solid #CBD5E0 !important;
+    border-radius: 8px !important;
+    padding:       10px 14px !important;
+    box-shadow:    0 1px 4px rgba(0,0,0,0.06) !important;
 }
-/* Dividers & hr */
-hr { border-color: #CBD5E0 !important; }
-/* Popover body */
-[data-testid="stPopoverBody"] {
+[data-testid="stMetric"] label,
+[data-testid="stMetric"] [data-testid="stMetricLabel"] *,
+[data-testid="stMetricLabel"] * { color: #4A5568 !important; }
+[data-testid="stMetric"] [data-testid="stMetricValue"] *,
+[data-testid="stMetricValue"] * { color: #1A202C !important; font-weight: 700 !important; }
+[data-testid="stMetric"] [data-testid="stMetricDelta"] *,
+[data-testid="stMetricDelta"] * { color: #059669 !important; }
+
+/* ── 4. Number inputs ──────────────────────────────────────── */
+[data-testid="stNumberInputContainer"],
+[data-testid="stNumberInput"] > div {
+    background:    #FFFFFF !important;
+    border:        1px solid #CBD5E0 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stNumberInputContainer"] input,
+[data-testid="stNumberInput"] input {
     background: #FFFFFF !important;
+    color:      #1A202C !important;
+}
+[data-testid="stNumberInputContainer"] button,
+[data-testid="stNumberInput"] button {
+    background:   #F0F4F8 !important;
+    border-color: #CBD5E0 !important;
+    color:        #374151 !important;
+}
+
+/* ── 5. Text inputs & text areas ───────────────────────────── */
+[data-testid="stTextInputRootElement"],
+[data-testid="stTextInput"] > div {
+    background:    #FFFFFF !important;
+    border:        1px solid #CBD5E0 !important;
+    border-radius: 6px !important;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea {
+    background: #FFFFFF !important;
+    color:      #1A202C !important;
+}
+
+/* ── 6. Selectbox ──────────────────────────────────────────── */
+[data-testid="stSelectbox"] > div > div {
+    background:    #FFFFFF !important;
+    border:        1px solid #CBD5E0 !important;
+    border-radius: 6px !important;
+    color:         #1A202C !important;
+}
+[data-testid="stSelectboxVirtualDropdown"],
+[data-testid="stSelectboxDropdown"] {
+    background: #FFFFFF !important;
+    border:     1px solid #CBD5E0 !important;
+    color:      #1A202C !important;
+}
+[data-testid="stSelectboxDropdown"] li,
+[data-testid="stSelectboxVirtualDropdown"] li {
+    color: #1A202C !important;
+}
+[data-testid="stSelectboxDropdown"] li:hover,
+[data-testid="stSelectboxVirtualDropdown"] li:hover {
+    background: #EDF2F7 !important;
+}
+
+/* ── 7. Sliders ────────────────────────────────────────────── */
+[data-testid="stSlider"] [data-baseweb="slider"] [data-testid="stSliderTrackFill"] {
+    background: #00C48C !important;
+}
+[data-testid="stSlider"] [role="slider"] {
+    background:   #00C48C !important;
+    border-color: #FFFFFF !important;
+    box-shadow:   0 0 0 2px #00C48C !important;
+}
+[data-testid="stSlider"] > div > div > div > div > div {
+    background: #CBD5E0 !important;
+}
+
+/* ── 8. Checkboxes & radio ─────────────────────────────────── */
+[data-testid="stCheckbox"] label,
+[data-testid="stRadio"] label {
+    color: #1A202C !important;
+}
+[data-testid="stCheckbox"] [data-baseweb="checkbox"] > div {
+    background:   #FFFFFF !important;
+    border-color: #A0AEC0 !important;
+}
+
+/* ── 9. Buttons ────────────────────────────────────────────── */
+/* Primary */
+[data-testid="stBaseButton-primary"] {
+    background: #00C48C !important;
+    color:      #FFFFFF !important;
+    border:     none !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    background: #00A870 !important;
+}
+/* Secondary */
+[data-testid="stBaseButton-secondary"] {
+    background:   #FFFFFF !important;
+    color:        #374151 !important;
     border-color: #CBD5E0 !important;
 }
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] {
-    color: #1A202C !important;
+[data-testid="stBaseButton-secondary"]:hover {
+    background: #EDF2F7 !important;
+    color:      #111827 !important;
 }
-[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p {
-    color: #1A202C !important;
+
+/* ── 10. Expanders ─────────────────────────────────────────── */
+[data-testid="stExpander"] {
+    background:    #FFFFFF !important;
+    border:        1px solid #CBD5E0 !important;
+    border-radius: 8px !important;
 }
-</style>
-""", unsafe_allow_html=True)
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] details > summary {
+    background: #FFFFFF !important;
+    color:      #1A202C !important;
+}
+[data-testid="stExpander"] summary:hover {
+    background: #F7FAFC !important;
+}
+[data-testid="stExpander"] summary svg { color: #718096 !important; }
+[data-testid="stExpanderDetails"] {
+    background: #FFFFFF !important;
+    border-top:  1px solid #E2E8F0 !important;
+}
+
+/* ── 11. Tabs ──────────────────────────────────────────────── */
+[data-testid="stTabs"] [role="tablist"] {
+    border-bottom: 2px solid #E2E8F0 !important;
+}
+[data-testid="stTabs"] [role="tab"] {
+    color:            #718096 !important;
+    background:       transparent !important;
+    border-bottom:    2px solid transparent !important;
+}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+    color:            #00C48C !important;
+    border-bottom:    2px solid #00C48C !important;
+    font-weight:      600 !important;
+}
+[data-testid="stTabContent"] {
+    background: #F0F4F8 !important;
+    padding-top: 8px !important;
+}
+
+/* ── 12. Columns & blocks ──────────────────────────────────── */
+[data-testid="stHorizontalBlock"],
+[data-testid="column"] {
+    background: transparent !important;
+}
+
+/* ── 13. Info / warning / success / error boxes ────────────── */
+[data-testid="stAlert"] {
+    border-radius: 6px !important;
+}
+[data-testid="stAlert"][data-baseweb="notification"][kind="info"] {
+    background: #EBF8FF !important; border-color: #90CDF4 !important;
+}
+[data-testid="stAlert"][data-baseweb="notification"][kind="success"] {
+    background: #F0FFF4 !important; border-color: #9AE6B4 !important;
+}
+[data-testid="stAlert"][data-baseweb="notification"][kind="warning"] {
+    background: #FFFBEB !important; border-color: #FAD075 !important;
+}
+[data-testid="stAlert"][data-baseweb="notification"][kind="error"] {
+    background: #FFF5F5 !important; border-color: #FEB2B2 !important;
+}
+
+/* ── 14. Dataframes / tables ───────────────────────────────── */
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {
+    background: #FFFFFF !important;
+}
+[data-testid="stDataFrame"] th,
+[data-testid="stTable"] th {
+    background: #EDF2F7 !important;
+    color:      #2D3748 !important;
+}
+[data-testid="stDataFrame"] td,
+[data-testid="stTable"] td {
+    color:           #1A202C !important;
+    border-color:    #E2E8F0 !important;
+}
+
+/* ── 15. Plot containers (chart backgrounds) ───────────────── */
+[data-testid="stPlotlyChart"] > div,
+[data-testid="stVegaLiteChart"] > div,
+[data-testid="stArrowVegaLiteChart"] > div {
+    background: #FFFFFF !important;
+    border-radius: 8px !important;
+}
+
+/* ── 16. Toast notifications ───────────────────────────────── */
+[data-testid="stToast"] {
+    background: #FFFFFF !important;
+    color:      #1A202C !important;
+    border:     1px solid #CBD5E0 !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1) !important;
+}
+
+/* ── 17. Dividers ──────────────────────────────────────────── */
+hr { border-color: #CBD5E0 !important; }
+
+/* ── 18. Scrollbars ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
+::-webkit-scrollbar-track { background: #EDF2F7 !important; }
+::-webkit-scrollbar-thumb { background: #A0AEC0 !important; border-radius: 3px !important; }
+::-webkit-scrollbar-thumb:hover { background: #718096 !important; }
+
+/* ── 19. Header bar area ───────────────────────────────────── */
+header[data-testid="stHeader"] {
+    background: #F0F4F8 !important;
+    border-bottom: 1px solid #E2E8F0 !important;
+}
+
+/* ── 20. Popover override (handled by _card_css but reinforce) */
+[data-testid="stPopoverBody"] {
+    background: #FFFFFF !important;
+    border:     1px solid #E2E8F0 !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.12) !important;
+}
+
+</style>""", unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
 # Scenario Gate

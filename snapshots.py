@@ -462,38 +462,77 @@ def _show_limit_msg(tier: str, limit: int) -> None:
 # New compact project bar  (replaces render_snapshot_panel in app.py)
 # ════════════════════════════════════════════════════════════════════════════
 
-_CARD_CSS = """
-<style>
+def _card_css(light: bool = False) -> str:
+    """Return popover + project-picker CSS tuned for dark (default) or light theme."""
+    # ── Colour tokens ─────────────────────────────────────────────────────────
+    if light:
+        pop_bg         = "#FFFFFF"
+        pop_border     = "#E2E8F0"
+        btn_text       = "#374151"
+        btn_hover_bg   = "rgba(0,0,0,0.05)"
+        btn_hover_text = "#111827"
+        act_bg         = "rgba(0,168,112,0.10)"
+        act_accent     = "#059669"
+        kebab_col      = "#9CA3AF"
+        kebab_hover_bg = "rgba(0,0,0,0.08)"
+        kebab_hover_cl = "#374151"
+        exp_text       = "#6B7280"
+        exp_hover_cl   = "#374151"
+        exp_hover_bg   = "rgba(0,0,0,0.03)"
+        exp_arrow      = "#9CA3AF"
+        hr_col         = "#E5E7EB"
+        cap_col        = "#6B7280"
+        md_col         = "#111827"
+        md_small       = "#6B7280"
+    else:
+        pop_bg         = "#161616"
+        pop_border     = "#2a2a2a"
+        btn_text       = "#c9d1d9"
+        btn_hover_bg   = "rgba(255,255,255,0.07)"
+        btn_hover_text = "#f0f6fc"
+        act_bg         = "rgba(0,229,160,0.09)"
+        act_accent     = "#00E5A0"
+        kebab_col      = "#3d4451"
+        kebab_hover_bg = "rgba(255,255,255,0.10)"
+        kebab_hover_cl = "#8b949e"
+        exp_text       = "#6e7681"
+        exp_hover_cl   = "#9ca3af"
+        exp_hover_bg   = "rgba(255,255,255,0.03)"
+        exp_arrow      = "#484f58"
+        hr_col         = "#21262d"
+        cap_col        = "#6e7681"
+        md_col         = "#e0e6ed"
+        md_small       = "#8b949e"
+
+    return f"""<style>
 /* ═══════════════════════════════════════════════════════════════
-   ALL Streamlit Popovers → dark theme
-   (Selectors are global so they reach React portals)
+   Streamlit Popovers — theme-aware ({{'light' if light else 'dark'}})
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Dark background for every popover ─────────────────────── */
-[data-testid="stPopoverBody"] {
-    background:    #161616 !important;
-    border:        1px solid #2a2a2a !important;
+[data-testid="stPopoverBody"] {{
+    background:    {pop_bg} !important;
+    border:        1px solid {pop_border} !important;
     border-radius: 10px !important;
     padding:       0 !important;
     overflow:      hidden !important;
-}
-[data-testid="stPopoverBody"] > div {
+}}
+[data-testid="stPopoverBody"] > div {{
     padding: 6px 0 10px !important;
-}
+}}
 
 /* ── Column layout ─────────────────────────────────────────── */
-[data-testid="stPopoverBody"] div[data-testid="stHorizontalBlock"] {
+[data-testid="stPopoverBody"] div[data-testid="stHorizontalBlock"] {{
     gap:          0 !important;
     padding:      0 6px !important;
     align-items:  center !important;
-}
-[data-testid="stPopoverBody"] div[data-testid="stColumn"] {
+}}
+[data-testid="stPopoverBody"] div[data-testid="stColumn"] {{
     padding:   1px 2px !important;
     min-width: 0 !important;
-}
+}}
 
-/* ── ALL secondary buttons → borderless text rows ──────────── */
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] {
+/* ── Secondary buttons → borderless text rows ──────────────── */
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] {{
     background:      transparent !important;
     border:          none !important;
     box-shadow:      none !important;
@@ -504,33 +543,33 @@ _CARD_CSS = """
     min-height:      32px !important;
     width:           100% !important;
     justify-content: flex-start !important;
-    color:           #c9d1d9 !important;
+    color:           {btn_text} !important;
     font-size:       0.84em !important;
     transition:      background 0.1s !important;
-}
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {
-    background: rgba(255,255,255,0.07) !important;
-    color:      #f0f6fc !important;
-}
+}}
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {{
+    background: {btn_hover_bg} !important;
+    color:      {btn_hover_text} !important;
+}}
 [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] p,
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] > div {
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] > div {{
     text-align:      left !important;
     overflow:        hidden !important;
     text-overflow:   ellipsis !important;
     white-space:     nowrap !important;
     justify-content: flex-start !important;
-}
+}}
 
 /* ── Active project (primary + disabled) → green accent ─────── */
 [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"],
 [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:hover,
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled {
-    background:      rgba(0,229,160,0.09) !important;
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled {{
+    background:      {act_bg} !important;
     border:          none !important;
-    border-left:     3px solid #00E5A0 !important;
+    border-left:     3px solid {act_accent} !important;
     border-radius:   0 5px 5px 0 !important;
     box-shadow:      none !important;
-    color:           #00E5A0 !important;
+    color:           {act_accent} !important;
     font-weight:     600 !important;
     padding-left:    8px !important;
     justify-content: flex-start !important;
@@ -538,22 +577,22 @@ _CARD_CSS = """
     height:          32px !important;
     min-height:      32px !important;
     width:           100% !important;
-}
+}}
 [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] p,
 [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] > div,
 [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled p,
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled > div {
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled > div {{
     text-align:      left !important;
     overflow:        hidden !important;
     text-overflow:   ellipsis !important;
     white-space:     nowrap !important;
-    color:           #00E5A0 !important;
+    color:           {act_accent} !important;
     justify-content: flex-start !important;
-}
+}}
 
-/* ── ⋮ button (project picker only, last column) ───────────── */
+/* ── ⋮ button (project picker only) ───────────────────────── */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stColumn"]:last-child button {
+    div[data-testid="stColumn"]:last-child button {{
     width:           26px !important;
     min-width:       26px !important;
     max-width:       26px !important;
@@ -561,106 +600,96 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     min-height:      26px !important;
     padding:         0 !important;
     justify-content: center !important;
-    color:           #3d4451 !important;
+    color:           {kebab_col} !important;
     border-radius:   4px !important;
     font-size:       1em !important;
-}
+}}
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stColumn"]:last-child button:hover {
-    background: rgba(255,255,255,0.10) !important;
-    color:      #8b949e !important;
-}
+    div[data-testid="stColumn"]:last-child button:hover {{
+    background: {kebab_hover_bg} !important;
+    color:      {kebab_hover_cl} !important;
+}}
 
 /* ── Folder expanders ──────────────────────────────────────── */
-[data-testid="stPopoverBody"] [data-testid="stExpander"] {
+[data-testid="stPopoverBody"] [data-testid="stExpander"] {{
     background: transparent !important;
     border:     none !important;
     margin:     0 !important;
     padding:    0 !important;
-}
+}}
 [data-testid="stPopoverBody"] [data-testid="stExpander"] summary,
-[data-testid="stPopoverBody"] details[data-testid="stExpander"] > summary {
+[data-testid="stPopoverBody"] details[data-testid="stExpander"] > summary {{
     background:     transparent !important;
     border:         none !important;
-    color:          #6e7681 !important;
+    color:          {exp_text} !important;
     font-size:      0.72em !important;
     font-weight:    700 !important;
     letter-spacing: 0.08em !important;
     text-transform: uppercase !important;
     padding:        10px 14px 4px !important;
-}
-[data-testid="stPopoverBody"] [data-testid="stExpander"] summary:hover {
-    color:      #9ca3af !important;
-    background: rgba(255,255,255,0.03) !important;
-}
-[data-testid="stPopoverBody"] [data-testid="stExpander"] summary svg {
-    color:  #484f58 !important;
+}}
+[data-testid="stPopoverBody"] [data-testid="stExpander"] summary:hover {{
+    color:      {exp_hover_cl} !important;
+    background: {exp_hover_bg} !important;
+}}
+[data-testid="stPopoverBody"] [data-testid="stExpander"] summary svg {{
+    color:  {exp_arrow} !important;
     width:  12px !important;
     height: 12px !important;
-}
-[data-testid="stPopoverBody"] [data-testid="stExpanderDetails"] {
+}}
+[data-testid="stPopoverBody"] [data-testid="stExpanderDetails"] {{
     padding:    1px 0 4px !important;
     background: transparent !important;
     border:     none !important;
-}
+}}
 
-/* ── Caption text & dividers ───────────────────────────────── */
-[data-testid="stPopoverBody"] [data-testid="stCaptionContainer"] p {
-    color:     #6e7681 !important;
+/* ── Caption & dividers ─────────────────────────────────────── */
+[data-testid="stPopoverBody"] [data-testid="stCaptionContainer"] p {{
+    color:     {cap_col} !important;
     font-size: 0.80em !important;
-}
-[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p {
-    color:     #e0e6ed !important;  /* readable white for menu headings */
-}
+}}
+[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p {{
+    color:     {md_col} !important;
+}}
 [data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p em,
-[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p small {
-    color:     #8b949e !important;
+[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p small {{
+    color:     {md_small} !important;
     font-size: 0.82em !important;
-}
-[data-testid="stPopoverBody"] hr {
-    border-color: #21262d !important;
+}}
+[data-testid="stPopoverBody"] hr {{
+    border-color: {hr_col} !important;
     margin:       3px 10px !important;
-}
+}}
 
 /* ── Drag-and-drop ─────────────────────────────────────────── */
-/* Row being dragged */
-[data-testid="stHorizontalBlock"].dnd-dragging {
+[data-testid="stHorizontalBlock"].dnd-dragging {{
     opacity: 0.4 !important;
     cursor:  grabbing !important;
-}
-/* Folder expander highlighted as drop target */
-[data-testid="stExpander"].dnd-drop-over summary {
-    background: rgba(0,229,160,0.12) !important;
-    outline:    2px dashed #00E5A0 !important;
+}}
+[data-testid="stExpander"].dnd-drop-over summary {{
+    background:    rgba(0,229,160,0.12) !important;
+    outline:       2px dashed #00E5A0 !important;
     border-radius: 6px !important;
-}
-/* Drag-handle cursor on project rows */
-[data-drag-row] {
-    cursor: grab !important;
-}
-[data-drag-row]:active {
-    cursor: grabbing !important;
-}
+}}
+[data-drag-row] {{ cursor: grab !important; }}
+[data-drag-row]:active {{ cursor: grabbing !important; }}
 
-/* ── Move-to folder picker: sub-folder buttons ─────────────── */
-[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"].move-to-current {
-    color:          #00E5A0 !important;
+/* ── Move-to current folder ─────────────────────────────────── */
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"].move-to-current {{
+    color:          {act_accent} !important;
     pointer-events: none !important;
-}
+}}
 
-/* ── DnD bridge input: hide completely but keep functional ──── */
-input[placeholder="__dnd__"] {
-    position:       fixed !important;
-    left:           -9999px !important;
-    top:            -9999px !important;
-    width:          1px !important;
-    height:         1px !important;
-    opacity:        0 !important;
+/* ── DnD hidden bridge input ─────────────────────────────────── */
+input[placeholder="__dnd__"] {{
+    position: fixed !important; left: -9999px !important;
+    top: -9999px !important; width: 1px !important;
+    height: 1px !important; opacity: 0 !important;
     pointer-events: none !important;
-}
-[data-testid="stTextInputRootElement"]:has(input[placeholder="__dnd__"]) {
+}}
+[data-testid="stTextInputRootElement"]:has(input[placeholder="__dnd__"]) {{
     display: none !important;
-}
+}}
 </style>
 """
 
@@ -770,7 +799,7 @@ def render_project_bar() -> None:
     if not user:
         return
 
-    st.markdown(_CARD_CSS, unsafe_allow_html=True)
+    st.markdown(_card_css(st.session_state.get("_light_mode", False)), unsafe_allow_html=True)
 
     user_id   = user["id"]
     limit     = user.get("snapshot_limit", 3)
