@@ -300,31 +300,43 @@ st.markdown("""
     .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
     .stTabs [data-baseweb="tab-border"]    { display: none !important; }
 
-    /* ── Buttons ───────────────────────────────────────────────── */
-    .stButton > button {
-        background: transparent;
-        border: 1px solid var(--primary);
-        color: var(--primary);
-        font-family: 'IBM Plex Mono', monospace;
-        font-size: 0.73rem;
-        letter-spacing: 0.05em;
-        border-radius: 4px;
-        transition: background 0.15s, color 0.15s, box-shadow 0.15s;
-        padding: 0.28rem 0.75rem;
+    /* ── Buttons (supports both legacy .stButton and new data-testid) ── */
+    .stButton > button,
+    button[data-testid="stBaseButton-secondary"] {
+        background:      transparent !important;
+        border:          1px solid var(--border) !important;
+        color:           var(--text-dim) !important;
+        font-family:     'IBM Plex Mono', monospace !important;
+        font-size:       0.73rem !important;
+        letter-spacing:  0.05em !important;
+        border-radius:   4px !important;
+        transition:      background 0.15s, color 0.15s, box-shadow 0.15s !important;
+        padding:         0.28rem 0.75rem !important;
     }
-    .stButton > button:hover {
-        background: var(--primary);
-        color: var(--bg-dark);
-        box-shadow: 0 0 8px rgba(0,229,160,0.35);
+    .stButton > button:hover,
+    button[data-testid="stBaseButton-secondary"]:hover {
+        background:   rgba(255,255,255,0.06) !important;
+        border-color: var(--primary) !important;
+        color:        var(--text-main) !important;
+        box-shadow:   none !important;
     }
-    .stButton > button[kind="primary"] {
-        background: var(--primary) !important;
-        color: var(--bg-dark) !important;
-        font-weight: 600;
+    /* Primary buttons — green fill */
+    .stButton > button[kind="primary"],
+    button[data-testid="stBaseButton-primary"] {
+        background:  var(--primary) !important;
+        color:       var(--bg-dark) !important;
+        border:      none !important;
+        font-weight: 600 !important;
     }
-    .stButton > button[kind="primary"]:hover {
-        box-shadow: 0 0 12px rgba(0,229,160,0.5);
-        filter: brightness(1.08);
+    .stButton > button[kind="primary"]:hover,
+    button[data-testid="stBaseButton-primary"]:hover {
+        box-shadow: 0 0 12px rgba(0,229,160,0.5) !important;
+        filter:     brightness(1.08) !important;
+    }
+    /* Disabled buttons */
+    button[data-testid="stBaseButton-secondary"]:disabled {
+        opacity:    0.4 !important;
+        cursor:     not-allowed !important;
     }
     .stDownloadButton > button {
         background: transparent;
