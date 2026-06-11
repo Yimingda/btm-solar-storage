@@ -600,8 +600,7 @@ def _s6_tariff(prs, params: dict, results: dict, company: str):
         _tb(slide, xx+0.05, 4.02, 0.95, 0.50,
             f"R{proj:.2f}", 10.5, bold=True, color=clr, align="center")
 
-    _rect(slide, 0.28, 5.65, 12.78, 0.03, _SEP)
-    _narrative(slide, 0.28, 5.75, 12.78, 0.62,
+    _narrative(slide, 6.55, 5.72, 6.50, 0.62,
                f"At {esc:.1f}% p.a. escalation, the evening peak rate reaches "
                f"≈R {base*(1+esc/100)**9:.2f}/kWh by Year 10 and "
                f"≈R {base*(1+esc/100)**19:.2f}/kWh by Year 20.  "
