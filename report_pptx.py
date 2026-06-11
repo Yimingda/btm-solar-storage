@@ -32,6 +32,7 @@ Solution Info: https://info.support.huawei.com/Energy/info/en_US/all/index
 from __future__ import annotations
 
 import io
+import os
 from datetime import date
 
 # ── Palette (Huawei Digital Power) ───────────────────────────────────────────
@@ -229,10 +230,31 @@ def _s1_cover(prs, project_name: str, client_name: str,
               consultant_name: str, pv_kwp: float,
               bess_kwh: float, tariff_mode: str,
               has_pv: bool = True, has_bess: bool = True):
-    """Slide 1 – Cover  (Huawei style: black left panel, white right panel)."""
+    """Slide 1 – Cover  (clean-energy photo background, Huawei accent)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    # Black left panel
-    _rect(slide, 0, 0, 8.90, 7.5, _BLK)
+
+    # ── Left panel: 3-zone clean energy design ───────────────────────────────
+    # Zone A (top  0.00 – 4.10"):  dark forest-green overlay — text area
+    # Zone B (mid  4.10 – 6.40"):  solar + vineyard photo visible
+    # Zone C (bot  6.40 – 7.50"):  dark overlay — footer / confidential
+    _COVER_BG = "041510"          # very dark forest green
+    _ASSETS   = os.path.join(os.path.dirname(__file__), "assets")
+    _cover_ph = os.path.join(_ASSETS, "hw_winery.png")
+
+    if os.path.exists(_cover_ph):
+        # Full-panel photo base (z-order: lowest layer)
+        slide.shapes.add_picture(_cover_ph, _in(0), _in(0), _in(8.90), _in(7.5))
+        # Dark overlay — TOP zone (goes on top of photo for readability)
+        _rect(slide, 0, 0,    8.90, 4.12, _COVER_BG)
+        # Dark overlay — BOTTOM zone
+        _rect(slide, 0, 6.40, 8.90, 1.10, _COVER_BG)
+    else:
+        _rect(slide, 0, 0, 8.90, 7.5, _COVER_BG)   # fallback solid
+
+    # Thin Huawei-green separators at zone boundaries
+    _rect(slide, 0, 4.10, 8.90, 0.05, "00A870")     # top → photo boundary
+    _rect(slide, 0, 6.38, 8.90, 0.05, "00A870")     # photo → footer boundary
+
     # Red vertical accent strip (Huawei signature)
     _rect(slide, 8.88, 0, 0.10, 7.5, _HRD)
     # White right panel
@@ -317,7 +339,7 @@ def _s1_cover(prs, project_name: str, client_name: str,
     conf_text = (f"Confidential  ·  Only For: {client_name}"
                  if client_name else
                  "Confidential  ·  For Authorised Recipients Only")
-    _tb(slide, 0.42, 7.08, 8.0, 0.30, conf_text, 8, color="555555")
+    _tb(slide, 0.42, 7.08, 8.0, 0.30, conf_text, 8, color="999999")
 
 
 def _s2_thesis(prs, results: dict, params: dict, company: str,
@@ -885,7 +907,6 @@ def _s9_assumptions(prs, params: dict, company: str,
 
 def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
     """Slide 8 — Huawei Digital Power · SA Partner Credentials."""
-    import os
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 
@@ -979,7 +1000,6 @@ def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
 
 def _s9_sa_projects(prs, company: str, page: int = 9, total: int = 11):
     """Slide 9 — South Africa Reference Projects  (2 × 2 photo-card grid)."""
-    import os
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 
