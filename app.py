@@ -3843,7 +3843,7 @@ with col_content:
                 st.text_input(
                     "EPC / Consultant",
                     value=st.session_state.get("_pptx_consultant", ""),
-                    placeholder="e.g. GreenWatt Consulting",
+                    placeholder="e.g. Lanxi Engineering",
                     key="_pptx_consultant",
                 )
             with _rpt_col2:
