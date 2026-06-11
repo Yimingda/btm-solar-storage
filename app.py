@@ -1596,6 +1596,91 @@ def compute_npv_irr(fin_df: pd.DataFrame, total_capex: float,
     return round(npv, 0), round(irr, 2)
 
 
+def compute_lcoe(
+    pv_kwp: float,
+    bess_kwh: float,
+    params: dict,
+    dispatch_yr1: dict,
+    annual_cycles: float,
+    c_rate: float,
+) -> dict:
+    """
+    Levelised Cost of Energy (LCOE) for a BTM PV+BESS system.
+
+    LCOE (ZAR/kWh) = NPV(lifecycle costs) / NPV(avoided grid kWh)
+
+    Avoided kWh = total site load − grid purchases after PV+BESS dispatch.
+    PV contribution degrades at pv_degradation %/yr.
+    BESS contribution scales with SOH (set to 0 after EoL).
+
+    Returns a dict with:
+      lcoe_zar_kwh       – discounted LCOE
+      lcoe_simple_zar_kwh– simple (undiscounted) LCOE
+      npv_costs_zar      – NPV of all costs (CAPEX + O&M)
+      npv_energy_kwh     – NPV of avoided kWh denominator
+      total_avoided_mwh  – lifetime avoided energy (undiscounted, MWh)
+    """
+    pv_capex    = pv_kwp   * params["pv_capex_per_kwp"]
+    bess_capex  = bess_kwh * params["bess_capex_per_kwh"]
+    total_capex = pv_capex + bess_capex
+
+    disc = params["discount_rate"]    / 100.0
+    deg  = params["pv_degradation"]   / 100.0
+    esc  = params["tariff_escalation"]/ 100.0
+
+    # ── Year-1 avoided energy decomposition ─────────────────────
+    # Total avoided = load served by PV/BESS instead of grid
+    annual_load_yr1     = dispatch_yr1["annual_load_kWh"]
+    annual_grid_yr1     = dispatch_yr1["annual_grid_buy_kWh"]
+    annual_discharge_yr1 = dispatch_yr1["annual_discharge_kWh"]
+    annual_gridchg_yr1  = dispatch_yr1["annual_grid_charge_kWh"]
+
+    total_avoided_yr1 = max(0.0, annual_load_yr1 - annual_grid_yr1)
+
+    # Split into PV-origin and BESS-net contributions for multi-year degradation
+    # Net BESS benefit = discharge − energy drawn from grid to charge (accounting for RTE)
+    bess_net_yr1 = max(0.0, annual_discharge_yr1 - annual_gridchg_yr1)
+    pv_net_yr1   = max(0.0, total_avoided_yr1 - bess_net_yr1)
+
+    soh_arr = get_soh_by_year(annual_cycles, c_rate=c_rate)
+
+    npv_costs  = float(total_capex)  # Year-0 CAPEX
+    npv_energy = 0.0
+    total_costs   = float(total_capex)
+    total_avoided = 0.0
+
+    for yr in range(1, ANALYSIS_YEARS + 1):
+        deg_mult = (1.0 - deg) ** (yr - 1)
+        soh      = soh_arr[yr] if yr < len(soh_arr) else 0.0
+        bess_alive = soh >= BESS_EOL_SOH
+
+        # O&M (OPEX grows at 50 % of tariff escalation)
+        pv_opex   = pv_kwp   * params["pv_opex_per_kwp"]   * (1 + esc * 0.5) ** (yr - 1)
+        bess_opex = (bess_kwh * params["bess_opex_per_kwh"] * (1 + esc * 0.5) ** (yr - 1)
+                     if bess_alive else 0.0)
+        total_opex = pv_opex + bess_opex
+
+        disc_f = (1.0 + disc) ** yr
+        npv_costs  += total_opex / disc_f
+        total_costs += total_opex
+
+        # Avoided energy: PV degrades annually; BESS scales with SOH
+        avoided_yr = pv_net_yr1 * deg_mult + (bess_net_yr1 * soh if bess_alive else 0.0)
+        npv_energy    += avoided_yr / disc_f
+        total_avoided += avoided_yr
+
+    lcoe        = npv_costs / npv_energy        if npv_energy > 0 else 0.0
+    lcoe_simple = total_costs / total_avoided   if total_avoided > 0 else 0.0
+
+    return {
+        "lcoe_zar_kwh":         round(lcoe, 4),
+        "lcoe_simple_zar_kwh":  round(lcoe_simple, 4),
+        "npv_costs_zar":        round(npv_costs, 0),
+        "npv_energy_kwh":       round(npv_energy, 0),
+        "total_avoided_mwh":    round(total_avoided / 1_000, 1),
+    }
+
+
 # ─────────────────────────────────────────────────────────────
 # Auto-PVGIS on location/capacity change
 # ─────────────────────────────────────────────────────────────
@@ -3098,6 +3183,15 @@ with col_content:
                     year0_extra_cf=_precomm_ncf,
                 )
 
+                lcoe_result = compute_lcoe(
+                    pv_kwp=st.session_state.pv_kwp,
+                    bess_kwh=st.session_state.bess_kwh,
+                    params=params,
+                    dispatch_yr1=dispatch_yr1,
+                    annual_cycles=annual_cycles,
+                    c_rate=_c_rate_val,
+                )
+
                 cum = fin_df["Cumulative CF (ZAR)"].tolist()
                 # Linear interpolation for fractional payback year
                 payback = None
@@ -3123,6 +3217,7 @@ with col_content:
                     "npv": npv, "irr": irr, "payback": payback,
                     "total_capex": total_capex, "bess_kw": bess_kw_use,
                     "c_rate": _c_rate_val,
+                    "lcoe": lcoe_result,
                     # timeline
                     "po_date":          _po_date.isoformat(),
                     "bess_lead_months": _bess_lead,
@@ -3143,7 +3238,7 @@ with col_content:
 
             st.markdown('<div class="section-header">📈 Key Financial Metrics</div>',
                         unsafe_allow_html=True)
-            m1, m2, m3, m4, m5 = st.columns(5)
+            m1, m2, m3, m4, m5, m6 = st.columns(6)
 
             with m1:
                 st.markdown(f"""<div class="metric-card">
@@ -3153,10 +3248,10 @@ with col_content:
                 </div>""", unsafe_allow_html=True)
 
             with m2:
-                c = "var(--primary)" if res['npv'] > 0 else "var(--danger)"
+                _npv_c = "var(--primary)" if res['npv'] > 0 else "var(--danger)"
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">NPV (20-Year)</div>
-                    <div class="metric-value" style="color:{c}">R{res['npv']/1e6:.2f}M</div>
+                    <div class="metric-value" style="color:{_npv_c}">R{res['npv']/1e6:.2f}M</div>
                     <div class="metric-unit">@ {st.session_state.discount_rate:.1f}% disc</div>
                 </div>""", unsafe_allow_html=True)
 
@@ -3172,10 +3267,21 @@ with col_content:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">Simple Payback</div>
                     <div class="metric-value">{pb}</div>
-                    <div class="metric-unit">Simple Payback</div>
+                    <div class="metric-unit">Cumulative CF = 0</div>
                 </div>""", unsafe_allow_html=True)
 
             with m5:
+                _lcoe = res.get("lcoe", {})
+                _lcoe_val = _lcoe.get("lcoe_zar_kwh", 0)
+                _lcoe_c = "var(--primary)" if _lcoe_val > 0 else "var(--text-dim)"
+                _avoided = _lcoe.get("total_avoided_mwh", 0)
+                st.markdown(f"""<div class="metric-card">
+                    <div class="metric-label">LCOE</div>
+                    <div class="metric-value" style="color:{_lcoe_c}">R{_lcoe_val:.2f}</div>
+                    <div class="metric-unit">/kWh · {_avoided:,.0f} MWh avoided</div>
+                </div>""", unsafe_allow_html=True)
+
+            with m6:
                 st.markdown(f"""<div class="metric-card">
                     <div class="metric-label">BESS EoL</div>
                     <div class="metric-value" style="color:var(--secondary)">Yr {min(20, int(res['eol_years']))}</div>
@@ -3301,17 +3407,22 @@ with col_content:
                     with pd.ExcelWriter(xbuf, engine="openpyxl") as writer:
                         st.session_state.fin_df.rename(columns=_COL_MAP).to_excel(
                             writer, sheet_name="20yr_Financial_Model", index=False)
+                        _lcoe_x = res.get("lcoe", {})
                         ops = pd.DataFrame([
-                            {_mk: "Annual Saving (ZAR)",   _vk: res['dispatch_yr1']['annual_saving_ZAR']},
-                            {_mk: "PV Saving (ZAR)",       _vk: res['dispatch_yr1']['annual_pv_saving_ZAR']},
-                            {_mk: "BESS Net Saving (ZAR)", _vk: res['dispatch_yr1']['annual_bess_saving_ZAR']},
-                            {_mk: "Annual PV Gen (kWh)",   _vk: res['dispatch_yr1']['annual_pv_gen_kWh']},
-                            {_mk: "Throughput (kWh)",      _vk: res['dispatch_yr1']['tot_throughput_kWh']},
-                            {_mk: "Annual Cycles",         _vk: res['annual_cycles']},
-                            {_mk: "BESS EoL (yr)",         _vk: min(20.0, res['eol_years'])},
-                            {_mk: "NPV (ZAR)",             _vk: res['npv']},
-                            {_mk: "IRR (%)",               _vk: res['irr']},
-                            {_mk: "USD/ZAR Rate",          _vk: st.session_state.forex_usd_zar},
+                            {_mk: "Annual Saving (ZAR)",        _vk: res['dispatch_yr1']['annual_saving_ZAR']},
+                            {_mk: "PV Saving (ZAR)",            _vk: res['dispatch_yr1']['annual_pv_saving_ZAR']},
+                            {_mk: "BESS Net Saving (ZAR)",      _vk: res['dispatch_yr1']['annual_bess_saving_ZAR']},
+                            {_mk: "Annual PV Gen (kWh)",        _vk: res['dispatch_yr1']['annual_pv_gen_kWh']},
+                            {_mk: "Annual Avoided Grid (kWh)",  _vk: res['dispatch_yr1']['annual_load_kWh'] - res['dispatch_yr1']['annual_grid_buy_kWh']},
+                            {_mk: "Throughput (kWh)",           _vk: res['dispatch_yr1']['tot_throughput_kWh']},
+                            {_mk: "Annual Cycles",              _vk: res['annual_cycles']},
+                            {_mk: "BESS EoL (yr)",              _vk: min(20.0, res['eol_years'])},
+                            {_mk: "NPV (ZAR)",                  _vk: res['npv']},
+                            {_mk: "IRR (%)",                    _vk: res['irr']},
+                            {_mk: "LCOE (ZAR/kWh)",             _vk: _lcoe_x.get("lcoe_zar_kwh", "")},
+                            {_mk: "LCOE Simple (ZAR/kWh)",      _vk: _lcoe_x.get("lcoe_simple_zar_kwh", "")},
+                            {_mk: "Lifetime Avoided (MWh)",     _vk: _lcoe_x.get("total_avoided_mwh", "")},
+                            {_mk: "USD/ZAR Rate",               _vk: st.session_state.forex_usd_zar},
                         ])
                         ops.to_excel(writer, sheet_name="Summary", index=False)
                     st.download_button("⬇ BTM_Pure_Data_Export.xlsx",

@@ -63,10 +63,13 @@ def get_results_summary() -> dict:
     res = st.session_state.get("results")
     if not res:
         return {}
+    _lcoe = res.get("lcoe", {})
     return {
-        "npv":     round(res.get("npv", 0), 0),
-        "irr":     round(res.get("irr", 0), 2),
-        "payback": round(res.get("simple_payback", 0), 2),
+        "npv":              round(res.get("npv", 0), 0),
+        "irr":              round(res.get("irr", 0), 2),
+        "payback":          round(res.get("payback", 0) or 0, 2),
+        "lcoe_zar_kwh":     _lcoe.get("lcoe_zar_kwh", 0),
+        "total_avoided_mwh": _lcoe.get("total_avoided_mwh", 0),
     }
 
 
@@ -731,9 +734,11 @@ def _render_project_card(snap: dict) -> None:
     is_active = snap_id == st.session_state.get("_active_snap_id")
     _dirty    = _is_dirty() if is_active else False
 
-    npv = results.get("npv", 0)
-    irr = results.get("irr", 0)
-    _meta = f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%" if npv else ts
+    npv  = results.get("npv", 0)
+    irr  = results.get("irr", 0)
+    lcoe = results.get("lcoe_zar_kwh", 0)
+    _lcoe_str = f" · LCOE R{lcoe:.2f}/kWh" if lcoe else ""
+    _meta = f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%{_lcoe_str}" if npv else ts
 
     _pin_icon = "★ " if pinned else ""
     _short    = (name[:34] + "…") if len(name) > 36 else name
