@@ -3602,8 +3602,8 @@ with col_content:
                     )
 
             st.markdown(
-                "**Solution Reference:** "
-                "[digitalpower.huawei.com/za](https://digitalpower.huawei.com/za)",
+                "**Solution Info:** "
+                "[info.support.huawei.com/Energy](https://info.support.huawei.com/Energy/info/en_US/all/index)",
                 unsafe_allow_html=False,
             )
 

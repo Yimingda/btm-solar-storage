@@ -10,7 +10,7 @@ Design language  (Huawei Digital Power style)
 • Font: Calibri (closest widely-available substitute for Huawei Sans)
 • McKinsey "pyramid" headline structure: slide title = the conclusion
 • 2-3 sentence narrative paragraph per content slide
-• Footer: EPC company name  ·  Solution Reference URL  ·  page number
+• Footer: EPC company name  ·  Solution Info URL  ·  page number
 
 Slide sequence  (9 slides)
 ───────────────────────────
@@ -24,7 +24,7 @@ Slide sequence  (9 slides)
   8. SA Market Context (2026 industry data)
   9. Assumptions & Disclaimer
 
-Solution Reference: https://digitalpower.huawei.com/za
+Solution Info: https://info.support.huawei.com/Energy/info/en_US/all/index
 """
 from __future__ import annotations
 
@@ -46,7 +46,8 @@ _SEP  = "E5E7EB"   # light separator
 
 _FONT = "Calibri"   # Huawei Sans substitute
 
-_SOL_URL = "https://digitalpower.huawei.com/za"
+_SOL_URL  = "https://info.support.huawei.com/Energy/info/en_US/all/index"
+_SOL_LBL  = "Solution Info"
 
 # ── python-pptx micro-helpers ─────────────────────────────────────────────────
 
@@ -103,7 +104,7 @@ def _footer(slide, company: str, page: int, total: int = 8):
     _rect(slide, 0, 7.22, 13.33, 0.02, _SEP)
     _tb(slide, 0.28, 7.26, 4.5, 0.22, company, 7.5, color=_MGY)
     _tb(slide, 4.8,  7.26, 5.8, 0.22,
-        f"Solution Reference: {_SOL_URL}", 7.5, color=_HRD)
+        f"Solution Info: {_SOL_URL}", 7.5, color=_HRD)
     _tb(slide, 11.8, 7.26, 1.5, 0.22, f"{page} / {total}",
         7.5, color=_MGY, align="right")
 
@@ -249,7 +250,7 @@ def _s1_cover(prs, project_name: str, client_name: str,
 
     # Solution reference — bottom left
     _tb(slide, 0.42, 6.85, 8.0, 0.38,
-        f"Solution Reference: {_SOL_URL}",
+        f"Solution Info: {_SOL_URL}",
         8.5, color=_HRD)
 
     # Right panel: SYSTEM SIZE
@@ -800,7 +801,7 @@ def _s9_assumptions(prs, params: dict, company: str):
         "Obtain independent engineering, legal, and financial advice before "
         "committing capital.  "
         f"© {date.today().year} {company}.  "
-        f"Solution Reference: {_SOL_URL}"
+        f"Solution Info: {_SOL_URL}"
     )
     _tb(slide, 0.28, 6.80, 12.78, 0.60, disc, 8, color="BBBBBB", wrap=True)
     _footer(slide, company, 9, total=9)
