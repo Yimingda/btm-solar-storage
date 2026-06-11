@@ -198,30 +198,73 @@ def render_snapshot_panel() -> None:
 
 # ── Save dialog ───────────────────────────────────────────────────────────────
 
-def _render_save_dialog(user_id: str) -> None:
-    default_name   = st.session_state.get("_snap_default_name", _default_name())
-    default_client = st.session_state.get("_snap_client_name", "")
+_NEW_FOLDER_SENTINEL = "＋ New folder…"
 
-    _dc, _dn = st.columns([2, 3])
-    with _dc:
-        client = st.text_input(
-            "Client", value=default_client,
-            key="snap_client_input",
-            placeholder="e.g. Acme Corp",
+
+def _get_existing_folders(user_id: str) -> list[str]:
+    """Return sorted list of existing folder names (client_names), General last."""
+    snaps = get_snapshots(user_id)
+    names = sorted(set(
+        s["client_name"].strip()
+        for s in snaps
+        if s.get("client_name", "").strip()
+    ))
+    # Always include General; put it last
+    if "General" in names:
+        names.remove("General")
+    return names + ["General"]
+
+
+def _render_save_dialog(user_id: str) -> None:
+    default_name = st.session_state.get("_snap_default_name", _default_name())
+
+    # ── Folder selector ──────────────────────────────────────────────────────
+    existing = _get_existing_folders(user_id)
+    folder_options = existing + [_NEW_FOLDER_SENTINEL]
+
+    # Pre-select last-used folder
+    _prev = st.session_state.get("_snap_last_folder", "General")
+    _idx  = folder_options.index(_prev) if _prev in folder_options else folder_options.index("General")
+
+    _fc, _nc = st.columns([2, 3])
+    with _fc:
+        selected = st.selectbox(
+            "Folder",
+            options=folder_options,
+            index=_idx,
+            key="snap_folder_select",
         )
-    with _dn:
+    with _nc:
         name = st.text_input(
             "Project Name", value=default_name,
             key="snap_name_input",
             placeholder="e.g. Site A · 100kWp+200kWh",
         )
 
+    # ── New folder text input ─────────────────────────────────────────────────
+    new_folder_name = ""
+    if selected == _NEW_FOLDER_SENTINEL:
+        new_folder_name = st.text_input(
+            "New folder name",
+            key="snap_new_folder_input",
+            placeholder="e.g. Impala Projects",
+            label_visibility="collapsed",
+        )
+        st.caption("Enter new folder name above")
+
+    # Resolve final client/folder value
+    if selected == _NEW_FOLDER_SENTINEL:
+        final_client = new_folder_name.strip()
+    elif selected == "General":
+        final_client = ""          # store as empty → displays as General
+    else:
+        final_client = selected
+
     ok_col, cancel_col = st.columns(2)
     with ok_col:
         if st.button("✅ Save", type="primary", use_container_width=True,
                      key="snap_dialog_ok"):
-            final_name   = name.strip() or default_name
-            final_client = client.strip()
+            final_name    = name.strip() or default_name
             _saved_params = get_params_to_save()
             result = save_snapshot(
                 user_id=user_id,
@@ -235,6 +278,8 @@ def _render_save_dialog(user_id: str) -> None:
                 st.session_state["_active_snap_id"]     = result.get("id")
                 st.session_state["_active_snap_name"]   = final_name
                 st.session_state["_snap_loaded_params"] = dict(_saved_params)
+                # Remember folder for next save
+                st.session_state["_snap_last_folder"] = selected if selected != _NEW_FOLDER_SENTINEL else new_folder_name.strip()
                 st.toast(f"✅ Saved: {final_name}")
             _close_dialog()
     with cancel_col:
@@ -245,7 +290,7 @@ def _render_save_dialog(user_id: str) -> None:
 
 def _close_dialog():
     for k in ("_snap_save_open", "_snap_default_name", "_snap_client_name",
-              "snap_name_input", "snap_client_input"):
+              "snap_name_input", "snap_folder_select", "snap_new_folder_input"):
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -407,54 +452,168 @@ def _show_limit_msg(tier: str, limit: int) -> None:
 
 _CARD_CSS = """
 <style>
-/* ── Project picker popover: fixed width, comfortable padding ── */
+/* ═══════════════════════════════════════════════════════════════
+   Project Picker — dark sidebar theme (Claude-inspired)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Popover body ──────────────────────────────────────────── */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker) {
-    min-width: 560px !important;
-    width:     560px !important;
-    max-width: min(96vw, 600px) !important;
-    padding: 10px 12px 12px !important;
+    min-width:     460px !important;
+    width:         460px !important;
+    max-width:     min(96vw, 500px) !important;
+    padding:       0 !important;
+    background:    #141414 !important;
+    border:        1px solid #2a2a2a !important;
+    border-radius: 10px !important;
+    overflow:      hidden !important;
 }
-/* Compact columns inside the picker rows */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) > div {
+    padding: 6px 0 10px !important;
+}
+
+/* ── Column rows ───────────────────────────────────────────── */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     div[data-testid="stHorizontalBlock"] {
-    gap: 4px !important;
+    gap:     0 !important;
+    padding: 0 6px !important;
+    align-items: center !important;
 }
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     div[data-testid="stColumn"] {
-    padding-left: 2px !important;
-    padding-right: 2px !important;
+    padding:   1px 2px !important;
     min-width: 0 !important;
 }
-/* Project name load-buttons: left-aligned, compact */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button {
-    font-size: 0.82em !important;
-    padding: 3px 10px !important;
-    min-height: 28px !important;
-    height: auto !important;
-    width: 100% !important;
-}
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button p,
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button span {
-    text-align: left !important;
-    display: block !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-}
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button > div {
+
+/* ── Project rows (secondary button) → plain text rows ──────── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-secondary"] {
+    background:      transparent !important;
+    border:          none !important;
+    box-shadow:      none !important;
+    border-radius:   5px !important;
+    padding:         3px 10px !important;
+    margin:          0 !important;
+    height:          32px !important;
+    min-height:      32px !important;
+    width:           100% !important;
     justify-content: flex-start !important;
-    width: 100% !important;
-}
-/* Compact expander headers for client folders */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stExpander"] summary {
-    padding: 4px 8px !important;
-    font-size: 0.84em !important;
-    font-weight: 600 !important;
+    color:           #c9d1d9 !important;
+    font-size:       0.84em !important;
+    transition:      background 0.1s !important;
 }
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stExpander"] > div[data-testid="stExpanderDetails"] {
-    padding: 2px 4px 6px !important;
+    [data-testid="stBaseButton-secondary"]:hover {
+    background: rgba(255,255,255,0.07) !important;
+    color:      #f0f6fc !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-secondary"] p,
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-secondary"] > div {
+    text-align:      left !important;
+    overflow:        hidden !important;
+    text-overflow:   ellipsis !important;
+    white-space:     nowrap !important;
+    justify-content: flex-start !important;
+}
+
+/* ── Active project (primary button) ───────────────────────── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-primary"],
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-primary"]:hover {
+    background:      rgba(0,229,160,0.10) !important;
+    border:          none !important;
+    border-left:     3px solid #00E5A0 !important;
+    border-radius:   0 5px 5px 0 !important;
+    box-shadow:      none !important;
+    color:           #00E5A0 !important;
+    font-weight:     600 !important;
+    padding-left:    8px !important;
+    justify-content: flex-start !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-primary"] p,
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stBaseButton-primary"] > div {
+    text-align:      left !important;
+    overflow:        hidden !important;
+    text-overflow:   ellipsis !important;
+    white-space:     nowrap !important;
+    color:           #00E5A0 !important;
+    justify-content: flex-start !important;
+}
+
+/* ── ⋮ menu button (last column) ───────────────────────────── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stColumn"]:last-child button {
+    width:           26px !important;
+    min-width:       26px !important;
+    max-width:       26px !important;
+    height:          26px !important;
+    min-height:      26px !important;
+    padding:         0 !important;
+    justify-content: center !important;
+    color:           #3d4451 !important;
+    border-radius:   4px !important;
+    font-size:       1em !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stColumn"]:last-child button:hover {
+    background: rgba(255,255,255,0.10) !important;
+    color:      #8b949e !important;
+}
+
+/* ── Folder expander ────────────────────────────────────────── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stExpander"] {
+    background: transparent !important;
+    border:     none !important;
+    margin:     0 !important;
+    padding:    0 !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    details[data-testid="stExpander"] > summary,
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stExpander"] summary {
+    background:     transparent !important;
+    border:         none !important;
+    color:          #6e7681 !important;
+    font-size:      0.72em !important;
+    font-weight:    700 !important;
+    letter-spacing: 0.08em !important;
+    text-transform: uppercase !important;
+    padding:        10px 14px 4px !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stExpander"] summary:hover {
+    color:      #9ca3af !important;
+    background: rgba(255,255,255,0.03) !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stExpander"] summary svg {
+    color:  #484f58 !important;
+    width:  12px !important;
+    height: 12px !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    [data-testid="stExpanderDetails"] {
+    padding:    1px 0 4px !important;
+    background: transparent !important;
+    border:     none !important;
+}
+
+/* ── Dividers ───────────────────────────────────────────────── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) hr {
+    border-color: #21262d !important;
+    margin:       3px 10px !important;
+}
+
+/* ── Empty state / caption text ─────────────────────────────── */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stMarkdownContainer"] p {
+    color:     #6e7681 !important;
+    font-size: 0.82em !important;
 }
 </style>
 """
@@ -560,30 +719,33 @@ def render_project_bar() -> None:
 # ── Individual project card ───────────────────────────────────────────────────
 
 def _render_project_card(snap: dict) -> None:
-    """Compact list row: [name/load button]  [⋮ menu]"""
+    """Clean text-row: [name/load button]  [⋮ menu] — no card borders."""
     snap_id    = snap["id"]
     name       = snap["name"]
     pinned     = snap.get("is_pinned", False)
     client_now = (snap.get("client_name") or "").strip() or "General"
+    results    = snap.get("results_json") or {}
 
     try:
         dt = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
-        ts = dt.strftime("%Y-%m-%d")
+        ts = dt.strftime("%b %d")
     except Exception:
         ts = ""
 
     is_active = snap_id == st.session_state.get("_active_snap_id")
     _dirty    = _is_dirty() if is_active else False
 
-    _pin_icon    = "★ " if pinned else ""
-    _active_icon = "▶ " if is_active else ""
-    # Show full name (up to 36 chars) — list layout has room
-    _short   = (name[:34] + "…") if len(name) > 36 else name
-    _btn_lbl = f"{_active_icon}{_pin_icon}{_short}"
-    _tooltip = f"{name}  ·  {ts}" + ("  ·  ✏️ unsaved" if _dirty else "")
+    npv = results.get("npv", 0)
+    irr = results.get("irr", 0)
+    _meta = f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%" if npv else ts
+
+    _pin_icon = "★ " if pinned else ""
+    _short    = (name[:34] + "…") if len(name) > 36 else name
+    _btn_lbl  = f"{_pin_icon}{_short}"
+    _tooltip  = f"{name}  ·  {_meta}" + ("  ·  ✏️ unsaved" if _dirty else "")
 
     # ── [name button]  [⋮] ─────────────────────────────────────────────────
-    _nc, _mc = st.columns([6, 1], gap="small")
+    _nc, _mc = st.columns([14, 1], gap="small")
 
     with _nc:
         if st.button(
