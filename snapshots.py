@@ -246,6 +246,7 @@ def _render_save_dialog(user_id: str) -> None:
 
     # ── New folder text input ─────────────────────────────────────────────────
     new_folder_name = ""
+    _folder_dup_err = False
     if selected == _NEW_FOLDER_SENTINEL:
         new_folder_name = st.text_input(
             "New folder name",
@@ -253,7 +254,14 @@ def _render_save_dialog(user_id: str) -> None:
             placeholder="e.g. Impala Projects",
             label_visibility="collapsed",
         )
-        st.caption("Enter new folder name above")
+        # Duplicate check (case-insensitive)
+        if new_folder_name.strip():
+            _existing_lc = [f.lower() for f in existing]
+            if new_folder_name.strip().lower() in _existing_lc:
+                st.error(f"⚠️ Folder **{new_folder_name.strip()}** already exists — pick a different name.")
+                _folder_dup_err = True
+        else:
+            st.caption("Enter new folder name above")
 
     # Resolve final client/folder value
     if selected == _NEW_FOLDER_SENTINEL:
@@ -266,7 +274,8 @@ def _render_save_dialog(user_id: str) -> None:
     ok_col, cancel_col = st.columns(2)
     with ok_col:
         if st.button("✅ Save", type="primary", use_container_width=True,
-                     key="snap_dialog_ok"):
+                     key="snap_dialog_ok",
+                     disabled=_folder_dup_err):
             final_name    = name.strip() or default_name
             _saved_params = get_params_to_save()
             result = save_snapshot(
@@ -612,7 +621,134 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     border-color: #21262d !important;
     margin:       3px 10px !important;
 }
+
+/* ── Drag-and-drop ─────────────────────────────────────────── */
+/* Row being dragged */
+[data-testid="stHorizontalBlock"].dnd-dragging {
+    opacity: 0.4 !important;
+    cursor:  grabbing !important;
+}
+/* Folder expander highlighted as drop target */
+[data-testid="stExpander"].dnd-drop-over summary {
+    background: rgba(0,229,160,0.12) !important;
+    outline:    2px dashed #00E5A0 !important;
+    border-radius: 6px !important;
+}
+/* Drag-handle cursor on project rows */
+[data-drag-row] {
+    cursor: grab !important;
+}
+[data-drag-row]:active {
+    cursor: grabbing !important;
+}
+
+/* ── Move-to folder picker: sub-folder buttons ─────────────── */
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"].move-to-current {
+    color:          #00E5A0 !important;
+    pointer-events: none !important;
+}
+
+/* ── DnD bridge input: hide completely but keep functional ──── */
+input[placeholder="__dnd__"] {
+    position:       fixed !important;
+    left:           -9999px !important;
+    top:            -9999px !important;
+    width:          1px !important;
+    height:         1px !important;
+    opacity:        0 !important;
+    pointer-events: none !important;
+}
+[data-testid="stTextInputRootElement"]:has(input[placeholder="__dnd__"]) {
+    display: none !important;
+}
 </style>
+"""
+
+
+_DND_JS = """
+<script>
+(function() {
+    var PARENT = (window.parent && window.parent.document) ? window.parent.document : document;
+    var _dragging = null;
+
+    function setupAll() {
+        // ── Drag sources: project rows ──────────────────────────
+        PARENT.querySelectorAll('dfn[data-drag-snap]').forEach(function(dfn) {
+            if (dfn._dndReady) return;
+            dfn._dndReady = true;
+            var snapId = dfn.getAttribute('data-drag-snap');
+            var mc  = dfn.parentElement;           // stMarkdownContainer
+            var row = mc && mc.nextElementSibling; // stHorizontalBlock
+            if (!row) return;
+            row.setAttribute('draggable', 'true');
+            row.style.cursor = 'grab';
+            row.addEventListener('dragstart', function(e) {
+                _dragging = snapId;
+                e.dataTransfer.setData('text/plain', snapId);
+                e.dataTransfer.effectAllowed = 'move';
+                row.style.opacity = '0.4';
+            });
+            row.addEventListener('dragend', function() {
+                _dragging = null;
+                row.style.opacity = '';
+                // Remove all drop highlights
+                PARENT.querySelectorAll('[data-testid="stExpander"]').forEach(function(ex) {
+                    ex.querySelector('summary') && (ex.querySelector('summary').style.outline = '');
+                    ex.style.background = '';
+                });
+            });
+        });
+
+        // ── Drop targets: folder expanders ──────────────────────
+        PARENT.querySelectorAll('dfn[data-drag-folder]').forEach(function(dfn) {
+            if (dfn._dndReady) return;
+            dfn._dndReady = true;
+            var folder  = dfn.getAttribute('data-drag-folder');
+            var mc      = dfn.parentElement;
+            var expander = mc && mc.nextElementSibling;
+            if (!expander) return;
+            expander.addEventListener('dragover', function(e) {
+                if (!_dragging) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                var sum = expander.querySelector('summary');
+                if (sum) sum.style.outline = '2px dashed #00E5A0';
+            });
+            expander.addEventListener('dragleave', function() {
+                var sum = expander.querySelector('summary');
+                if (sum) sum.style.outline = '';
+            });
+            expander.addEventListener('drop', function(e) {
+                e.preventDefault();
+                var sum = expander.querySelector('summary');
+                if (sum) sum.style.outline = '';
+                var snapId = e.dataTransfer.getData('text/plain') || _dragging;
+                if (snapId) triggerMove(snapId, folder);
+            });
+        });
+    }
+
+    function triggerMove(snapId, folder) {
+        var inputs = PARENT.querySelectorAll('input[placeholder="__dnd__"]');
+        if (!inputs.length) { return; }
+        var input = inputs[0];
+        try {
+            var setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+            setter.call(input, snapId + '|' + folder);
+        } catch(ex) {
+            input.value = snapId + '|' + folder;
+        }
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+
+    // Multiple retries to handle Streamlit's async rendering
+    setTimeout(setupAll, 250);
+    setTimeout(setupAll, 800);
+    setTimeout(setupAll, 2000);
+})();
+</script>
 """
 
 
@@ -624,8 +760,10 @@ def render_project_bar() -> None:
         [📁 Projects ▾ (popover)]  ·  [active project status]  ·  [💾 Save as New Project]
 
     The popover shows projects grouped by client in collapsible folders.
-    Clicking a project name loads it; ⋮ menu offers Pin/Rename/Set Client/Update/Delete.
+    Clicking a project name loads it; ⋮ menu offers Pin/Rename/Move to…/Update/Delete.
+    Supports drag-and-drop between folders.
     """
+    import streamlit.components.v1 as components
     from collections import defaultdict
 
     user = get_current_user()
@@ -641,6 +779,26 @@ def render_project_bar() -> None:
 
     snapshots = get_snapshots(user_id)
     count     = len(snapshots)
+
+    # ── DnD bridge: hidden text input for JS → Python communication ───────────
+    # Rendered OUTSIDE the popover so it persists in the DOM.
+    # JS writes "snap_id|folder_name" to this input via React native setter.
+    if "_dnd_action" not in st.session_state:
+        st.session_state["_dnd_action"] = ""
+    st.text_input("", key="_dnd_action", placeholder="__dnd__",
+                  label_visibility="collapsed")
+
+    # ── Process any pending drag-drop move ────────────────────────────────────
+    _dnd = st.session_state.get("_dnd_action", "")
+    if _dnd and "|" in _dnd:
+        _dnd_sid, _dnd_fol = _dnd.split("|", 1)
+        st.session_state["_dnd_action"] = ""   # clear BEFORE rerun
+        try:
+            update_snapshot(_dnd_sid, client_name=("" if _dnd_fol == "General" else _dnd_fol))
+            st.toast(f"📂 Moved to {_dnd_fol or 'General'}")
+        except Exception as _e:
+            st.error(f"Move failed: {_e}")
+        st.rerun()
 
     # ── Save dialog (full-width, shown inline when triggered) ──────────────
     if st.session_state.get("_snap_save_open"):
@@ -685,9 +843,17 @@ def render_project_bar() -> None:
                     # Auto-expand the folder that contains the active project
                     _expanded = any(s["id"] == active_id for s in _grp)
                     _folder_lbl = f"📂 {_client}  ({_n})"
+                    # ── Drag-drop TARGET marker (JS attaches drop listener to next sibling) ──
+                    st.markdown(
+                        f'<dfn data-drag-folder="{_client}" style="display:none"></dfn>',
+                        unsafe_allow_html=True,
+                    )
                     with st.expander(_folder_lbl, expanded=_expanded):
                         for _snap in _grp:
-                            _render_project_card(_snap)
+                            _render_project_card(_snap, user_id=user_id)
+
+                # ── Drag-and-drop JS component (same-origin iframe) ───────
+                components.html(_DND_JS, height=0, scrolling=False)
 
     with _bc2:
         _aid, _aname, _dirty = get_active_project()
@@ -717,13 +883,19 @@ def render_project_bar() -> None:
 
 # ── Individual project card ───────────────────────────────────────────────────
 
-def _render_project_card(snap: dict) -> None:
+def _render_project_card(snap: dict, user_id: str = "") -> None:
     """Clean text-row: [name/load button]  [⋮ menu] — no card borders."""
     snap_id    = snap["id"]
     name       = snap["name"]
     pinned     = snap.get("is_pinned", False)
     client_now = (snap.get("client_name") or "").strip() or "General"
     results    = snap.get("results_json") or {}
+
+    # ── Drag-and-drop source marker (JS reads this to set draggable) ──────────
+    st.markdown(
+        f'<dfn data-drag-snap="{snap_id}" style="display:none"></dfn>',
+        unsafe_allow_html=True,
+    )
 
     try:
         dt = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
@@ -782,9 +954,9 @@ def _render_project_card(snap: dict) -> None:
                 st.session_state[f"_pc_ren_{snap_id}"] = True
                 st.rerun()
 
-            # Set Client
-            if st.button("🏢 Set Client", key=f"pc_cli_{snap_id}", use_container_width=True):
-                st.session_state[f"_pc_cli_{snap_id}"] = True
+            # Move to folder
+            if st.button("📁 Move to…", key=f"pc_mv_{snap_id}", use_container_width=True):
+                st.session_state[f"_pc_mv_{snap_id}"] = not st.session_state.get(f"_pc_mv_{snap_id}", False)
                 st.rerun()
 
             # Update config
@@ -832,26 +1004,61 @@ def _render_project_card(snap: dict) -> None:
                 st.session_state.pop(f"_pc_ren_{snap_id}", None)
                 st.rerun()
 
-    # ── Inline set client ───────────────────────────────────────────────────
-    if st.session_state.get(f"_pc_cli_{snap_id}"):
-        _new_cli = st.text_input(
-            "Client name",
-            value="" if client_now == "General" else client_now,
-            key=f"pc_cli_inp_{snap_id}",
-            label_visibility="collapsed",
-            placeholder="e.g. Acme Corp",
-        )
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            if st.button("✅ OK", key=f"pc_cli_ok_{snap_id}", use_container_width=True,
-                         type="primary"):
-                update_snapshot(snap_id, client_name=_new_cli.strip())
-                st.session_state.pop(f"_pc_cli_{snap_id}", None)
+    # ── Inline "Move to…" folder picker ────────────────────────────────────
+    if st.session_state.get(f"_pc_mv_{snap_id}"):
+        _mv_folders = _get_existing_folders(user_id) if user_id else ["General"]
+        st.caption("Move to folder:")
+        for _f in _mv_folders:
+            _is_cur = (_f == client_now)
+            _f_slug = str(abs(hash(_f)) % 9999999)
+            _icon   = "✓ " if _is_cur else "📂 "
+            _f_btn  = st.button(
+                f"{_icon}{_f}",
+                key=f"pc_mv_f_{snap_id}_{_f_slug}",
+                use_container_width=True,
+                disabled=_is_cur,
+            )
+            if _f_btn and not _is_cur:
+                update_snapshot(snap_id, client_name=("" if _f == "General" else _f))
+                st.session_state.pop(f"_pc_mv_{snap_id}", None)
+                st.toast(f"📂 Moved to {_f}")
                 st.rerun()
-        with _c2:
-            if st.button("✖", key=f"pc_cli_cx_{snap_id}", use_container_width=True):
-                st.session_state.pop(f"_pc_cli_{snap_id}", None)
+
+        # ── New folder sub-option ─────────────────────────────
+        if st.session_state.get(f"_pc_mv_new_{snap_id}"):
+            _nf = st.text_input(
+                "New folder", key=f"pc_mv_nf_{snap_id}",
+                label_visibility="collapsed",
+                placeholder="Folder name…",
+            )
+            # Duplicate guard
+            _nf_dup = _nf.strip() and _nf.strip().lower() in [x.lower() for x in _mv_folders]
+            if _nf_dup:
+                st.error(f"⚠️ **{_nf.strip()}** already exists")
+            _na, _nb = st.columns(2)
+            with _na:
+                if st.button("✅", key=f"pc_mv_nfok_{snap_id}",
+                             use_container_width=True, type="primary",
+                             disabled=(_nf_dup or not _nf.strip())):
+                    update_snapshot(snap_id, client_name=_nf.strip())
+                    st.session_state.pop(f"_pc_mv_{snap_id}", None)
+                    st.session_state.pop(f"_pc_mv_new_{snap_id}", None)
+                    st.toast(f"📂 Moved to {_nf.strip()}")
+                    st.rerun()
+            with _nb:
+                if st.button("✖", key=f"pc_mv_nfcx_{snap_id}", use_container_width=True):
+                    st.session_state.pop(f"_pc_mv_new_{snap_id}", None)
+                    st.rerun()
+        else:
+            if st.button("＋ New folder", key=f"pc_mv_newfol_{snap_id}",
+                         use_container_width=True):
+                st.session_state[f"_pc_mv_new_{snap_id}"] = True
                 st.rerun()
+
+        if st.button("✖ Close", key=f"pc_mv_cx_{snap_id}", use_container_width=True):
+            st.session_state.pop(f"_pc_mv_{snap_id}", None)
+            st.session_state.pop(f"_pc_mv_new_{snap_id}", None)
+            st.rerun()
 
     # ── Inline delete confirm ───────────────────────────────────────────────
     if st.session_state.get(f"_pc_del_{snap_id}"):
