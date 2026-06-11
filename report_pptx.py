@@ -233,21 +233,32 @@ def _s1_cover(prs, project_name: str, client_name: str,
     """Slide 1 – Cover  (clean-energy photo background, Huawei accent)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
-    # ── Left panel: 3-zone clean energy design ───────────────────────────────
-    # Zone A (top  0.00 – 4.10"):  dark forest-green overlay — text area
-    # Zone B (mid  4.10 – 6.40"):  solar + vineyard photo visible
-    # Zone C (bot  6.40 – 7.50"):  dark overlay — footer / confidential
-    _COVER_BG = "0B1929"          # Huawei deep navy — matches FusionSolar brand
+    # ── Left panel: 3-zone design ────────────────────────────────────────────
+    # Zone A (top  0.00 – 4.10"):  dark navy overlay — text area
+    # Zone B (mid  4.10 – 6.38"):  product photo visible (green-framed window)
+    # Zone C (bot  6.38 – 7.50"):  dark navy overlay — footer / confidential
+    #
+    # Image: kv-pc.jpg  3840×1720 px  ratio=2.233
+    #   Scaled to panel width 8.90"  →  height=3.987"
+    #   Positioned so product optical centre (≈48% from top) aligns with
+    #   green-band centre (5.24"):  top_y = 5.24 - 3.987×0.48 = 3.33"
+    #   Visible slice: 20%–77% of image (full inverter + BESS body)
+    #   Dark BG of photo blends seamlessly with dark navy overlays above/below
+    _COVER_BG = "0B1929"          # Huawei deep navy
     _ASSETS   = os.path.join(os.path.dirname(__file__), "assets")
-    _cover_ph = os.path.join(_ASSETS, "hw_fusionsolar9.jpg")
+    _cover_ph = os.path.join(_ASSETS, "hw_kv_dark.jpg")
 
     if os.path.exists(_cover_ph):
-        # Full-panel photo base (z-order: lowest layer)
-        slide.shapes.add_picture(_cover_ph, _in(0), _in(0), _in(8.90), _in(7.5))
-        # Dark overlay — TOP zone (goes on top of photo for readability)
+        # Photo — z-order lowest; width fills panel, height keeps native ratio
+        _ph_w, _ph_h = 8.90, 3.987          # inches: 8.90 / 2.233 = 3.987
+        _ph_top      = 3.33                  # top_y so products centre on green band
+        slide.shapes.add_picture(_cover_ph,
+                                 _in(0), _in(_ph_top),
+                                 _in(_ph_w), _in(_ph_h))
+        # Dark overlay — TOP zone (text readable over dark bg)
         _rect(slide, 0, 0,    8.90, 4.12, _COVER_BG)
         # Dark overlay — BOTTOM zone
-        _rect(slide, 0, 6.40, 8.90, 1.10, _COVER_BG)
+        _rect(slide, 0, 6.38, 8.90, 1.12, _COVER_BG)
     else:
         _rect(slide, 0, 0, 8.90, 7.5, _COVER_BG)   # fallback solid
 
