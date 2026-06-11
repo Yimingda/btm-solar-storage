@@ -3521,16 +3521,16 @@ with col_content:
             _rpt_col1, _rpt_col2 = st.columns(2)
             with _rpt_col1:
                 _pptx_consultant = st.text_input(
-                    "EPC Company (appears on all slides)",
+                    "Consulting firm name (appears on all slides)",
                     value=st.session_state.get("_pptx_consultant", ""),
-                    placeholder="e.g. *** Engineering Company",
+                    placeholder="e.g. GreenWatt Consulting",
                     key="_pptx_consultant",
                 )
             with _rpt_col2:
                 _pptx_client = st.text_input(
-                    "OEM",
-                    value=st.session_state.get("_pptx_client", "Huawei Technologies SA PTY LTD"),
-                    placeholder="e.g. Huawei Technologies SA PTY LTD",
+                    "Client / company name (cover slide)",
+                    value=st.session_state.get("_pptx_client", ""),
+                    placeholder="e.g. ABC Manufacturing Ltd",
                     key="_pptx_client",
                 )
 
