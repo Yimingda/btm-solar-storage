@@ -453,40 +453,35 @@ def _show_limit_msg(tier: str, limit: int) -> None:
 _CARD_CSS = """
 <style>
 /* ═══════════════════════════════════════════════════════════════
-   Project Picker — dark sidebar theme (Claude-inspired)
+   ALL Streamlit Popovers → dark theme
+   (Selectors are global so they reach React portals)
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Popover body ──────────────────────────────────────────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) {
-    min-width:     460px !important;
-    width:         460px !important;
-    max-width:     min(96vw, 500px) !important;
-    padding:       0 !important;
-    background:    #141414 !important;
+/* ── Dark background for every popover ─────────────────────── */
+[data-testid="stPopoverBody"] {
+    background:    #161616 !important;
     border:        1px solid #2a2a2a !important;
     border-radius: 10px !important;
+    padding:       0 !important;
     overflow:      hidden !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) > div {
+[data-testid="stPopoverBody"] > div {
     padding: 6px 0 10px !important;
 }
 
-/* ── Column rows ───────────────────────────────────────────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stHorizontalBlock"] {
-    gap:     0 !important;
-    padding: 0 6px !important;
-    align-items: center !important;
+/* ── Column layout ─────────────────────────────────────────── */
+[data-testid="stPopoverBody"] div[data-testid="stHorizontalBlock"] {
+    gap:          0 !important;
+    padding:      0 6px !important;
+    align-items:  center !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stColumn"] {
+[data-testid="stPopoverBody"] div[data-testid="stColumn"] {
     padding:   1px 2px !important;
     min-width: 0 !important;
 }
 
-/* ── Project rows (secondary button) → plain text rows ──────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-secondary"] {
+/* ── ALL secondary buttons → borderless text rows ──────────── */
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] {
     background:      transparent !important;
     border:          none !important;
     box-shadow:      none !important;
@@ -501,15 +496,12 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     font-size:       0.84em !important;
     transition:      background 0.1s !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-secondary"]:hover {
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {
     background: rgba(255,255,255,0.07) !important;
     color:      #f0f6fc !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-secondary"] p,
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-secondary"] > div {
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] p,
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"] > div {
     text-align:      left !important;
     overflow:        hidden !important;
     text-overflow:   ellipsis !important;
@@ -517,12 +509,11 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     justify-content: flex-start !important;
 }
 
-/* ── Active project (primary button) ───────────────────────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-primary"],
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-primary"]:hover {
-    background:      rgba(0,229,160,0.10) !important;
+/* ── Active project (primary + disabled) → green accent ─────── */
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"],
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:hover,
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled {
+    background:      rgba(0,229,160,0.09) !important;
     border:          none !important;
     border-left:     3px solid #00E5A0 !important;
     border-radius:   0 5px 5px 0 !important;
@@ -531,11 +522,15 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     font-weight:     600 !important;
     padding-left:    8px !important;
     justify-content: flex-start !important;
+    opacity:         1 !important;
+    height:          32px !important;
+    min-height:      32px !important;
+    width:           100% !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-primary"] p,
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stBaseButton-primary"] > div {
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] p,
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] > div,
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled p,
+[data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]:disabled > div {
     text-align:      left !important;
     overflow:        hidden !important;
     text-overflow:   ellipsis !important;
@@ -544,7 +539,7 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     justify-content: flex-start !important;
 }
 
-/* ── ⋮ menu button (last column) ───────────────────────────── */
+/* ── ⋮ button (project picker only, last column) ───────────── */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     div[data-testid="stColumn"]:last-child button {
     width:           26px !important;
@@ -564,18 +559,15 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     color:      #8b949e !important;
 }
 
-/* ── Folder expander ────────────────────────────────────────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stExpander"] {
+/* ── Folder expanders ──────────────────────────────────────── */
+[data-testid="stPopoverBody"] [data-testid="stExpander"] {
     background: transparent !important;
     border:     none !important;
     margin:     0 !important;
     padding:    0 !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    details[data-testid="stExpander"] > summary,
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stExpander"] summary {
+[data-testid="stPopoverBody"] [data-testid="stExpander"] summary,
+[data-testid="stPopoverBody"] details[data-testid="stExpander"] > summary {
     background:     transparent !important;
     border:         none !important;
     color:          #6e7681 !important;
@@ -585,35 +577,37 @@ div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
     text-transform: uppercase !important;
     padding:        10px 14px 4px !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stExpander"] summary:hover {
+[data-testid="stPopoverBody"] [data-testid="stExpander"] summary:hover {
     color:      #9ca3af !important;
     background: rgba(255,255,255,0.03) !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stExpander"] summary svg {
+[data-testid="stPopoverBody"] [data-testid="stExpander"] summary svg {
     color:  #484f58 !important;
     width:  12px !important;
     height: 12px !important;
 }
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    [data-testid="stExpanderDetails"] {
+[data-testid="stPopoverBody"] [data-testid="stExpanderDetails"] {
     padding:    1px 0 4px !important;
     background: transparent !important;
     border:     none !important;
 }
 
-/* ── Dividers ───────────────────────────────────────────────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker) hr {
+/* ── Caption text & dividers ───────────────────────────────── */
+[data-testid="stPopoverBody"] [data-testid="stCaptionContainer"] p {
+    color:     #6e7681 !important;
+    font-size: 0.80em !important;
+}
+[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p {
+    color:     #e0e6ed !important;  /* readable white for menu headings */
+}
+[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p em,
+[data-testid="stPopoverBody"] div[data-testid="stMarkdownContainer"] p small {
+    color:     #8b949e !important;
+    font-size: 0.82em !important;
+}
+[data-testid="stPopoverBody"] hr {
     border-color: #21262d !important;
     margin:       3px 10px !important;
-}
-
-/* ── Empty state / caption text ─────────────────────────────── */
-div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
-    div[data-testid="stMarkdownContainer"] p {
-    color:     #6e7681 !important;
-    font-size: 0.82em !important;
 }
 </style>
 """
@@ -656,9 +650,11 @@ def render_project_bar() -> None:
     with _bc1:
         _btn_lbl = f"📁 Projects  {count}/{limit_str} ▾"
         with st.popover(_btn_lbl, use_container_width=True):
-            # Invisible marker — CSS :has(.proj-picker-marker) scopes styles here
+            # Width-forcing marker (forces popover ≥440px) + CSS scope anchor
             st.markdown(
-                '<span class="proj-picker-marker" style="display:none"></span>',
+                '<div class="proj-picker-marker" '
+                'style="min-width:440px;height:0;line-height:0;font-size:0;'
+                'overflow:hidden;margin:0;padding:0"></div>',
                 unsafe_allow_html=True,
             )
             if not snapshots:
@@ -804,7 +800,7 @@ def _render_project_card(snap: dict) -> None:
 
             # Delete
             if st.button("🗑️ Delete", key=f"pc_del_{snap_id}",
-                         use_container_width=True, type="primary"):
+                         use_container_width=True):
                 st.session_state[f"_pc_del_{snap_id}"] = True
                 st.rerun()
 
