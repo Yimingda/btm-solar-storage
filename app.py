@@ -3850,7 +3850,7 @@ with col_content:
                 st.text_input(
                     "Client Name",
                     value=st.session_state.get("_pptx_client_name", ""),
-                    placeholder="e.g. ABC Manufacturing (Pty) Ltd",
+                    placeholder="e.g. Lanxi Mining Company",
                     help='Appears on cover: "Confidential · Only For: {Client Name}"',
                     key="_pptx_client_name",
                 )
