@@ -116,11 +116,15 @@ st.markdown("""
         padding-bottom: 1rem !important;
         max-width: 100% !important;
     }
-    #MainMenu, footer, [data-testid="collapsedControl"] { display: none !important; }
-    header[data-testid="stHeader"] {
-        background: #080C18 !important;
-        border-bottom: 1px solid var(--border) !important;
-    }
+    /* Hide ALL Streamlit chrome — header bar, toolbar, deploy btn, viewer badge */
+    #MainMenu,
+    footer,
+    header[data-testid="stHeader"],
+    [data-testid="stToolbar"],
+    [data-testid="stDecoration"],
+    [data-testid="stStatusWidget"],
+    [data-testid="collapsedControl"],
+    button[data-testid="baseButton-headerNoPadding"] { display: none !important; }
 
     /* ── App header row ────────────────────────────────────────── */
     div[data-testid="stHorizontalBlock"]:first-of-type {
