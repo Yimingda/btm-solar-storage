@@ -1,5 +1,5 @@
 """
-auth.py — 登录 / 注册 / 邮件验证 UI + Session helpers
+auth.py — Login / Registration / Email Verification UI + Session helpers
 BTM PV+BESS Financial Modelling System
 """
 
@@ -9,7 +9,8 @@ import re
 import streamlit as st
 
 from db import (sign_up, sign_in, refresh_session, verify_otp, resend_verification,
-                sign_out, get_user_profile, update_last_login, _secrets_ok)
+                sign_out, get_user_profile, update_last_login, _secrets_ok,
+                log_user_action)
 
 
 # ── localStorage key for "remember me" ───────────────────────────────────────
@@ -257,7 +258,7 @@ def render_auth_gate():
         except Exception:
             pass
         if _rt:
-            with st.spinner("自动登录中 / Auto sign-in…"):
+            with st.spinner("Auto sign-in…"):
                 resp = refresh_session(_rt)
                 if resp and resp.session:
                     # Token valid — defer the rotated-token save to the first
@@ -269,7 +270,7 @@ def render_auth_gate():
         # Token expired or invalid — wipe stale localStorage so next visit shows
         # a clean login form instead of looping through "session expired" forever.
         _js_clear_session()
-        st.info("登录已过期，请重新登录 / Session expired — please sign in again")
+        st.info("Session expired — please sign in again")
 
     st.markdown(_AUTH_CSS, unsafe_allow_html=True)
 
@@ -295,7 +296,7 @@ def _render_login():
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("#### 登录 Sign In")
+    st.markdown("#### Sign In")
 
     # ── Auto-login bridge: inject loader ONCE per session ──
     # Set the guard flag BEFORE injecting so that if the JS redirect fails
@@ -312,35 +313,35 @@ def _render_login():
     # Enable browser-native autocomplete so Chrome/Firefox can save passwords
     _inject_autocomplete()
 
-    email    = st.text_input("📧 邮箱 Email",    key="li_email",
+    email    = st.text_input("📧 Email",    key="li_email",
                               value=_prefill,
                               placeholder="your@email.com")
-    password = st.text_input("🔒 密码 Password", key="li_password",
+    password = st.text_input("🔒 Password", key="li_password",
                               type="password", placeholder="••••••••")
 
     rm_col, _ = st.columns([3, 2])
     with rm_col:
         remember_me = st.checkbox(
-            "记住我 Remember me",
+            "Remember me",
             value=bool(_prefill),
             key="li_remember",
-            help="在此浏览器中保持登录状态（30天）/ Stay signed in for 30 days on this browser",
+            help="Stay signed in for 30 days on this browser",
         )
 
     login_col, reg_col = st.columns(2)
     with login_col:
-        login_clicked = st.button("登录 Sign In", type="primary",
+        login_clicked = st.button("Sign In", type="primary",
                                   use_container_width=True, key="li_btn")
     with reg_col:
-        if st.button("注册 Register", use_container_width=True, key="li_reg_btn"):
+        if st.button("Register", use_container_width=True, key="li_reg_btn"):
             st.session_state["_auth_mode"] = "register"
             st.rerun()
 
     if login_clicked:
         if not email.strip() or not password:
-            st.error("请填写邮箱和密码 / Please enter email and password")
+            st.error("Please enter email and password")
             return
-        with st.spinner("登录中 / Signing in…"):
+        with st.spinner("Signing in…"):
             try:
                 resp = sign_in(email.strip(), password)
                 # ── Remember Me ────────────────────────────────────────────
@@ -360,7 +361,7 @@ def _render_login():
 
 def _on_login_success(resp, email: str):
     if not resp.user:
-        st.error("登录失败 / Login failed")
+        st.error("Login failed")
         return
 
     # Note: email_confirmed_at check intentionally removed.
@@ -370,30 +371,31 @@ def _on_login_success(resp, email: str):
 
     profile = get_user_profile(resp.user.id)
     if not profile:
-        st.error("账号数据异常，请联系管理员 / Profile missing — contact admin")
+        st.error("Profile missing — contact admin")
         return
     if not profile.get("is_active", True):
-        st.error("账号已被停用 / Account suspended — contact admin")
+        st.error("Account suspended — contact admin")
         return
 
     st.session_state["_user_profile"] = profile
     update_last_login(resp.user.id)
+    log_user_action(resp.user.id, "login", {"email": email})
     st.rerun()
 
 
 def _handle_login_error(exc: Exception, email: str):
     err = str(exc).lower()
     if "invalid login" in err or "invalid_credentials" in err or "invalid" in err:
-        st.error("邮箱或密码错误 / Invalid email or password")
+        st.error("Invalid email or password")
     elif "email not confirmed" in err or "not confirmed" in err:
         st.session_state["_pending_email"] = email
         st.session_state["_auth_mode"]    = "verify"
-        st.warning("邮箱未验证 / Email not confirmed")
+        st.warning("Email not confirmed")
         st.rerun()
     elif "too many" in err:
-        st.error("请求过于频繁，请稍后再试 / Too many requests, try later")
+        st.error("Too many requests — please try again later")
     else:
-        st.error(f"登录失败 / Login failed: {exc}")
+        st.error(f"Sign-in failed: {exc}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -405,56 +407,55 @@ def _render_register():
     <div class="auth-logo">
         <div class="icon">⚡</div>
         <div class="title">BTM Solar+BESS</div>
-        <div class="sub">创建账号 / Create Account</div>
+        <div class="sub">Create Account</div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("#### 注册新账号 Register")
+    st.markdown("#### Register")
 
-    full_name = st.text_input("👤 姓名 Full Name *",    key="reg_name",
-                               placeholder="张三 / Zhang San")
-    company   = st.text_input("🏢 公司 Company *",     key="reg_company",
+    full_name = st.text_input("👤 Full Name *",    key="reg_name",
+                               placeholder="Your Name")
+    company   = st.text_input("🏢 Company *",     key="reg_company",
                                placeholder="Your Company Ltd")
-    email     = st.text_input("📧 邮箱 Email *",       key="reg_email",
+    email     = st.text_input("📧 Email *",       key="reg_email",
                                placeholder="your@email.com")
-    password  = st.text_input("🔒 密码 Password *",    key="reg_pw",
-                               type="password", placeholder="至少8位 / Min 8 chars")
-    password2 = st.text_input("🔒 确认密码 Confirm *", key="reg_pw2",
-                               type="password", placeholder="再输一遍 / Repeat")
+    password  = st.text_input("🔒 Password *",    key="reg_pw",
+                               type="password", placeholder="Min 8 characters")
+    password2 = st.text_input("🔒 Confirm Password *", key="reg_pw2",
+                               type="password", placeholder="Repeat password")
 
     st.markdown("""<div class="tier-info">
-        注册后默认为 🆓 免费账号（3个快照）。如需 🔵 Pro 版请联系管理员升级。<br>
         New accounts are Free tier (3 snapshots). Contact admin to upgrade to Pro.
     </div>""", unsafe_allow_html=True)
 
     btn_col, back_col = st.columns(2)
     with btn_col:
-        create_clicked = st.button("创建账号 Create", type="primary",
+        create_clicked = st.button("Create Account", type="primary",
                                    use_container_width=True, key="reg_create_btn")
     with back_col:
-        if st.button("返回登录 Back", use_container_width=True, key="reg_back_btn"):
+        if st.button("Back to Sign In", use_container_width=True, key="reg_back_btn"):
             st.session_state["_auth_mode"] = "login"
             st.rerun()
 
     if create_clicked:
         errors = []
         if not full_name.strip():
-            errors.append("请填写姓名 / Name required")
+            errors.append("Name required")
         if not company.strip():
-            errors.append("请填写公司名 / Company required")
+            errors.append("Company required")
         if not _valid_email(email):
-            errors.append("邮箱格式无效 / Invalid email format")
+            errors.append("Invalid email format")
         if not _valid_password(password):
-            errors.append("密码至少8位 / Password must be ≥ 8 characters")
+            errors.append("Password must be at least 8 characters")
         if password != password2:
-            errors.append("两次密码不一致 / Passwords do not match")
+            errors.append("Passwords do not match")
 
         if errors:
             for e in errors:
                 st.error(e)
             return
 
-        with st.spinner("创建账号中 / Creating account…"):
+        with st.spinner("Creating account…"):
             try:
                 resp = sign_up(email.strip(), password,
                                full_name.strip(), company.strip())
@@ -466,10 +467,10 @@ def _render_register():
                     if profile:
                         st.session_state["_user_profile"] = profile
                         update_last_login(resp.user.id)
-                        st.success("✅ 账号创建成功！正在进入系统… / Account created!")
+                        st.success("✅ Account created successfully!")
                         st.rerun()
                     else:
-                        st.error("账号创建成功但档案读取失败，请登录 / Created — please sign in")
+                        st.error("Account created but profile load failed — please sign in")
                         st.session_state["_auth_mode"] = "login"
                         st.rerun()
                 else:
@@ -481,9 +482,9 @@ def _render_register():
             except Exception as exc:
                 err = str(exc).lower()
                 if "already registered" in err or "already been registered" in err:
-                    st.error("该邮箱已注册 / Email already registered")
+                    st.error("Email already registered")
                 else:
-                    st.error(f"注册失败 / Registration failed: {exc}")
+                    st.error(f"Registration failed: {exc}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -496,48 +497,47 @@ def _render_verify():
     st.markdown("""
     <div class="auth-logo">
         <div class="icon">📬</div>
-        <div class="title">验证邮箱</div>
-        <div class="sub">Email Verification</div>
+        <div class="title">Email Verification</div>
+        <div class="sub">Verify your email address</div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown(f"""<div class="auth-otp-box">
-        验证码已发送至 / Code sent to:<br>
+        Verification code sent to:<br>
         <b>{pending}</b><br><br>
-        请查收邮件并输入6位数字验证码。<br>
         Check your inbox and enter the 6-digit code below.
-        <br><small style='color:#667'>（如未收到请检查垃圾邮件 / Check spam if not received）</small>
+        <br><small style='color:#667'>(Check spam if not received)</small>
     </div>""", unsafe_allow_html=True)
 
-    otp = st.text_input("验证码 Verification Code", key="otp_input",
+    otp = st.text_input("Verification Code", key="otp_input",
                         max_chars=6, placeholder="123456")
 
     v_col, resend_col, back_col = st.columns([3, 2, 2])
     with v_col:
-        verify_clicked = st.button("✅ 验证 Verify", type="primary",
+        verify_clicked = st.button("✅ Verify", type="primary",
                                    use_container_width=True, key="otp_verify_btn")
     with resend_col:
-        if st.button("重发 Resend", use_container_width=True, key="otp_resend_btn"):
+        if st.button("Resend Code", use_container_width=True, key="otp_resend_btn"):
             try:
                 resend_verification(pending)
-                st.success("已重发 / Code resent")
+                st.success("Code resent")
             except Exception as exc:
                 st.error(str(exc))
     with back_col:
-        if st.button("返回 Back", use_container_width=True, key="otp_back_btn"):
+        if st.button("Back", use_container_width=True, key="otp_back_btn"):
             st.session_state["_auth_mode"] = "login"
             st.rerun()
 
     if verify_clicked:
         otp_val = otp.strip()
         if len(otp_val) != 6 or not otp_val.isdigit():
-            st.error("请输入6位数字验证码 / Enter the 6-digit numeric code")
+            st.error("Please enter the 6-digit numeric code")
             return
-        with st.spinner("验证中 / Verifying…"):
+        with st.spinner("Verifying…"):
             try:
                 resp = verify_otp(pending, otp_val)
                 if not resp.user:
-                    st.error("验证失败 / Verification failed")
+                    st.error("Verification failed")
                     return
                 profile = get_user_profile(resp.user.id)
                 if profile:
@@ -545,13 +545,13 @@ def _render_verify():
                     update_last_login(resp.user.id)
                     st.session_state.pop("_pending_email", None)
                     st.session_state.pop("_auth_mode",    None)
-                    st.success("✅ 验证成功！正在进入系统… / Verified! Loading…")
+                    st.success("✅ Verified! Loading…")
                     st.rerun()
                 else:
-                    st.error("验证成功但档案读取失败，请刷新重试 / Profile load failed, refresh and try again")
+                    st.error("Profile load failed — please refresh and try again")
             except Exception as exc:
                 err = str(exc).lower()
                 if "expired" in err or "invalid" in err or "otp" in err:
-                    st.error("验证码无效或已过期 / Invalid or expired code")
+                    st.error("Invalid or expired code")
                 else:
-                    st.error(f"验证失败 / Verification error: {exc}")
+                    st.error(f"Verification error: {exc}")

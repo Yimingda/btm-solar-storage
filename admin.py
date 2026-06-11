@@ -1,5 +1,5 @@
 """
-admin.py — 管理员面板
+admin.py — Admin Panel
 BTM PV+BESS Financial Modelling System
 
 Only rendered when is_admin() is True.
@@ -34,13 +34,13 @@ _TIER_CFG = {
 def render_admin_panel() -> None:
     actor_id = get_current_user()["id"]
 
-    st.markdown("## 🔴 管理员面板 / Admin Panel")
+    st.markdown("## 🔴 Admin Panel")
 
     t_users, t_create, t_stats, t_log = st.tabs([
-        "👥 用户管理 Users",
-        "➕ 创建用户 Create",
-        "📊 统计 Stats",
-        "📋 操作日志 Audit Log",
+        "👥 Users",
+        "➕ Create User",
+        "📊 Stats",
+        "📋 Audit Log",
     ])
 
     with t_users:
@@ -69,67 +69,66 @@ def _gen_password(length: int = 12) -> str:
 
 
 def _render_create_user(actor_id: str) -> None:
-    st.markdown("### ➕ 创建新用户 / Create New User")
+    st.markdown("### ➕ Create New User")
 
-    # ── 初始化生成的密码 ──
     if "cu_gen_pw" not in st.session_state:
         st.session_state["cu_gen_pw"] = _gen_password()
 
     left, right = st.columns(2)
 
     with left:
-        st.markdown("**账号信息 Account Info**")
-        email     = st.text_input("📧 邮箱 Email *",        key="cu_email",
+        st.markdown("**Account Info**")
+        email     = st.text_input("📧 Email *",        key="cu_email",
                                    placeholder="user@company.com")
-        full_name = st.text_input("👤 姓名 Full Name *",    key="cu_name",
-                                   placeholder="张三 / Zhang San")
-        company   = st.text_input("🏢 公司 Company *",     key="cu_company",
+        full_name = st.text_input("👤 Full Name *",    key="cu_name",
+                                   placeholder="Your Name")
+        company   = st.text_input("🏢 Company *",     key="cu_company",
                                    placeholder="Company Ltd")
 
     with right:
-        st.markdown("**权限 & 密码 Tier & Password**")
+        st.markdown("**Tier & Password**")
         tier = st.selectbox(
-            "层级 Tier",
+            "Tier",
             options=["free", "pro", "admin"],
-            format_func=lambda x: {"free": "🆓 Free (3 快照)",
-                                    "pro":  "🔵 Pro (50 快照)",
-                                    "admin":"🔴 Admin (无限)"   }[x],
+            format_func=lambda x: {"free": "🆓 Free (3 snapshots)",
+                                    "pro":  "🔵 Pro (50 snapshots)",
+                                    "admin":"🔴 Admin (unlimited)"  }[x],
             key="cu_tier",
         )
 
-        auto_pw = st.toggle("🔐 自动生成密码", value=True, key="cu_auto_pw")
+        auto_pw = st.toggle("🔐 Auto-generate password", value=True, key="cu_auto_pw")
 
         if auto_pw:
             pw = st.session_state["cu_gen_pw"]
             st.code(pw, language=None)
-            st.caption("⚠️ 请记录此密码，创建后无法再查看")
-            if st.button("🔄 重新生成", key="cu_regen", use_container_width=True):
+            st.caption("⚠️ Record this password — it cannot be viewed after creation")
+            if st.button("🔄 Regenerate", key="cu_regen", use_container_width=True):
                 st.session_state["cu_gen_pw"] = _gen_password()
                 st.rerun()
         else:
-            pw_a = st.text_input("🔒 密码 *",    type="password", key="cu_pw_a",
-                                  placeholder="至少8位 / Min 8 chars")
-            pw_b = st.text_input("🔒 确认密码 *", type="password", key="cu_pw_b",
-                                  placeholder="再输一遍 / Repeat")
+            pw_a = st.text_input("🔒 Password *",    type="password", key="cu_pw_a",
+                                  placeholder="Min 8 characters")
+            pw_b = st.text_input("🔒 Confirm Password *", type="password", key="cu_pw_b",
+                                  placeholder="Repeat password")
             pw = pw_a
 
     st.markdown("---")
-    if st.button("✅ 立即创建账号", type="primary",
+    if st.button("✅ Create Account", type="primary",
                  use_container_width=True, key="cu_submit"):
 
         # ── Validate ──
         errors = []
         if not email.strip() or "@" not in email:
-            errors.append("邮箱格式无效 / Invalid email")
+            errors.append("Invalid email")
         if not full_name.strip():
-            errors.append("请填写姓名 / Name required")
+            errors.append("Name required")
         if not company.strip():
-            errors.append("请填写公司 / Company required")
+            errors.append("Company required")
         if not auto_pw:
             if len(pw_a) < 8:
-                errors.append("密码至少8位 / Password ≥ 8 chars")
+                errors.append("Password must be at least 8 characters")
             elif pw_a != pw_b:
-                errors.append("两次密码不一致 / Passwords do not match")
+                errors.append("Passwords do not match")
 
         if errors:
             for e in errors:
@@ -137,28 +136,28 @@ def _render_create_user(actor_id: str) -> None:
             return
 
         # ── Create ──
-        with st.spinner("创建中… / Creating…"):
+        with st.spinner("Creating…"):
             try:
                 import time
                 user = create_user(
                     email.strip(), pw,
                     full_name.strip(), company.strip()
                 )
-                time.sleep(0.8)   # 等待 DB trigger 建立 profile
+                time.sleep(0.8)   # wait for DB trigger to build profile
 
-                # 非 Free 层级时更新 tier
+                # Update tier if not Free
                 if tier != "free":
                     update_user_tier(user.id, tier,
                                      _TIER_LIMITS[tier], actor_id)
 
                 st.success(
-                    f"✅ 用户创建成功！\n\n"
-                    f"**邮箱:** {email}  \n"
-                    f"**层级:** {_TIER_CFG[tier]['label']}  \n"
-                    f"**密码:** `{pw}`  \n\n"
-                    f"请将密码安全地发送给用户。"
+                    f"✅ User created successfully!\n\n"
+                    f"**Email:** {email}  \n"
+                    f"**Tier:** {_TIER_CFG[tier]['label']}  \n"
+                    f"**Password:** `{pw}`  \n\n"
+                    f"Please send the password to the user securely."
                 )
-                # 清空表单
+                # Clear form
                 for k in ("cu_email", "cu_name", "cu_company",
                            "cu_gen_pw", "cu_pw_a", "cu_pw_b"):
                     st.session_state.pop(k, None)
@@ -167,9 +166,9 @@ def _render_create_user(actor_id: str) -> None:
             except Exception as exc:
                 err = str(exc).lower()
                 if "already" in err or "exists" in err or "duplicate" in err:
-                    st.error("❌ 该邮箱已被注册 / Email already exists")
+                    st.error("❌ Email already registered")
                 else:
-                    st.error(f"❌ 创建失败 / Failed: {exc}")
+                    st.error(f"❌ Creation failed: {exc}")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -179,17 +178,17 @@ def _render_create_user(actor_id: str) -> None:
 def _render_users(actor_id: str) -> None:
     users = get_all_users()
     if not users:
-        st.info("暂无用户 / No users found")
+        st.info("No users found")
         return
 
     # ── Filters ──
     fc1, fc2 = st.columns([3, 1])
     with fc1:
-        q = st.text_input("🔍 搜索 Search (email / name / company)",
+        q = st.text_input("🔍 Search (email / name / company)",
                           key="adm_search", placeholder="Search…")
     with fc2:
-        tier_f = st.selectbox("层级 Tier",
-                              ["全部 All", "free", "pro", "admin"],
+        tier_f = st.selectbox("Tier",
+                              ["All", "free", "pro", "admin"],
                               key="adm_tier_f")
 
     if q:
@@ -198,10 +197,10 @@ def _render_users(actor_id: str) -> None:
                  q_lo in (u.get("email")     or "").lower() or
                  q_lo in (u.get("full_name") or "").lower() or
                  q_lo in (u.get("company")   or "").lower()]
-    if tier_f != "全部 All":
+    if tier_f != "All":
         users = [u for u in users if u.get("tier") == tier_f]
 
-    st.markdown(f"**{len(users)}** 个用户匹配 / users found")
+    st.markdown(f"**{len(users)}** users found")
 
     for u in users:
         tier = u.get("tier", "free")
@@ -224,31 +223,31 @@ def _render_user_row(u: dict, actor_id: str) -> None:
     i1, i2, i3 = st.columns(3)
     with i1:
         st.markdown(f"**Email:** {u.get('email','')}")
-        st.markdown(f"**姓名:** {u.get('full_name','')}")
-        st.markdown(f"**公司:** {u.get('company','')}")
+        st.markdown(f"**Name:** {u.get('full_name','')}")
+        st.markdown(f"**Company:** {u.get('company','')}")
     with i2:
-        st.markdown(f"**层级 Tier:** {_TIER_CFG.get(tier,{}).get('label', tier)}")
-        st.markdown(f"**快照配额:** {limit if limit < 999999 else '∞'}")
+        st.markdown(f"**Tier:** {_TIER_CFG.get(tier,{}).get('label', tier)}")
+        st.markdown(f"**Snapshot Limit:** {limit if limit < 999999 else '∞'}")
         active = u.get("is_active", True)
-        st.markdown(f"**账号状态:** {'✅ 正常' if active else '🚫 已停用'}")
+        st.markdown(f"**Status:** {'✅ Active' if active else '🚫 Suspended'}")
     with i3:
         created = u.get("created_at", "")
         try:
             dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-            st.markdown(f"**注册:** {dt.strftime('%Y-%m-%d')}")
+            st.markdown(f"**Registered:** {dt.strftime('%Y-%m-%d')}")
         except Exception:
-            st.markdown(f"**注册:** {created[:10]}")
+            st.markdown(f"**Registered:** {created[:10]}")
         last = u.get("last_login", "")
         if last:
             try:
                 dt2 = datetime.fromisoformat(last.replace("Z", "+00:00"))
-                st.markdown(f"**最后登录:** {dt2.strftime('%Y-%m-%d %H:%M')}")
+                st.markdown(f"**Last Login:** {dt2.strftime('%Y-%m-%d %H:%M')}")
             except Exception:
                 pass
 
     # Cannot modify self
     if uid == actor_id:
-        st.info("当前登录账号 / This is your own account")
+        st.info("This is your own account")
         return
 
     st.markdown("---")
@@ -257,64 +256,64 @@ def _render_user_row(u: dict, actor_id: str) -> None:
     # Downgrade to Free
     with m1:
         if tier != "free":
-            if st.button("⬇ 降为 Free", key=f"adm_free_{uid}",
+            if st.button("⬇ Downgrade to Free", key=f"adm_free_{uid}",
                          use_container_width=True):
                 update_user_tier(uid, "free", 3, actor_id)
-                st.success("✅ 已降为 Free")
+                st.success("✅ Downgraded to Free")
                 st.rerun()
 
     # Upgrade to Pro
     with m2:
         if tier != "pro":
-            if st.button("🔵 升为 Pro", key=f"adm_pro_{uid}",
+            if st.button("🔵 Upgrade to Pro", key=f"adm_pro_{uid}",
                          type="primary", use_container_width=True):
                 update_user_tier(uid, "pro", 50, actor_id)
-                st.success("✅ 已升级为 Pro")
+                st.success("✅ Upgraded to Pro")
                 st.rerun()
 
     # Custom snapshot limit
     with m3:
         new_lim = st.number_input(
-            "自定义配额",
+            "Custom Limit",
             min_value=1, max_value=10000,
             value=int(limit) if limit < 999999 else 50,
             step=1,
             key=f"adm_lim_{uid}",
             label_visibility="collapsed",
         )
-        if st.button("设配额", key=f"adm_setlim_{uid}",
+        if st.button("Set Limit", key=f"adm_setlim_{uid}",
                      use_container_width=True):
             update_user_tier(uid, tier, int(new_lim), actor_id)
-            st.success(f"✅ 配额已改为 {new_lim}")
+            st.success(f"✅ Limit updated to {new_lim}")
             st.rerun()
 
     # Ban / Unban
     with m4:
         if u.get("is_active", True):
-            if st.button("🚫 停用", key=f"adm_ban_{uid}",
+            if st.button("🚫 Suspend", key=f"adm_ban_{uid}",
                          use_container_width=True):
                 st.session_state[f"_confirm_ban_{uid}"] = True
                 st.rerun()
         else:
-            if st.button("✅ 恢复", key=f"adm_unban_{uid}",
+            if st.button("✅ Reactivate", key=f"adm_unban_{uid}",
                          use_container_width=True):
                 set_user_active(uid, True, actor_id)
-                st.success("✅ 账号已恢复")
+                st.success("✅ Account reactivated")
                 st.rerun()
 
     # Ban confirm dialog
     if st.session_state.get(f"_confirm_ban_{uid}"):
-        st.warning(f"确认停用账号 {u.get('email')} ? / Confirm suspend?")
+        st.warning(f"Confirm suspend account {u.get('email')}?")
         bc1, bc2 = st.columns(2)
         with bc1:
-            if st.button("✅ 确认停用", key=f"ban_ok_{uid}",
+            if st.button("✅ Confirm Suspend", key=f"ban_ok_{uid}",
                          type="primary", use_container_width=True):
                 set_user_active(uid, False, actor_id)
                 st.session_state.pop(f"_confirm_ban_{uid}", None)
-                st.success("✅ 已停用")
+                st.success("✅ Account suspended")
                 st.rerun()
         with bc2:
-            if st.button("✖ 取消", key=f"ban_cancel_{uid}",
+            if st.button("✖ Cancel", key=f"ban_cancel_{uid}",
                          use_container_width=True):
                 st.session_state.pop(f"_confirm_ban_{uid}", None)
                 st.rerun()
@@ -327,44 +326,130 @@ def _render_user_row(u: dict, actor_id: str) -> None:
 def _render_stats() -> None:
     stats = get_system_stats()
     if not stats:
-        st.warning("无法获取统计数据 / Could not load stats")
+        st.warning("Could not load stats")
         return
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("👥 总用户 Users",     stats.get("total_users", 0))
-    c2.metric("🆓 Free",             stats.get("free_users",  0))
-    c3.metric("🔵 Pro",              stats.get("pro_users",   0))
-    c4.metric("🔴 Admin",            stats.get("admin_users", 0))
-    c5.metric("📂 快照总数 Snapshots", stats.get("total_snaps", 0))
+    c1.metric("👥 Total Users",  stats.get("total_users", 0))
+    c2.metric("🆓 Free",         stats.get("free_users",  0))
+    c3.metric("🔵 Pro",          stats.get("pro_users",   0))
+    c4.metric("🔴 Admin",        stats.get("admin_users", 0))
+    c5.metric("📂 Snapshots",    stats.get("total_snaps", 0))
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # Audit log tab
 # ════════════════════════════════════════════════════════════════════════════
 
+_ACTION_META: dict[str, tuple[str, str]] = {
+    # action_key        → (icon,  display label)
+    "login":            ("🔑", "Login"),
+    "run_simulation":   ("⚡", "Run Simulation"),
+    "export_report":    ("📊", "Export Report"),
+    "export_csv":       ("📄", "Export CSV"),
+    "tier_change":      ("🏷️", "Tier Change"),
+    "activate":         ("✅", "Activate User"),
+    "suspend":          ("🚫", "Suspend User"),
+}
+_ACTION_GROUPS: dict[str, list[str]] = {
+    "All":        [],                                          # empty = no filter
+    "Login":      ["login"],
+    "Simulation": ["run_simulation"],
+    "Export":     ["export_report", "export_csv"],
+    "Admin":      ["tier_change", "activate", "suspend"],
+}
+
+
+def _fmt_detail(action: str, detail: dict) -> str:
+    """Return a concise human-readable summary of the detail jsonb."""
+    if not detail:
+        return ""
+    if action == "login":
+        return detail.get("email", "")
+    if action == "run_simulation":
+        proj   = detail.get("project", "")
+        pv     = detail.get("pv_kwp",  "")
+        bess   = detail.get("bess_kwh","")
+        npv    = detail.get("npv",     "")
+        irr    = detail.get("irr",     "")
+        parts  = []
+        if proj:  parts.append(f"proj={proj}")
+        if pv:    parts.append(f"PV={pv} kWp")
+        if bess:  parts.append(f"BESS={bess} kWh")
+        if npv:   parts.append(f"NPV={npv:,}" if isinstance(npv, (int, float)) else f"NPV={npv}")
+        if irr:   parts.append(f"IRR={irr}%")
+        return "  ·  ".join(parts)
+    if action in ("export_report", "export_csv"):
+        fname = detail.get("fname") or detail.get("project", "")
+        return fname
+    if action == "tier_change":
+        return f"tier={detail.get('tier','')}  limit={detail.get('snapshot_limit','')}"
+    # fallback
+    return "  ·  ".join(f"{k}={v}" for k, v in detail.items())
+
+
 def _render_audit_log() -> None:
-    logs = get_audit_log(200)
+    logs = get_audit_log(500)
     if not logs:
-        st.info("暂无日志 / No log entries")
+        st.info("No log entries")
         return
+
+    # ── Action filter ──────────────────────────────────────────────────────
+    fcol, _, rcol = st.columns([3, 5, 2])
+    with fcol:
+        filter_choice = st.radio(
+            "Filter",
+            options=list(_ACTION_GROUPS.keys()),
+            horizontal=True,
+            label_visibility="collapsed",
+            key="audit_filter_radio",
+        )
+    with rcol:
+        if st.button("🔄 Refresh", key="audit_refresh_btn", use_container_width=True):
+            st.rerun()
+
+    allowed_actions = _ACTION_GROUPS[filter_choice]
 
     rows = []
     for log in logs:
-        try:
-            dt = datetime.fromisoformat(
-                log["created_at"].replace("Z", "+00:00"))
-            ts = dt.strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            ts = (log.get("created_at") or "")[:16]
+        action = log.get("action", "")
+        if allowed_actions and action not in allowed_actions:
+            continue
 
-        actor_info  = log.get("user_profiles") or {}
-        actor_email = actor_info.get("email", (log.get("actor_id") or "?")[:8])
+        try:
+            dt = datetime.fromisoformat(log["created_at"].replace("Z", "+00:00"))
+            ts = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            ts = (log.get("created_at") or "")[:19]
+
+        actor_info = log.get("user_profiles") or {}
+        email      = actor_info.get("email", (log.get("actor_id") or "?")[:8])
+        name       = actor_info.get("full_name") or ""
+
+        icon, label = _ACTION_META.get(action, ("•", action))
+        detail_str  = _fmt_detail(action, log.get("detail") or {})
 
         rows.append({
-            "时间 Time":     ts,
-            "操作者 Actor":  actor_email,
-            "动作 Action":   log.get("action", ""),
-            "详情 Detail":   str(log.get("detail") or {}),
+            "Time":    ts,
+            "User":    f"{name}  <{email}>" if name else email,
+            "Action":  f"{icon} {label}",
+            "Detail":  detail_str,
         })
 
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, height=420)
+    if not rows:
+        st.info("No entries match the selected filter.")
+        return
+
+    df = pd.DataFrame(rows)
+    st.caption(f"Showing {len(df)} entries  ·  maximum 500")
+    st.dataframe(
+        df,
+        use_container_width=True,
+        height=min(60 + len(df) * 35, 700),
+        column_config={
+            "Time":   st.column_config.TextColumn(width="medium"),
+            "User":   st.column_config.TextColumn(width="medium"),
+            "Action": st.column_config.TextColumn(width="small"),
+            "Detail": st.column_config.TextColumn(width="large"),
+        },
+    )

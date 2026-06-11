@@ -1,5 +1,5 @@
 """
-db.py — Supabase 数据库操作封装
+db.py — Supabase database operations
 BTM PV+BESS Financial Modelling System
 
 All database interactions go through this module.
@@ -146,18 +146,36 @@ def update_last_login(user_id: str) -> None:
 # ── Snapshots ───────────────────────────────────────────────────────────────
 
 def get_snapshots(user_id: str) -> list[dict]:
-    """All snapshots for user, sorted: pinned first, then newest first."""
+    """All snapshots for user, sorted: pinned first, then newest first.
+
+    Tries to include the 'client_name' column (added in migration v2).
+    Falls back to the original column set if the column doesn't exist yet.
+
+    SQL migration to run once in Supabase SQL editor:
+        ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS client_name TEXT DEFAULT '';
+    """
+    _SELECT_V2 = "id, name, default_name, results_json, is_pinned, created_at, updated_at, client_name"
+    _SELECT_V1 = "id, name, default_name, results_json, is_pinned, created_at, updated_at"
+
+    def _query(db, cols):
+        return (db.table("snapshots")
+                  .select(cols)
+                  .eq("user_id", user_id)
+                  .order("is_pinned", desc=True)
+                  .order("updated_at", desc=True)
+                  .execute())
+
     try:
         db = get_admin_db()
-        res = (db.table("snapshots")
-                 .select("id, name, default_name, results_json, is_pinned, created_at, updated_at")
-                 .eq("user_id", user_id)
-                 .order("is_pinned", desc=True)
-                 .order("updated_at",  desc=True)
-                 .execute())
+        res = _query(db, _SELECT_V2)
         return res.data or []
     except Exception:
-        return []
+        try:
+            db2 = get_admin_db()
+            res2 = _query(db2, _SELECT_V1)
+            return res2.data or []
+        except Exception:
+            return []
 
 
 def get_snapshot_full(snapshot_id: str) -> Optional[dict]:
@@ -175,20 +193,24 @@ def get_snapshot_full(snapshot_id: str) -> Optional[dict]:
 
 
 def save_snapshot(user_id: str, name: str, default_name: str,
-                  params: dict, results: dict) -> Optional[dict]:
+                  params: dict, results: dict,
+                  client_name: str = "") -> Optional[dict]:
     try:
         db = get_admin_db()
-        res = db.table("snapshots").insert({
+        row: dict = {
             "user_id":      user_id,
             "name":         name,
             "default_name": default_name,
             "params_json":  params,
             "results_json": results,
             "updated_at":   datetime.now(timezone.utc).isoformat(),
-        }).execute()
+        }
+        if client_name:          # only include if column exists (migration v2)
+            row["client_name"] = client_name
+        res = db.table("snapshots").insert(row).execute()
         return res.data[0] if res.data else None
     except Exception as e:
-        st.error(f"Save failed / 保存失败: {e}")
+        st.error(f"Save failed: {e}")
         return None
 
 
@@ -285,6 +307,24 @@ def set_user_active(user_id: str, is_active: bool, actor_id: str) -> bool:
             "action":    "activate" if is_active else "suspend",
             "target_id": user_id,
             "detail":    {},
+        }).execute()
+        return True
+    except Exception:
+        return False
+
+
+def log_user_action(user_id: str, action: str, detail: dict | None = None) -> bool:
+    """Log any user-triggered event to audit_log.
+
+    action examples: 'login', 'run_simulation', 'export_report', 'export_csv'
+    detail: arbitrary jsonb dict with context (project name, NPV, etc.)
+    """
+    try:
+        db = get_admin_db()
+        db.table("audit_log").insert({
+            "actor_id": user_id,
+            "action":   action,
+            "detail":   detail or {},
         }).execute()
         return True
     except Exception:

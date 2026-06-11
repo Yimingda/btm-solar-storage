@@ -1,5 +1,5 @@
 """
-snapshots.py — 项目管理面板 / Project (Snapshot) Management Panel
+snapshots.py — Project (Snapshot) Management Panel
 BTM PV+BESS Financial Modelling System
 """
 
@@ -15,18 +15,6 @@ from db import (get_snapshots, get_snapshot_full, save_snapshot,
 from auth import get_current_user, is_pro
 
 
-# ── Language helper ───────────────────────────────────────────────────────────
-
-def _en() -> bool:
-    """True when UI is in English-only mode."""
-    return st.session_state.get("lang", "bilingual") == "english"
-
-
-def _t(zh: str, en: str) -> str:
-    """Return English text or bilingual text depending on lang setting."""
-    return en if _en() else f"{zh} {en}" if zh != en else zh
-
-
 # ── Keys that define a complete project state ─────────────────────────────────
 # Mirrors DEFAULT_PARAMS in app.py
 _SAVE_KEYS = [
@@ -40,7 +28,6 @@ _SAVE_KEYS = [
     "tariff_mode",
     "w_morning_peak", "w_evening_peak", "w_standard", "w_off_peak",
     "s_morning_peak", "s_evening_peak", "s_standard", "s_off_peak",
-    "lang",
     # Project timeline
     "bess_lead_months", "pv_lead_months",
 ]
@@ -149,23 +136,18 @@ def render_snapshot_panel() -> None:
     # ── Header: title + collapse toggle + save button ──
     h1, h2, h3 = st.columns([5, 2, 2])
     with h1:
-        title = "📂 Projects" if _en() else "📂 项目 Projects"
         st.markdown(
-            f"**{title}** `{count}`**/**`{limit_str}` {_tier_icon}",
+            f"**📂 Projects** `{count}`**/**`{limit_str}` {_tier_icon}",
             unsafe_allow_html=True,
         )
     with h2:
         _expanded = st.session_state.get("_snap_expanded", True)
-        if _en():
-            toggle_lbl = "▲ Hide" if _expanded else "▼ Show"
-        else:
-            toggle_lbl = "▲ 收起" if _expanded else "▼ 展开"
+        toggle_lbl = "▲ Hide" if _expanded else "▼ Show"
         if st.button(toggle_lbl, key="snap_toggle_btn", use_container_width=True):
             st.session_state["_snap_expanded"] = not _expanded
             st.rerun()
     with h3:
-        save_lbl = "💾 Save" if _en() else "💾 保存 Save"
-        if st.button(save_lbl, use_container_width=True, key="snap_save_btn",
+        if st.button("💾 Save", use_container_width=True, key="snap_save_btn",
                      type="primary"):
             if count >= limit:
                 _show_limit_msg(tier, limit)
@@ -180,12 +162,12 @@ def render_snapshot_panel() -> None:
             _bar_bg  = "#2a1a00"
             _bar_bd  = "#e67e22"
             _bar_ico = "✏️"
-            _bar_lbl = "Unsaved changes" if _en() else "有未保存的修改"
+            _bar_lbl = "Unsaved changes"
         else:
             _bar_bg  = "#0a1f12"
             _bar_bd  = "#27ae60"
             _bar_ico = "✅"
-            _bar_lbl = "Synced" if _en() else "已同步"
+            _bar_lbl = "Synced"
         st.markdown(
             f'<div style="background:{_bar_bg};border-left:3px solid {_bar_bd};'
             f'padding:3px 8px;border-radius:4px;font-size:0.76em;'
@@ -203,11 +185,9 @@ def render_snapshot_panel() -> None:
         return
 
     if not snapshots:
-        empty_msg = ("No projects yet" if _en()
-                     else "暂无项目 / No projects yet")
         st.markdown(
-            f"<div style='color:#888;font-size:0.82em;text-align:center;"
-            f"padding:8px 0'>{empty_msg}</div>",
+            "<div style='color:#888;font-size:0.82em;text-align:center;"
+            "padding:8px 0'>No projects yet</div>",
             unsafe_allow_html=True,
         )
         return
@@ -219,42 +199,53 @@ def render_snapshot_panel() -> None:
 # ── Save dialog ───────────────────────────────────────────────────────────────
 
 def _render_save_dialog(user_id: str) -> None:
-    default = st.session_state.get("_snap_default_name", _default_name())
-    label   = "Project Name" if _en() else "项目名称 Project Name"
-    ph      = "e.g. Site A · 100kWp+200kWh"
-    name = st.text_input(label, value=default, key="snap_name_input",
-                         placeholder=ph)
+    default_name   = st.session_state.get("_snap_default_name", _default_name())
+    default_client = st.session_state.get("_snap_client_name", "")
+
+    _dc, _dn = st.columns([2, 3])
+    with _dc:
+        client = st.text_input(
+            "Client", value=default_client,
+            key="snap_client_input",
+            placeholder="e.g. Acme Corp",
+        )
+    with _dn:
+        name = st.text_input(
+            "Project Name", value=default_name,
+            key="snap_name_input",
+            placeholder="e.g. Site A · 100kWp+200kWh",
+        )
+
     ok_col, cancel_col = st.columns(2)
     with ok_col:
-        ok_lbl = "✅ Save" if _en() else "✅ 保存 Save"
-        if st.button(ok_lbl, type="primary", use_container_width=True,
+        if st.button("✅ Save", type="primary", use_container_width=True,
                      key="snap_dialog_ok"):
-            final       = name.strip() or default
+            final_name   = name.strip() or default_name
+            final_client = client.strip()
             _saved_params = get_params_to_save()
             result = save_snapshot(
                 user_id=user_id,
-                name=final,
+                name=final_name,
                 default_name=_default_name(),
                 params=_saved_params,
                 results=get_results_summary(),
+                client_name=final_client,
             )
             if result:
-                # New project becomes the active project (clean state)
                 st.session_state["_active_snap_id"]     = result.get("id")
-                st.session_state["_active_snap_name"]   = final
+                st.session_state["_active_snap_name"]   = final_name
                 st.session_state["_snap_loaded_params"] = dict(_saved_params)
-                msg = f"Saved: {final}" if _en() else f"✅ 已保存: {final}"
-                st.toast(f"✅ {msg}" if _en() else msg)
+                st.toast(f"✅ Saved: {final_name}")
             _close_dialog()
     with cancel_col:
-        cancel_lbl = "✖ Cancel" if _en() else "✖ 取消 Cancel"
-        if st.button(cancel_lbl, use_container_width=True,
+        if st.button("✖ Cancel", use_container_width=True,
                      key="snap_dialog_cancel"):
             _close_dialog()
 
 
 def _close_dialog():
-    for k in ("_snap_save_open", "_snap_default_name", "snap_name_input"):
+    for k in ("_snap_save_open", "_snap_default_name", "_snap_client_name",
+              "snap_name_input", "snap_client_input"):
         st.session_state.pop(k, None)
     st.rerun()
 
@@ -277,7 +268,7 @@ def _render_snapshot_item(snap: dict) -> None:
     npv   = results.get("npv", 0)
     irr   = results.get("irr", 0)
     badge = (f"NPV {npv/1e6:+.1f}M · IRR {irr:.1f}%"
-             if npv else ("Not run" if _en() else "未运算"))
+             if npv else "Not run")
 
     pin_icon  = "★ " if pinned else ""
     is_active = (snap_id == st.session_state.get("_active_snap_id"))
@@ -297,23 +288,20 @@ def _render_snapshot_item(snap: dict) -> None:
 
     with load_col:
         _active_prefix = "▶ " if is_active else ""
-        load_tip = f"Load · {default}" if _en() else f"点击加载 / Load · {default}"
         if st.button(
             f"{_active_prefix}{pin_icon}{name}  ·  {badge}  ·  {ts}",
             key=f"snap_load_{snap_id}",
             use_container_width=True,
-            help=load_tip,
+            help=f"Load · {default}",
         ):
             full = get_snapshot_full(snap_id)
             if full and full.get("params_json"):
                 restore_snapshot(full["params_json"],
                                  snap_id=snap_id, snap_name=name)
-                msg = f"Loaded: {name}" if _en() else f"已加载: {name}"
-                st.toast(f"✅ {msg}")
+                st.toast(f"✅ Loaded: {name}")
                 st.rerun()
             else:
-                err = "Failed to load project" if _en() else "项目读取失败 / Failed to load"
-                st.error(err)
+                st.error("Failed to load project")
 
     if is_active:
         st.markdown("</div>", unsafe_allow_html=True)
@@ -324,28 +312,22 @@ def _render_snapshot_item(snap: dict) -> None:
             st.divider()
 
             # Pin / Unpin
-            if pinned:
-                pin_lbl = "📍 Unpin" if _en() else "📍 取消置顶 Unpin"
-            else:
-                pin_lbl = "📌 Pin" if _en() else "📌 置顶 Pin"
+            pin_lbl = "📍 Unpin" if pinned else "📌 Pin"
             if st.button(pin_lbl, key=f"pm_pin_{snap_id}",
                          use_container_width=True):
                 update_snapshot(snap_id, is_pinned=not pinned)
                 st.rerun()
 
             # Rename
-            ren_lbl = "✏️ Rename" if _en() else "✏️ 重命名 Rename"
-            if st.button(ren_lbl, key=f"pm_ren_{snap_id}",
+            if st.button("✏️ Rename", key=f"pm_ren_{snap_id}",
                          use_container_width=True):
                 st.session_state[f"_ren_{snap_id}"] = True
                 st.rerun()
 
             # Update config
-            upd_lbl = "♻️ Update Config" if _en() else "♻️ 更新配置 Update"
-            upd_tip = ("Overwrite with current params"
-                       if _en() else "用当前参数覆盖此项目")
-            if st.button(upd_lbl, key=f"pm_upd_{snap_id}",
-                         use_container_width=True, help=upd_tip):
+            if st.button("♻️ Update Config", key=f"pm_upd_{snap_id}",
+                         use_container_width=True,
+                         help="Overwrite with current params"):
                 _cur_params = get_params_to_save()
                 update_snapshot(snap_id,
                                 params_json=_cur_params,
@@ -355,58 +337,48 @@ def _render_snapshot_item(snap: dict) -> None:
                 st.session_state["_active_snap_id"]     = snap_id
                 st.session_state["_active_snap_name"]   = name
                 st.session_state["_snap_loaded_params"] = dict(_cur_params)
-                msg = f"Updated: {name}" if _en() else f"已更新: {name}"
-                st.toast(f"✅ {msg}")
+                st.toast(f"✅ Updated: {name}")
                 st.rerun()
 
             st.divider()
 
             # Delete
-            del_lbl = "🗑️ Delete" if _en() else "🗑️ 删除 Delete"
-            if st.button(del_lbl, key=f"pm_del_{snap_id}",
+            if st.button("🗑️ Delete", key=f"pm_del_{snap_id}",
                          use_container_width=True, type="primary"):
                 st.session_state[f"_del_{snap_id}"] = True
                 st.rerun()
 
     # ── Inline rename ──
     if st.session_state.get(f"_ren_{snap_id}"):
-        ren_label = "New name" if _en() else "新名称 New name"
-        new_name  = st.text_input(ren_label, value=name,
+        new_name  = st.text_input("New name", value=name,
                                    key=f"ren_inp_{snap_id}")
         rn1, rn2  = st.columns(2)
         with rn1:
-            ok_l = "✅ Confirm" if _en() else "✅ 确认 Confirm"
-            if st.button(ok_l, key=f"ren_ok_{snap_id}",
+            if st.button("✅ Confirm", key=f"ren_ok_{snap_id}",
                          use_container_width=True, type="primary"):
                 if new_name.strip():
                     update_snapshot(snap_id, name=new_name.strip())
                 st.session_state.pop(f"_ren_{snap_id}", None)
                 st.rerun()
         with rn2:
-            ca_l = "✖ Cancel" if _en() else "✖ 取消 Cancel"
-            if st.button(ca_l, key=f"ren_cancel_{snap_id}",
+            if st.button("✖ Cancel", key=f"ren_cancel_{snap_id}",
                          use_container_width=True):
                 st.session_state.pop(f"_ren_{snap_id}", None)
                 st.rerun()
 
     # ── Inline delete confirm ──
     if st.session_state.get(f"_del_{snap_id}"):
-        warn_msg = (f"Delete '{name}'?" if _en()
-                    else f"确认删除 '{name}'？")
-        st.warning(warn_msg)
+        st.warning(f"Delete '{name}'?")
         d1, d2 = st.columns(2)
         with d1:
-            confirm_l = "✅ Delete" if _en() else "✅ 确认删除"
-            if st.button(confirm_l, key=f"del_ok_{snap_id}",
+            if st.button("✅ Delete", key=f"del_ok_{snap_id}",
                          type="primary", use_container_width=True):
                 delete_snapshot(snap_id)
                 st.session_state.pop(f"_del_{snap_id}", None)
-                msg = "Deleted" if _en() else "已删除"
-                st.toast(f"🗑️ {msg}")
+                st.toast("🗑️ Deleted")
                 st.rerun()
         with d2:
-            cancel_l = "✖ Cancel" if _en() else "✖ 取消 Cancel"
-            if st.button(cancel_l, key=f"del_cancel_{snap_id}",
+            if st.button("✖ Cancel", key=f"del_cancel_{snap_id}",
                          use_container_width=True):
                 st.session_state.pop(f"_del_{snap_id}", None)
                 st.rerun()
@@ -421,22 +393,12 @@ def _render_snapshot_item(snap: dict) -> None:
 
 def _show_limit_msg(tier: str, limit: int) -> None:
     if tier == "free":
-        if _en():
-            st.error(
-                f"Free tier limit ({limit} projects) reached. "
-                f"Contact admin to upgrade to 🔵 Pro (50 projects)."
-            )
-        else:
-            st.error(
-                f"已达免费版项目上限（{limit} 个）。"
-                f"请联系管理员升级为 🔵 Pro 版（50个项目）。\n\n"
-                f"Free tier limit ({limit} projects) reached. "
-                f"Contact admin to upgrade to 🔵 Pro."
-            )
+        st.error(
+            f"Free tier limit ({limit} projects) reached. "
+            f"Contact admin to upgrade to 🔵 Pro (50 projects)."
+        )
     else:
-        msg = (f"Project limit ({limit}) reached"
-               if _en() else f"已达项目上限 {limit} 个 / Project limit ({limit}) reached")
-        st.error(msg)
+        st.error(f"Project limit ({limit}) reached")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -445,16 +407,54 @@ def _show_limit_msg(tier: str, limit: int) -> None:
 
 _CARD_CSS = """
 <style>
-/* ── Project picker: widen ONLY the popover that contains .proj-picker-marker ── */
+/* ── Project picker popover: fixed width, comfortable padding ── */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker) {
-    min-width: min(96vw, 1320px) !important;
-    width:     min(96vw, 1320px) !important;
+    min-width: 560px !important;
+    width:     560px !important;
+    max-width: min(96vw, 600px) !important;
+    padding: 10px 12px 12px !important;
 }
-/* Compact name buttons inside the project picker */
+/* Compact columns inside the picker rows */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stHorizontalBlock"] {
+    gap: 4px !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stColumn"] {
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    min-width: 0 !important;
+}
+/* Project name load-buttons: left-aligned, compact */
 div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button {
-    font-size: 0.78em !important;
-    padding: 2px 6px !important;
-    min-height: 30px !important;
+    font-size: 0.82em !important;
+    padding: 3px 10px !important;
+    min-height: 28px !important;
+    height: auto !important;
+    width: 100% !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button p,
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button span {
+    text-align: left !important;
+    display: block !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker) button > div {
+    justify-content: flex-start !important;
+    width: 100% !important;
+}
+/* Compact expander headers for client folders */
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stExpander"] summary {
+    padding: 4px 8px !important;
+    font-size: 0.84em !important;
+    font-weight: 600 !important;
+}
+div[data-testid="stPopoverBody"]:has(.proj-picker-marker)
+    div[data-testid="stExpander"] > div[data-testid="stExpanderDetails"] {
+    padding: 2px 4px 6px !important;
 }
 </style>
 """
@@ -464,18 +464,18 @@ def render_project_bar() -> None:
     """
     Full-width project picker bar — sits ABOVE the main col split in app.py.
 
-    Always 1 compact line:
-        [📂 N/∞ ▼ (popover)]  ·  [active project status ...........]  ·  [💾]
+    Layout (1 line):
+        [📁 Projects ▾ (popover)]  ·  [active project status]  ·  [💾 Save as New Project]
 
-    Clicking [📂] opens a floating dropdown (st.popover) with a 5-column grid.
-    Each card is a compact [name button] [⋮] row — clicking the name loads the project.
-    No NPV/IRR metrics; date/full name shown in the button tooltip.
+    The popover shows projects grouped by client in collapsible folders.
+    Clicking a project name loads it; ⋮ menu offers Pin/Rename/Set Client/Update/Delete.
     """
+    from collections import defaultdict
+
     user = get_current_user()
     if not user:
         return
 
-    # Inject card CSS once per render
     st.markdown(_CARD_CSS, unsafe_allow_html=True)
 
     user_id   = user["id"]
@@ -489,42 +489,54 @@ def render_project_bar() -> None:
     # ── Save dialog (full-width, shown inline when triggered) ──────────────
     if st.session_state.get("_snap_save_open"):
         _render_save_dialog(user_id)
-        return   # hide rest of bar while dialog is open
+        return
 
-    # ── Top bar: [project picker popover] [status] [save] ──────────────────
+    # ── Top bar: [📁 Projects ▾]  [status]  [💾 Save] ──────────────────────
     _bc1, _bc2, _bc3 = st.columns([2, 8, 2])
 
     with _bc1:
-        _btn_lbl = f"📂 {count}/{limit_str} ▼"
+        _btn_lbl = f"📁 Projects  {count}/{limit_str} ▾"
         with st.popover(_btn_lbl, use_container_width=True):
-            # Invisible marker — CSS :has(.proj-picker-marker) widens THIS popover only
+            # Invisible marker — CSS :has(.proj-picker-marker) scopes styles here
             st.markdown(
                 '<span class="proj-picker-marker" style="display:none"></span>',
                 unsafe_allow_html=True,
             )
             if not snapshots:
-                _empty = ("No projects yet — click 💾 Save to create one" if _en()
-                          else "暂无项目，点击 💾 保存 以创建第一个项目")
                 st.markdown(
-                    f"<div style='color:#667;font-size:0.82em;padding:4px 0'>{_empty}</div>",
+                    "<div style='color:#667;font-size:0.85em;padding:6px 2px'>"
+                    "No projects yet — click 💾 Save to create one</div>",
                     unsafe_allow_html=True,
                 )
             else:
-                COLS = 5
-                for _row_start in range(0, len(snapshots), COLS):
-                    _chunk = snapshots[_row_start: _row_start + COLS]
-                    _cols  = st.columns(COLS)
-                    for _col, _snap in zip(_cols, _chunk):
-                        with _col:
+                # ── Group by client_name ──────────────────────────────────
+                active_id     = st.session_state.get("_active_snap_id")
+                client_groups: dict[str, list] = defaultdict(list)
+                for _s in snapshots:
+                    _client = (_s.get("client_name") or "").strip() or "General"
+                    client_groups[_client].append(_s)
+
+                # Sort: named clients alphabetically first, "General" last
+                def _sort_key(c):
+                    return (1, c.lower()) if c == "General" else (0, c.lower())
+                sorted_clients = sorted(client_groups.keys(), key=_sort_key)
+
+                for _client in sorted_clients:
+                    _grp = client_groups[_client]
+                    _n   = len(_grp)
+                    # Auto-expand the folder that contains the active project
+                    _expanded = any(s["id"] == active_id for s in _grp)
+                    _folder_lbl = f"📂 {_client}  ({_n})"
+                    with st.expander(_folder_lbl, expanded=_expanded):
+                        for _snap in _grp:
                             _render_project_card(_snap)
 
     with _bc2:
         _aid, _aname, _dirty = get_active_project()
         if _aname:
-            _clr = "#e67e22" if _dirty else "#27ae60"
-            _ico = "✏️" if _dirty else "✅"
-            _hint = (("Unsaved changes" if _dirty else "Synced") if _en()
-                     else ("有未保存的修改" if _dirty else "已同步"))
+            _clr  = "#e67e22" if _dirty else "#27ae60"
+            _ico  = "✏️"     if _dirty else "✅"
+            _hint = "Unsaved changes" if _dirty else "Synced"
             st.markdown(
                 f'<div style="background:#0d1520;border-left:3px solid {_clr};'
                 f'padding:5px 10px;border-radius:4px;font-size:0.8em;margin-top:3px;'
@@ -548,14 +560,15 @@ def render_project_bar() -> None:
 # ── Individual project card ───────────────────────────────────────────────────
 
 def _render_project_card(snap: dict) -> None:
-    """Compact card: name-as-load-button + ⋮ management popover."""
-    snap_id = snap["id"]
-    name    = snap["name"]
-    pinned  = snap.get("is_pinned", False)
+    """Compact list row: [name/load button]  [⋮ menu]"""
+    snap_id    = snap["id"]
+    name       = snap["name"]
+    pinned     = snap.get("is_pinned", False)
+    client_now = (snap.get("client_name") or "").strip() or "General"
 
     try:
         dt = datetime.fromisoformat(snap["updated_at"].replace("Z", "+00:00"))
-        ts = dt.strftime("%m-%d")
+        ts = dt.strftime("%Y-%m-%d")
     except Exception:
         ts = ""
 
@@ -564,13 +577,13 @@ def _render_project_card(snap: dict) -> None:
 
     _pin_icon    = "★ " if pinned else ""
     _active_icon = "▶ " if is_active else ""
-    # Truncate to keep columns tight
-    _short = (name[:12] + "…") if len(name) > 14 else name
+    # Show full name (up to 36 chars) — list layout has room
+    _short   = (name[:34] + "…") if len(name) > 36 else name
     _btn_lbl = f"{_active_icon}{_pin_icon}{_short}"
-    _tooltip  = f"{name}  ·  {ts}" + ("  ·  ✏️ unsaved" if _dirty else "")
+    _tooltip = f"{name}  ·  {ts}" + ("  ·  ✏️ unsaved" if _dirty else "")
 
-    # ── [name button (loads project)]  [⋮ popover] ─────────────────────────
-    _nc, _mc = st.columns([5, 1], gap="small")
+    # ── [name button]  [⋮] ─────────────────────────────────────────────────
+    _nc, _mc = st.columns([6, 1], gap="small")
 
     with _nc:
         if st.button(
@@ -584,33 +597,36 @@ def _render_project_card(snap: dict) -> None:
             _full = get_snapshot_full(snap_id)
             if _full and _full.get("params_json"):
                 restore_snapshot(_full["params_json"], snap_id=snap_id, snap_name=name)
-                st.toast(f"✅ {'Loaded' if _en() else '已加载'}: {name}")
+                st.toast(f"✅ Loaded: {name}")
                 st.rerun()
             else:
-                st.error("Failed to load / 项目读取失败")
+                st.error("Failed to load project")
 
     with _mc:
         with st.popover("⋮", use_container_width=True):
             st.markdown(f"**{name}**")
+            st.caption(f"📂 {client_now}  ·  {ts}")
             st.divider()
 
             # Pin / Unpin
-            _pin_lbl = (("📍 Unpin" if pinned else "📌 Pin") if _en()
-                        else ("📍 取消置顶" if pinned else "📌 置顶"))
+            _pin_lbl = "📍 Unpin" if pinned else "📌 Pin"
             if st.button(_pin_lbl, key=f"pc_pin_{snap_id}", use_container_width=True):
                 update_snapshot(snap_id, is_pinned=not pinned)
                 st.rerun()
 
             # Rename
-            _ren_lbl = "✏️ Rename" if _en() else "✏️ 重命名"
-            if st.button(_ren_lbl, key=f"pc_ren_{snap_id}", use_container_width=True):
+            if st.button("✏️ Rename", key=f"pc_ren_{snap_id}", use_container_width=True):
                 st.session_state[f"_pc_ren_{snap_id}"] = True
                 st.rerun()
 
+            # Set Client
+            if st.button("🏢 Set Client", key=f"pc_cli_{snap_id}", use_container_width=True):
+                st.session_state[f"_pc_cli_{snap_id}"] = True
+                st.rerun()
+
             # Update config
-            _upd_lbl = "♻️ Update Config" if _en() else "♻️ 更新配置"
-            if st.button(_upd_lbl, key=f"pc_upd_{snap_id}", use_container_width=True,
-                         help="Overwrite with current params" if _en() else "用当前参数覆盖"):
+            if st.button("♻️ Update Config", key=f"pc_upd_{snap_id}", use_container_width=True,
+                         help="Overwrite with current params"):
                 _cur = get_params_to_save()
                 update_snapshot(snap_id,
                                 params_json  = _cur,
@@ -619,14 +635,13 @@ def _render_project_card(snap: dict) -> None:
                 st.session_state["_active_snap_id"]     = snap_id
                 st.session_state["_active_snap_name"]   = name
                 st.session_state["_snap_loaded_params"] = dict(_cur)
-                st.toast(f"✅ {'Updated' if _en() else '已更新'}: {name}")
+                st.toast(f"✅ Updated: {name}")
                 st.rerun()
 
             st.divider()
 
             # Delete
-            _del_lbl = "🗑️ Delete" if _en() else "🗑️ 删除"
-            if st.button(_del_lbl, key=f"pc_del_{snap_id}",
+            if st.button("🗑️ Delete", key=f"pc_del_{snap_id}",
                          use_container_width=True, type="primary"):
                 st.session_state[f"_pc_del_{snap_id}"] = True
                 st.rerun()
@@ -634,14 +649,14 @@ def _render_project_card(snap: dict) -> None:
     # ── Inline rename ───────────────────────────────────────────────────────
     if st.session_state.get(f"_pc_ren_{snap_id}"):
         _new = st.text_input(
-            "New name" if _en() else "新名称",
+            "New name",
             value=name, key=f"pc_ren_inp_{snap_id}",
             label_visibility="collapsed",
             placeholder=name,
         )
         _r1, _r2 = st.columns(2)
         with _r1:
-            if st.button("✅", key=f"pc_ren_ok_{snap_id}", use_container_width=True,
+            if st.button("✅ OK", key=f"pc_ren_ok_{snap_id}", use_container_width=True,
                          type="primary"):
                 if _new.strip():
                     update_snapshot(snap_id, name=_new.strip())
@@ -654,12 +669,33 @@ def _render_project_card(snap: dict) -> None:
                 st.session_state.pop(f"_pc_ren_{snap_id}", None)
                 st.rerun()
 
+    # ── Inline set client ───────────────────────────────────────────────────
+    if st.session_state.get(f"_pc_cli_{snap_id}"):
+        _new_cli = st.text_input(
+            "Client name",
+            value="" if client_now == "General" else client_now,
+            key=f"pc_cli_inp_{snap_id}",
+            label_visibility="collapsed",
+            placeholder="e.g. Acme Corp",
+        )
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            if st.button("✅ OK", key=f"pc_cli_ok_{snap_id}", use_container_width=True,
+                         type="primary"):
+                update_snapshot(snap_id, client_name=_new_cli.strip())
+                st.session_state.pop(f"_pc_cli_{snap_id}", None)
+                st.rerun()
+        with _c2:
+            if st.button("✖", key=f"pc_cli_cx_{snap_id}", use_container_width=True):
+                st.session_state.pop(f"_pc_cli_{snap_id}", None)
+                st.rerun()
+
     # ── Inline delete confirm ───────────────────────────────────────────────
     if st.session_state.get(f"_pc_del_{snap_id}"):
-        st.warning(f"{'Delete' if _en() else '删除'} '{name}'?")
+        st.warning(f"Delete '{name}'?")
         _d1, _d2 = st.columns(2)
         with _d1:
-            if st.button("✅", key=f"pc_del_ok_{snap_id}", use_container_width=True,
+            if st.button("✅ Yes", key=f"pc_del_ok_{snap_id}", use_container_width=True,
                          type="primary"):
                 delete_snapshot(snap_id)
                 if st.session_state.get("_active_snap_id") == snap_id:
@@ -667,7 +703,7 @@ def _render_project_card(snap: dict) -> None:
                                "_snap_loaded_params"):
                         st.session_state.pop(_k, None)
                 st.session_state.pop(f"_pc_del_{snap_id}", None)
-                st.toast(f"🗑️ {'Deleted' if _en() else '已删除'}: {name}")
+                st.toast(f"🗑️ Deleted: {name}")
                 st.rerun()
         with _d2:
             if st.button("✖", key=f"pc_del_cx_{snap_id}", use_container_width=True):
