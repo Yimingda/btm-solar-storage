@@ -571,6 +571,11 @@ TARIFF_DB = {
     # Business TOU (large commercial, >100kVA). Energy charge incl 15% VAT.
     # TOU hours: Morning peak 07:00-09:00; Evening peak 17:00-20:00 weekdays.
     "NMB Business TOU >100kVA":       (8.8200, 3.1000, 2.0100, 3.6500, 2.3500, 1.7500),
+    # ── Dis-Trans (Distribution-Transmission) TOU ────────────────────────────
+    # Source: user-provided tariff table (R/MWh ÷ 1000 = R/kWh)
+    # High Season (winter) / Low Season (summer); morning & evening peak same rate.
+    # TOU hours follow standard Eskom Megaflex windows.
+    "Dis_Trans":                      (5.7194, 1.4299, 0.9532, 2.3735, 1.3345, 0.9532),
     # ── PPA (Power Purchase Agreement) — flat rate, user-defined ─────────────
     # UI PPA
     # All periods same price; user sets a single PPA rate in the UI
@@ -3506,10 +3511,28 @@ with col_content:
                 unsafe_allow_html=True,
             )
             st.markdown("""<div class="info-box">
-                7-slide deck: Cover · Executive Summary · System Config · Financial Analysis ·
-                Energy Analysis · Tariff &amp; Savings · Assumptions
-                &nbsp;|&nbsp; Includes cash-flow and monthly-generation charts
+                8-slide executive deck: Cover · Investment Thesis · System Overview ·
+                Financial Returns · Energy Analysis · Tariff Opportunity ·
+                Implementation Roadmap · Assumptions
+                &nbsp;|&nbsp; White professional template · McKinsey-style narrative per slide
             </div>""", unsafe_allow_html=True)
+
+            # Report branding inputs
+            _rpt_col1, _rpt_col2 = st.columns(2)
+            with _rpt_col1:
+                _pptx_consultant = st.text_input(
+                    "Consulting firm name (appears on all slides)",
+                    value=st.session_state.get("_pptx_consultant", ""),
+                    placeholder="e.g. GreenWatt Consulting",
+                    key="_pptx_consultant",
+                )
+            with _rpt_col2:
+                _pptx_client = st.text_input(
+                    "Client / company name (cover slide)",
+                    value=st.session_state.get("_pptx_client", ""),
+                    placeholder="e.g. ABC Manufacturing Ltd",
+                    key="_pptx_client",
+                )
 
             _pp_btn_col, _pp_dl_col = st.columns([2, 3])
             with _pp_btn_col:
@@ -3520,7 +3543,7 @@ with col_content:
                 )
 
             if _gen_pptx_btn:
-                with st.spinner("📊 Building 7-slide PPTX report…"):
+                with st.spinner("📊 Building 8-slide executive PPTX report…"):
                     try:
                         from report_pptx import generate_pptx as _gen_pptx
                         import datetime as _edt
@@ -3548,12 +3571,13 @@ with col_content:
                             str(st.session_state.get("c_rate_label", "0.25C")), 0.25)
 
                         _pptx_bytes = _gen_pptx(
-                            params       = _pptx_params,
-                            results      = _res,
-                            fin_df       = st.session_state.fin_df,
-                            pvgis_data   = _res.get("pvgis_data") or st.session_state.get("pvgis_data") or {},
-                            project_name = st.session_state.get("_active_snap_name", ""),
-                            client_name  = "",   # TODO: expose in UI
+                            params           = _pptx_params,
+                            results          = _res,
+                            fin_df           = st.session_state.fin_df,
+                            pvgis_data       = _res.get("pvgis_data") or st.session_state.get("pvgis_data") or {},
+                            project_name     = st.session_state.get("_active_snap_name", ""),
+                            client_name      = st.session_state.get("_pptx_client", ""),
+                            consultant_name  = st.session_state.get("_pptx_consultant", ""),
                         )
                         st.session_state["_pptx_bytes"] = _pptx_bytes
                         _loc = (f"{st.session_state.lat:.1f}_{st.session_state.lon:.1f}"
