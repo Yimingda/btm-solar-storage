@@ -4221,19 +4221,50 @@ with col_content:
                     Typical day profile &amp; hourly log available for 🔵 Pro / 🔴 Admin accounts only.
                 </div>""", unsafe_allow_html=True)
             else:
-                st.markdown('<div class="section-header">📈 Typical Daily Dispatch Profile</div>',
+                st.markdown('<div class="section-header">📈 Daily Dispatch Profile</div>',
                             unsafe_allow_html=True)
-                sel_month = st.selectbox("Select Month", range(1, 13),
-                                         format_func=lambda x: mnames[x-1], index=6)
 
+                # Day-type label matches the dispatch engine's 2025 calendar
+                _wd_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                _tm_now   = st.session_state.get("tariff_mode", "")
+                _hdb_ui   = (ETHEKWINI_HOLIDAYS_2025_26
+                             if _tm_now.startswith("eThekwini")
+                             else SA_PUBLIC_HOLIDAYS_2025)
+
+                def _day_label(m: int, d: int) -> str:
+                    cal = _date(2025, m, d)
+                    lbl = f"{d:02d} · {_wd_names[cal.weekday()]}"
+                    if cal in _hdb_ui:
+                        lbl += " · Holiday"
+                    return lbl
+
+                _dc1, _dc2 = st.columns(2)
+                with _dc1:
+                    sel_month = st.selectbox("Select Month", range(1, 13),
+                                             format_func=lambda x: mnames[x-1], index=6)
                 mdata = df_h[df_h["month"] == sel_month]
                 if len(mdata) > 0:
-                    tgt = int(mdata["day"].median())
+                    _avail_days = sorted(int(d) for d in mdata["day"].unique())
+                    _med_day    = int(mdata["day"].median())
+                    with _dc2:
+                        tgt = st.selectbox(
+                            "Select Day", _avail_days,
+                            index=_avail_days.index(_med_day)
+                                  if _med_day in _avail_days else 0,
+                            format_func=lambda d: _day_label(sel_month, d),
+                            key="typical_day_select",
+                        )
                     ddata = mdata[mdata["day"] == tgt]
                     if len(ddata) == 24:
                         fig_d = go.Figure()
                         fig_d.add_trace(go.Scatter(x=ddata["hour_of_day"], y=ddata["load_kWh"],
                                                    name="Load", line=dict(color="white", width=2, dash="dot")))
+                        # Total grid intake = site purchases + battery grid-charging
+                        fig_d.add_trace(go.Scatter(
+                            x=ddata["hour_of_day"],
+                            y=ddata["grid_buy_kWh"] + ddata["charge_grid_kWh"],
+                            name="Total Grid Import",
+                            line=dict(color="#38BDF8", width=2)))
                         fig_d.add_trace(go.Bar(x=ddata["hour_of_day"], y=ddata["pv_gen_kWh"],
                                                name="PV Gen", marker_color="#F6C90E", opacity=0.8))
                         fig_d.add_trace(go.Bar(x=ddata["hour_of_day"], y=ddata["discharge_kWh"],
@@ -4260,6 +4291,11 @@ with col_content:
                             xaxis=dict(title="Hour", tickvals=list(range(24)), gridcolor=_gc),
                         )
                         st.plotly_chart(fig_d, use_container_width=True)
+                        st.caption(
+                            "Grid Charge bars plot negative (energy into battery, "
+                            "grid-side before RTE loss).  Total Grid Import = "
+                            "site purchases + battery charging — the actual meter intake."
+                        )
 
                 st.markdown('<div class="section-header">📋 Hourly Log (First 100 Hours)</div>',
                             unsafe_allow_html=True)
