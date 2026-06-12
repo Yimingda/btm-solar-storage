@@ -155,6 +155,83 @@ def _section_hdr(slide, x, y, w, h, text: str):
     _tb(slide, x+0.16, y+(h-0.28)/2, w-0.22, 0.28,
         text, 9.5, bold=True, color=_WHT)
 
+
+def _embed_video(slide, x: float, y: float, w: float, h: float,
+                 video_path: str, poster_hex: str = "0D1A2A") -> None:
+    """Embed an MP4 at (x,y,w,h) inches — autoplay, silent, looped.
+
+    Generates a solid-colour poster frame (no Pillow dependency) and injects
+    PPTX timing XML so the video starts automatically when the slide appears,
+    plays muted, and loops indefinitely.  Only one timing element per slide
+    is supported; calling this twice on the same slide replaces the first.
+    """
+    import struct as _struct
+    import zlib   as _zlib
+    from lxml import etree as _et
+    from pptx.oxml.ns import qn as _qn
+
+    # ── Minimal solid-colour PNG poster frame (pure Python, no Pillow) ────────
+    def _solid_png(hex6: str, W: int = 16, H: int = 16) -> bytes:
+        r = int(hex6[0:2], 16); g = int(hex6[2:4], 16); b = int(hex6[4:6], 16)
+        raw = (b'\x00' + bytes([r, g, b] * W)) * H   # filter byte + RGB per row
+        def _chunk(name: bytes, data: bytes) -> bytes:
+            d = name + data
+            return _struct.pack(">I", len(data)) + d + _struct.pack(">I", _zlib.crc32(d) & 0xffffffff)
+        return (b'\x89PNG\r\n\x1a\n'
+                + _chunk(b'IHDR', _struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
+                + _chunk(b'IDAT', _zlib.compress(raw))
+                + _chunk(b'IEND', b''))
+
+    poster_buf = io.BytesIO(_solid_png(poster_hex.lstrip("#")))
+
+    # ── Add movie shape ────────────────────────────────────────────────────────
+    movie = slide.shapes.add_movie(
+        video_path,
+        left=_in(x), top=_in(y),
+        width=_in(w), height=_in(h),
+        poster_frame_image=poster_buf,
+        mime_type="video/mp4",
+    )
+
+    # ── Autoplay + loop + muted timing XML ────────────────────────────────────
+    # sp_id is the integer id of the picture element wrapping the video
+    pic_el = movie._element
+    sp_id  = pic_el.find(_qn("p:nvPicPr")).find(_qn("p:cNvPr")).get("id")
+
+    _pns = 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
+    timing_xml = (
+        f'<p:timing {_pns}>'
+        f'<p:tnLst><p:par>'
+        f'<p:cTn id="1" dur="indefinite" restart="whenNotActive" nodeType="tmRoot">'
+        f'<p:childTnLst>'
+        # Onclick (interactive) node — required stub
+        f'<p:par><p:cTn id="2" fill="hold">'
+        f'<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>'
+        f'</p:cTn></p:par>'
+        # Autoplay node — delay="0" fires immediately on slide entry
+        f'<p:par><p:cTn id="3" fill="hold">'
+        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
+        f'<p:childTnLst><p:par>'
+        f'<p:cTn id="4" dur="indefinite" fill="hold" repeatCount="indefinite">'
+        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
+        f'<p:childTnLst><p:video>'
+        f'<p:cMediaNode vol="0" mute="1" showWhenStopped="0">'
+        f'<p:cTn id="5" dur="indefinite" fill="hold"/>'
+        f'<p:tgtEl><p:spTgt spid="{sp_id}"/></p:tgtEl>'
+        f'</p:cMediaNode></p:video></p:childTnLst>'
+        f'</p:cTn></p:par></p:childTnLst>'
+        f'</p:cTn></p:par>'
+        f'</p:childTnLst>'
+        f'</p:cTn>'
+        f'</p:par></p:tnLst>'
+        f'<p:bldLst/></p:timing>'
+    )
+
+    old = slide._element.find(_qn("p:timing"))
+    if old is not None:
+        slide._element.remove(old)
+    slide._element.append(_et.fromstring(timing_xml))
+
 # ── Chart helpers (matplotlib → PNG, Huawei red palette) ─────────────────────
 
 def _style_ax(ax):
@@ -672,26 +749,38 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
     else:
         _spec_col("BATTERY ENERGY STORAGE", bess_rows, 0.28, _W)
 
-    # ── Right product image panel (single-component mode only) ────────────────
-    # PV+BESS: spec tables already fill the full width — no panel added.
-    # Single mode: 5.90"-wide product showcase to the right of the spec table.
-    if not _dual and _am is not None:
-        img_path, img_caption = _am.system_product_image(has_pv, has_bess)
+    # ── Right product panel (single-component mode only) ─────────────────────
+    # PV+BESS: spec tables fill full width — no panel added here.
+    # Single mode: 5.90"-wide showcase to the right of the spec table.
+    # BESS-only: embed ambient loop video; PV-only: fall back to static image.
+    if not _dual:
         _PNL_X = 7.12; _PNL_Y = 1.68; _PNL_W = 5.90; _PNL_H = 5.48
-        # White card background with subtle border
-        _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, _WHT, line=_SEP)
-        # Thin Huawei-red accent at the top of the card
-        _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)
-        if img_path and os.path.exists(img_path):
-            # Centre the product image with 0.30" padding on each side
-            slide.shapes.add_picture(
-                img_path,
-                _in(_PNL_X + 0.35), _in(_PNL_Y + 0.22),
-                _in(_PNL_W - 0.70), _in(_PNL_H - 0.66),
-            )
-        # Caption inside the card (bottom-aligned)
-        _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.30,
-            img_caption, 8, color=_MGY, align="center")
+        _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+        _bess_vid  = os.path.join(_ASSETS_DIR, "hw_ess_cell_grid_loop.mp4")
+        _use_vid   = (has_bess and not has_pv and os.path.exists(_bess_vid))
+
+        if _use_vid:
+            # Dark panel + autoplay video loop (Cell-to-Grid ambient)
+            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, "0D1A2A")
+            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)        # green accent
+            _embed_video(slide, _PNL_X, _PNL_Y + 0.05,
+                         _PNL_W, _PNL_H - 0.48, _bess_vid, "0D1A2A")
+            _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.32,
+                "Huawei LUNA2000 C&I BESS  ·  Cell-to-Grid Safety Technology",
+                7.5, color="7A9EB5", align="center")
+        elif _am is not None:
+            img_path, img_caption = _am.system_product_image(has_pv, has_bess)
+            # White card background with subtle border
+            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, _WHT, line=_SEP)
+            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)
+            if img_path and os.path.exists(img_path):
+                slide.shapes.add_picture(
+                    img_path,
+                    _in(_PNL_X + 0.35), _in(_PNL_Y + 0.22),
+                    _in(_PNL_W - 0.70), _in(_PNL_H - 0.66),
+                )
+            _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.30,
+                img_caption, 8, color=_MGY, align="center")
 
     # ── Bottom separator + data-source note ──────────────────────────────────
     # In single mode limit the separator/narrative to the spec table width only
@@ -1318,8 +1407,12 @@ def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
     # ── Left dark panel (38%) — SA campus photo + company facts ──────────────
     _rect(slide, 0.28, 0.68, 4.90, 6.54, _DNAV)          # dark navy panel bg
 
+    _grid_vid  = os.path.join(ASSETS, "hw_grid_forming_loop.mp4")
     campus_img = os.path.join(ASSETS, "hw_sa_grid.jpg")
-    if os.path.exists(campus_img):
+    if os.path.exists(_grid_vid):
+        # Embed All-Scenario Grid Forming ambient loop in place of static photo
+        _embed_video(slide, 0.28, 0.68, 4.90, 2.78, _grid_vid, "0D1118")
+    elif os.path.exists(campus_img):
         slide.shapes.add_picture(
             campus_img, _in(0.28), _in(0.68), _in(4.90), _in(2.78))
     else:
