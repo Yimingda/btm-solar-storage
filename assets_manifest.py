@@ -3,29 +3,28 @@ assets_manifest.py  —  Huawei Digital Power asset catalogue
 ============================================================
 Central registry of all static media assets bundled with the btm_system
 report generator.  Each asset is tagged with one or more scenario labels
-so that `report_pptx.py` can select context-appropriate imagery without
-hard-coded paths.
+so that `report_pptx.py` can select context-appropriate imagery.
 
 Scenario tags
 -------------
-  "pv"    — Solar PV specific (inverters, module controllers, plant mgmt)
-  "bess"  — Battery / ESS specific (LUNA2000, ACU, PCS, safety cert)
-  "both"  — Brand / common assets suitable for any slide
+  "pv"    — Solar PV specific
+  "bess"  — Battery / ESS specific
+  "both"  — Suitable for any scenario
 
 Asset types
 -----------
   "hero"     — full-width background / banner photograph
-  "product"  — white-background equipment render (portrait or square)
-  "brand"    — brand / marketing image (may contain people or installations)
-  "cert"     — certification or compliance showcase
+  "product"  — white-background equipment render
+  "brand"    — brand / marketing image
+  "cert"     — certification / compliance showcase
   "video"    — reserved for future video assets
 
 Directory layout (relative to this file)
 -----------------------------------------
-  assets/pv/      ← PV-only equipment renders
-  assets/bess/    ← BESS-only equipment renders
-  assets/common/  ← brand / cert assets for both scenarios
-  assets/         ← legacy root-level assets (existing site photos, logos)
+  assets/pv/      ← PV-only equipment renders + hero
+  assets/bess/    ← BESS-only equipment renders + hero
+  assets/common/  ← brand / cert / cover assets for any scenario
+  assets/         ← legacy root-level site photos and logos
 """
 from __future__ import annotations
 import os
@@ -34,13 +33,16 @@ _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 
 # ── Asset registry ─────────────────────────────────────────────────────────────
-# Key        : short logical name used by report_pptx.py
-# file        : path relative to _ASSETS_DIR
-# tags        : list of scenario labels ("pv", "bess", "both")
-# type        : "hero" | "product" | "brand" | "cert" | "video"
-# desc        : human-readable description for tooltips / logs
-# ──────────────────────────────────────────────────────────────────────────────
 ASSETS: dict[str, dict] = {
+
+    # ── Cover ─────────────────────────────────────────────────────────────────
+    # Used as cover background for ALL scenario modes (PV-only, BESS-only, PV+BESS)
+    "huge_bess_deployed": {
+        "file": "common/Huge_BESS_Project_Deployed.png",
+        "tags": ["pv", "bess"],
+        "type": "hero",
+        "desc": "Aerial view of a large-scale BESS deployment — cover background (all scenarios)",
+    },
 
     # ── PV — product renders ──────────────────────────────────────────────────
     "sun2000_controller": {
@@ -101,16 +103,10 @@ ASSETS: dict[str, dict] = {
         "file": "pv/hero_fusionsolar9_utility.jpg",
         "tags": ["pv"],
         "type": "hero",
-        "desc": "FusionSolar 9 Utility PV Solution — dark-background hero photograph",
+        "desc": "FusionSolar 9 Utility PV — dark-background hero photograph (PV slides)",
     },
 
     # ── BESS — product renders ────────────────────────────────────────────────
-    "luna2000_string_ess": {
-        "file": "bess/prod_luna2000_string_ess.png",
-        "tags": ["bess"],
-        "type": "product",
-        "desc": "LUNA2000 String ESS Cabinet — residential / C&I BTM",
-    },
     "luna2000_gridforming": {
         "file": "bess/prod_luna2000_4472_gridforming.png",
         "tags": ["bess"],
@@ -123,23 +119,11 @@ ASSETS: dict[str, dict] = {
         "type": "product",
         "desc": "LUNA2000 213KTL Power Conversion System (PCS)",
     },
-    "luna2000_ci": {
-        "file": "bess/prod_luna2000_241_ci.png",
-        "tags": ["bess"],
-        "type": "product",
-        "desc": "LUNA2000 241 C&I BESS Cabinet",
-    },
-    "smartacu2000f": {
-        "file": "bess/prod_smartacu2000f.png",
-        "tags": ["bess"],
-        "type": "product",
-        "desc": "Smart ACU 2000F — active cooling unit for large-scale ESS",
-    },
     "cert_safety": {
         "file": "bess/cert_safety.png",
         "tags": ["bess"],
         "type": "cert",
-        "desc": "Safety certification showcase: container ESS + PCS + TUV Rheinland certificate",
+        "desc": "System safety certification showcase: ESS container + PCS + TUV Rheinland certificate",
     },
     "hero_bess": {
         "file": "bess/hero_ess_grid_forming.jpg",
@@ -148,7 +132,7 @@ ASSETS: dict[str, dict] = {
         "desc": "Grid-Forming ESS Stack — dark-background hero photograph",
     },
 
-    # ── Common — brand / certification ────────────────────────────────────────
+    # ── Common — brand ────────────────────────────────────────────────────────
     "fusionsolar_logo": {
         "file": "common/brand_fusionsolar_logo.png",
         "tags": ["pv", "bess"],
@@ -160,18 +144,6 @@ ASSETS: dict[str, dict] = {
         "tags": ["pv", "bess"],
         "type": "brand",
         "desc": "Huawei Professional Services — marketing brand image",
-    },
-    "security_stability": {
-        "file": "common/brand_security_stability.png",
-        "tags": ["pv", "bess"],
-        "type": "brand",
-        "desc": "Security & Stability brand graphic (suitable for partner/trust slides)",
-    },
-    "cert_recognition": {
-        "file": "common/cert_recognition.png",
-        "tags": ["pv", "bess"],
-        "type": "cert",
-        "desc": "Certification recognition badge / award",
     },
 }
 
@@ -192,18 +164,7 @@ def asset_path(key: str) -> str | None:
 
 def list_assets(tag: str | None = None,
                 asset_type: str | None = None) -> list[dict]:
-    """
-    Return a list of all asset entries, optionally filtered.
-
-    Parameters
-    ----------
-    tag         : "pv", "bess", or None (all tags)
-    asset_type  : "hero", "product", "brand", "cert", "video", or None (all)
-
-    Each entry in the returned list is the original dict with two extra keys:
-      "key"  : the logical name
-      "path" : absolute path (or None if file missing)
-    """
+    """Return a list of all asset entries, optionally filtered by tag / type."""
     result = []
     for key, entry in ASSETS.items():
         if tag is not None and tag not in entry["tags"]:
@@ -216,61 +177,47 @@ def list_assets(tag: str | None = None,
 
 # ── Scenario-based selectors (used directly by report_pptx.py) ────────────────
 
-def cover_hero(has_pv: bool, has_bess: bool) -> str | None:
+def cover_hero(has_pv: bool = True, has_bess: bool = True) -> str | None:
     """
-    Best cover hero image for a given scenario.
-    Falls back to the legacy hw_kv_dark.jpg for PV+BESS.
+    Cover background image — always the large-scale BESS deployment aerial
+    regardless of scenario.  Falls back to hw_kv_dark.jpg if file not found.
     """
-    if has_bess and not has_pv:
-        # BESS-only: ESS container hero
-        p = asset_path("hero_bess")
-        if p:
-            return p
-    if has_pv and not has_bess:
-        # PV-only: FusionSolar utility hero
-        p = asset_path("hero_pv")
-        if p:
-            return p
-    # PV+BESS (or fallback): use existing legacy dark hero
+    p = asset_path("huge_bess_deployed")
+    if p:
+        return p
+    # Legacy fallback
     legacy = os.path.join(_ASSETS_DIR, "hw_kv_dark.jpg")
     return legacy if os.path.exists(legacy) else None
 
 
 def system_product_image(has_pv: bool, has_bess: bool) -> tuple[str | None, str]:
     """
-    Primary product image + caption for the System Overview slide.
-
-    Returns
-    -------
-    (absolute_path_or_None, caption_text)
+    Primary product image + caption for the System Overview slide right panel.
+    Only called for single-component (PV-only or BESS-only) mode.
     """
     if has_pv and not has_bess:
         return (
             asset_path("sun2000_controller"),
             "Huawei SUN2000 String Inverter  ·  Huawei Digital Power",
         )
-    if has_bess and not has_pv:
-        return (
-            asset_path("luna2000_string_ess"),
-            "Huawei LUNA2000 String ESS  ·  Huawei Digital Power",
-        )
-    # PV+BESS: cert_safety is the full-system lifestyle photo
+    # BESS-only: LUNA2000 213KTL PCS — near-square product render, ideal for panel
     return (
-        asset_path("cert_safety"),
-        "Huawei ESS + PCS  ·  TUV Rheinland Certified  ·  Huawei Digital Power",
+        asset_path("luna2000_pcs"),
+        "Huawei LUNA2000 213KTL PCS  ·  Huawei Digital Power",
     )
 
 
-def energy_product_image() -> str | None:
-    """PV product image for the Energy Analysis slide right panel."""
-    return asset_path("sun2000_controller")
-
-
 def tariff_product_image() -> str | None:
-    """BESS product image for the Tariff Opportunity slide right panel."""
-    return asset_path("luna2000_string_ess")
+    """
+    BESS product / cert image for the Tariff Opportunity slide dispatch block.
+    cert_safety (landscape ESS + certificate) fits well in the dispatch inset.
+    """
+    return asset_path("cert_safety")
 
 
-def huawei_partner_cert() -> str | None:
-    """Certification image for Huawei Partner slide."""
-    return asset_path("cert_recognition")
+def energy_pv_hero() -> str | None:
+    """
+    Hero photograph for the PV Energy Analysis slide — FusionSolar 9 utility lineup.
+    Displayed as a full-width cinematic strip below the slide header.
+    """
+    return asset_path("hero_pv")

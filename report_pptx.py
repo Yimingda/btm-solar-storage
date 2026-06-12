@@ -863,6 +863,15 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
                 "June–August winter peak (darker bars) coincides with highest "
                 "Eskom TOU rates — battery dispatches aggressively in this window.")
 
+    # ── FusionSolar PV hero strip ──────────────────────────────────────────────
+    # Full-width cinematic band just below the subtitle text, above the chart.
+    # Uses hero_fusionsolar9_utility.jpg — dark-background utility PV lineup.
+    if _am is not None:
+        _pv_hero = _am.energy_pv_hero()
+        if _pv_hero and os.path.exists(_pv_hero):
+            slide.shapes.add_picture(
+                _pv_hero, _in(0), _in(0.94), _in(13.33), _in(0.70))
+
     chart_png = _png_monthly(pvgis_data)
     if chart_png:
         slide.shapes.add_picture(io.BytesIO(chart_png),
