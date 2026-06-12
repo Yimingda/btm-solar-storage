@@ -45,12 +45,12 @@ try:
 except ImportError:
     _am = None   # type: ignore[assignment]
 
-# ── Palette (Huawei Digital Power) ───────────────────────────────────────────
-_BLK  = "0D0D0D"   # near-black   — header bars, cover background
-_HRD  = "CF0A2C"   # Huawei red   — structural accents, chart bars, left strips
-_GLD  = "FFC000"   # Huawei gold  — KPI values, capacity specs (matches template)
-_DRD  = "9B0821"   # dark red     — heavy emphasis
-_LRD  = "FFF5F6"   # pale red     — card/block backgrounds
+# ── Palette (Green Energy) ───────────────────────────────────────────────────
+_BLK  = "0D0D0D"   # near-black    — header bars, cover background
+_HRD  = "1A7340"   # forest green  — structural accents, chart bars, left strips
+_GLD  = "22C55E"   # vivid green   — KPI data values, capacity specs
+_DRD  = "0D5C2E"   # deep green    — heavy emphasis
+_LRD  = "ECFDF5"   # pale mint     — card/block backgrounds
 _DGY  = "1A1A1A"   # dark grey    — slide titles, body text
 _MGY  = "6B7280"   # mid grey     — labels, captions, subtitles
 _LGRY = "F5F5F5"   # light grey   — alternating row tint
@@ -114,7 +114,7 @@ def _tb(slide, x, y, w, h, text: str, size: float,
 # ── Shared layout elements ────────────────────────────────────────────────────
 
 def _header_bar(slide, title: str, subtitle: str = ""):
-    """White slide — thin Huawei-black top bar + red left border marker."""
+    """White slide — thin black top bar + green left border marker."""
     _rect(slide, 0, 0, 13.33, 0.52, _BLK)          # black top bar
     _rect(slide, 0, 0, 0.09,  0.52, _HRD)           # red left strip on bar
     _rect(slide, 0, 0.52, 13.33, 6.98, _WHT)        # white body
@@ -223,7 +223,7 @@ def _png_monthly(pvgis_data: dict) -> bytes | None:
             ax.text(bar.get_x()+bar.get_width()/2, h+max(monthly)*0.01,
                     f"{h/1000:.1f}k", ha="center", va="bottom",
                     fontsize=7, color="#6B7280", fontname=_FONT)
-        ax.axvspan(4.45, 7.55, color=f"#{_LRD}", alpha=0.9, zorder=0)
+        ax.axvspan(4.45, 7.55, color="#D1FAE5", alpha=0.9, zorder=0)   # pale green winter-peak band
         ax.text(6.0, max(monthly)*0.92, "Peak-tariff\nseason",
                 ha="center", fontsize=7.5, color=f"#{_DRD}",
                 style="italic", fontname=_FONT)
@@ -472,7 +472,8 @@ def _s1_cover(prs, project_name: str, client_name: str,
 
 
 def _s2_thesis(prs, results: dict, params: dict, company: str,
-               page: int = 2, total: int = 11):
+               page: int = 2, total: int = 11,
+               has_pv: bool = True, has_bess: bool = True):
     """Slide 2 – Investment Thesis."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     npv     = results.get("npv", 0) or 0
@@ -515,10 +516,16 @@ def _s2_thesis(prs, results: dict, params: dict, company: str,
     for i, (lbl, val, sub) in enumerate(_kpis):
         _kpi_block(slide, 0.28 + i * _blk_w, 1.68, lbl, val, sub, w=_blk_w - 0.10)
 
+    if has_pv and has_bess:
+        _disp_src = "self-generated solar and stored BESS energy"
+    elif has_pv:
+        _disp_src = "self-generated solar energy"
+    else:
+        _disp_src = "stored BESS energy dispatched during peak tariff windows"
     story = (
         f"The project displaces expensive {params.get('tariff_mode','Eskom Megaflex')} "
         f"peak energy (winter peak R {params.get('w_evening_peak',8.13):.2f}/kWh) "
-        "with self-generated solar and stored BESS energy.  "
+        f"with {_disp_src}.  "
         f"At {esc:.1f}% p.a. tariff escalation, returns compound strongly over "
         "the 20-year model horizon — making early deployment value-accretive.  "
         "Section 12B (100% Year-1 for assets <1 MW; 50/30/20% over 3 years for "
@@ -572,10 +579,16 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
         hl = (f"{_fmw(bess_kh,'kWh')} BESS — "
               f"{_fmw(bess_kh*c_rate,'kW')} max discharge, "
               f"{params.get('dod',90):.0f}% DoD")
-    _header_bar(slide, hl,
-                f"Lat {params.get('lat',0):.3f}°  Lon {params.get('lon',0):.3f}°  "
-                f"·  Tilt {params.get('tilt',20):.0f}°  ·  Azimuth {params.get('azimuth',180):.0f}°  "
-                f"·  Irradiance: EU PVGIS API (Joint Research Centre)")
+    if has_pv:
+        _hl_sub = (f"Lat {params.get('lat',0):.3f}°  Lon {params.get('lon',0):.3f}°  "
+                   f"·  Tilt {params.get('tilt',20):.0f}°  ·  Azimuth {params.get('azimuth',180):.0f}°  "
+                   f"·  Irradiance: EU PVGIS API (Joint Research Centre)")
+    else:
+        _hl_sub = (f"DoD {params.get('dod',90):.0f}%  ·  "
+                   f"RTE {params.get('rte',90):.0f}%  ·  "
+                   f"Tariff: {params.get('tariff_mode','Megaflex')}  ·  "
+                   f"Dispatch: peak shaving + arbitrage")
+    _header_bar(slide, hl, _hl_sub)
 
     # ── Column width ──────────────────────────────────────────────────────────
     # PV+BESS  → two equal 5.95" columns (unchanged dual layout)
@@ -649,13 +662,18 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
         _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.30,
             img_caption, 8, color=_MGY, align="center")
 
-    # ── Bottom separator + PVGIS note ─────────────────────────────────────────
+    # ── Bottom separator + data-source note ──────────────────────────────────
     # In single mode limit the separator/narrative to the spec table width only
     _sep_w = 12.78 if _dual else 6.60
     _rect(slide, 0.28, 6.78, _sep_w, 0.03, _SEP)
-    _narrative(slide, 0.28, 6.85, _sep_w, 0.28,
-               "Irradiance sourced from EU PVGIS API — crystalline silicon, "
-               "free-mounted, site coordinates.  Fallback: 1,650 kWh/kWp/yr.")
+    if has_pv:
+        _note = ("Irradiance sourced from EU PVGIS API — crystalline silicon, "
+                 "free-mounted, site coordinates.  Fallback: 1,650 kWh/kWp/yr.")
+    else:
+        _note = ("BESS specifications per Huawei LUNA2000 datasheet.  "
+                 "Cycle-life and SoH trajectory based on manufacturer warranty data.  "
+                 "Dispatch modelled on daily TOU peak-shaving + overnight arbitrage.")
+    _narrative(slide, 0.28, 6.85, _sep_w, 0.28, _note)
     _footer(slide, company, page, total=total)
 
 
@@ -689,7 +707,7 @@ def _s4_financial(prs, results: dict, fin_df, company: str,
             11, color=_MGY, align="center")
 
     _tb(slide, 0.28, 5.38, 8.80, 0.28,
-        "Red bars = positive NCF  ·  Bright-red = negative  ·  "
+        "Green bars = positive NCF  ·  Red = negative  ·  "
         "Black line = cumulative  ·  Dashed = break-even year",
         8, color=_MGY, align="center")
 
@@ -917,7 +935,7 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
                    f"{annual_grid/1e3:,.0f} MWh is drawn from the grid in Year 1.  "
                    "The BESS charges during off-peak periods and discharges into "
                    "morning (07:00–09:00) and evening (17:00–20:00) Eskom peak "
-                   "windows — shaded red columns indicate the high-demand season.")
+                   "windows — shaded columns indicate the high-demand season.")
     else:
         _narrative(slide, 0.28, 5.92, 12.78, 0.65,
                    f"Solar PV generates {annual_gen/1e3:,.0f} MWh in Year 1, "
@@ -1152,28 +1170,32 @@ def _s8_market(prs, company: str, page: int = 10, total: int = 11):
 
 
 def _s9_assumptions(prs, params: dict, company: str,
-                    page: int = 11, total: int = 11):
+                    page: int = 11, total: int = 11,
+                    has_pv: bool = True):
     """Slide 9 – Assumptions & Disclaimer."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     _rect(slide, 0, 0, 13.33, 7.5, _BLK)         # black background
-    _rect(slide, 0, 0, 0.12, 7.5, _HRD)           # Huawei red left strip
+    _rect(slide, 0, 0, 0.12, 7.5, _HRD)           # green left strip
     _rect(slide, 0.28, 0.55, 12.78, 5.72, _WHT)   # white content panel
 
     _tb(slide, 0.28, 0.04, 10.0, 0.48,
         "Key Assumptions  &  Disclaimer", 19, bold=True, color=_WHT)
 
+    _horizon = ("20 years from PV commissioning" if has_pv
+                else "20 years from BESS commissioning")
     assumptions = [
-        ("PV degradation",        f"{params.get('pv_degradation',0.5):.1f}% per year (linear)"),
         ("Round-trip efficiency",  f"{params.get('rte',90):.0f}%  (AC-AC)"),
-        ("Analysis horizon",       "20 years from PV commissioning"),
+        ("Analysis horizon",       _horizon),
         ("Tariff escalation",      f"{params.get('tariff_escalation',8.0):.1f}% per annum (real)"),
         ("Discount rate (WACC)",   f"{params.get('discount_rate',12.0):.1f}%  (nominal, after-tax)"),
         ("Corporate Income Tax",   f"{params.get('tax_rate',27):.0f}%  (CIT)"),
         ("Section 12B",            "100% Year-1 for <1 MW; 50/30/20% over 3 yrs for >1 MW"),
         ("Battery DoD",            f"{params.get('dod',90):.0f}%  (usable capacity)"),
         ("FX rate",                f"USD/ZAR  {params.get('forex_usd_zar',18.5):.2f}"),
-        ("Irradiance data",        "EU PVGIS API — crystSi, free-mount, site lat/lon"),
     ]
+    if has_pv:
+        assumptions.insert(0, ("PV degradation", f"{params.get('pv_degradation',0.5):.1f}% per year (linear)"))
+        assumptions.append(("Irradiance data", "EU PVGIS API — crystSi, free-mount, site lat/lon"))
     mid = len(assumptions)//2
     for col_i, chunk in enumerate([assumptions[:mid], assumptions[mid:]]):
         x = 0.42+col_i*6.45
@@ -1473,7 +1495,8 @@ def generate_pptx(
                       has_pv=has_pv, has_bess=has_bess)
         elif _sid == "thesis":
             _s2_thesis(prs, results, params, company,
-                       page=_pg, total=_total)
+                       page=_pg, total=_total,
+                       has_pv=has_pv, has_bess=has_bess)
         elif _sid == "system":
             _s3_system(prs, params, pvgis_data, company,
                        page=_pg, total=_total,
@@ -1500,7 +1523,8 @@ def generate_pptx(
         elif _sid == "market":
             _s8_market(prs, company, page=_pg, total=_total)
         elif _sid == "assumptions":
-            _s9_assumptions(prs, params, company, page=_pg, total=_total)
+            _s9_assumptions(prs, params, company, page=_pg, total=_total,
+                            has_pv=has_pv)
 
     buf = io.BytesIO()
     prs.save(buf)
