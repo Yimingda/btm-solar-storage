@@ -25,7 +25,7 @@ _SAVE_KEYS = [
     "forex_usd_zar", "pv_usd_per_w", "bess_usd_per_wh",
     "pv_opex_per_kwp", "bess_opex_per_kwh",
     "tariff_escalation", "discount_rate", "tax_rate", "pv_degradation",
-    "tariff_mode",
+    "tariff_mode", "ppa_rate",
     "w_morning_peak", "w_evening_peak", "w_standard", "w_off_peak",
     "s_morning_peak", "s_evening_peak", "s_standard", "s_off_peak",
     # Project timeline
@@ -86,14 +86,26 @@ def restore_snapshot(params: dict,
         st.session_state[key] = val
     for k in ("results", "fin_df", "hourly_df"):
         st.session_state[k] = None
-    # ── Sync divergent widget-state keys so number_inputs reflect restored values.
-    # The lat/lon inputs use key="_lat_in"/"_lon_in" (not "lat"/"lon"), so Streamlit
-    # would otherwise display the stale widget value and then overwrite the restored
-    # coordinates in the next render cycle.
+    # ── Sync divergent widget-state keys so widgets reflect restored values.
+    # Rule: whenever a widget uses key=X but the saved param is stored under key=Y,
+    # we must also write X so Streamlit doesn't render the stale widget value and
+    # overwrite the restored param in the next render cycle.
     if "lat" in params:
         st.session_state["_lat_in"] = params["lat"]
     if "lon" in params:
         st.session_state["_lon_in"] = params["lon"]
+
+    # tariff_mode_sel (selectbox key) ≠ tariff_mode (saved key).
+    # Without this sync the selectbox keeps its stale value, which the
+    # `if tariff_mode != _prev_tariff_mode:` guard immediately writes back into
+    # st.session_state.tariff_mode — corrupting the restored value AND the
+    # auto-populated tariff rates.
+    # Also align _prev_tariff_mode so the guard does NOT fire (we don't want
+    # auto-populate to overwrite the custom rates that were already restored above).
+    if "tariff_mode" in params:
+        _tm = params["tariff_mode"]
+        st.session_state["tariff_mode_sel"]    = _tm
+        st.session_state["_prev_tariff_mode"]  = _tm
     # ── Active-project tracking ──────────────────────────────
     st.session_state["_active_snap_id"]     = snap_id
     st.session_state["_active_snap_name"]   = snap_name
