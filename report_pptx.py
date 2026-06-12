@@ -528,8 +528,9 @@ def _s2_thesis(prs, results: dict, params: dict, company: str,
         f"with {_disp_src}.  "
         f"At {esc:.1f}% p.a. tariff escalation, returns compound strongly over "
         "the 20-year model horizon — making early deployment value-accretive.  "
-        "Section 12B (100% Year-1 for assets <1 MW; 50/30/20% over 3 years for "
-        "larger systems) materially improves early after-tax cash flows."
+        "Section 12B/11E applied on the equipment portion (60% of CAPEX) — "
+        "100% Year-1 for assets <1 MW; 50/30/20% for larger systems — "
+        "materially improves early after-tax cash flows."
     )
     _rect(slide, 0.28, 3.35, 12.78, 0.03, _SEP)
     _narrative(slide, 0.28, 3.50, 12.78, 0.75, story)
@@ -539,21 +540,51 @@ def _s2_thesis(prs, results: dict, params: dict, company: str,
     gbuy   = d1.get("annual_grid_buy_kWh", 1)
     self_s = min(95, round((1-gbuy/load)*100, 0))
 
-    for xi, (hdr, body) in enumerate([
-        ("Grid Independence",
-         f"After commissioning, the site sources ≈{self_s:.0f}% of daytime demand "
-         "from owned generation — insulating operations from future utility price "
-         "shocks and loadshedding exposure."),
-        ("Lifetime Avoided Energy",
-         f"Over 20 years the system avoids purchasing {avoided:,.0f} MWh from the "
-         "grid, representing a measurable long-run cost reduction and carbon footprint "
-         "improvement."),
-    ]):
-        _rect(slide, 0.28+xi*6.40, 4.42, 6.20, 1.82, _LRD)
-        _rect(slide, 0.28+xi*6.40, 4.42, 0.07, 1.82, _HRD)
-        _tb(slide, 0.44+xi*6.40, 4.52, 5.95, 0.32,
-            hdr, 10, bold=True, color=_DGY)
-        _narrative(slide, 0.44+xi*6.40, 4.88, 5.95, 1.25, body)
+    # ── Card 1: Grid Independence ─────────────────────────────────────────────
+    _rect(slide, 0.28, 4.42, 6.20, 1.82, _LRD)
+    _rect(slide, 0.28, 4.42, 0.07, 1.82, _HRD)
+    _tb(slide, 0.44, 4.52, 5.95, 0.32, "Grid Independence", 10, bold=True, color=_DGY)
+    _narrative(slide, 0.44, 4.88, 5.95, 1.25,
+               f"After commissioning, the site sources ≈{self_s:.0f}% of daytime demand "
+               "from owned generation — insulating operations from future utility price "
+               "shocks and loadshedding exposure.")
+
+    # ── Card 2: Lifetime Avoided Peak Hour Energy ─────────────────────────────
+    # PV+BESS mode: split card showing PV avoided MWh + BESS peak-dispatch MWh separately
+    _cx2 = 6.68   # 0.28 + 1×6.40
+    _rect(slide, _cx2, 4.42, 6.20, 1.82, _LRD)
+    _rect(slide, _cx2, 4.42, 0.07, 1.82, _HRD)
+    _tb(slide, _cx2+0.16, 4.52, 5.95, 0.28,
+        "Lifetime Avoided Peak Hour Energy", 10, bold=True, color=_DGY)
+    if has_pv and has_bess:
+        _pv_av   = lcoe_d.get("total_avoided_mwh", 0) or 0
+        _bess_av = lcos_d.get("total_discharge_mwh", 0) or 0
+        _hw = 2.75
+        _tb(slide, _cx2+0.16, 4.84, _hw, 0.38,
+            f"{_pv_av:,.0f} MWh", 15, bold=True, color=_GLD)
+        _tb(slide, _cx2+0.16, 5.22, _hw, 0.22,
+            "PV  ·  self-generated", 8, color=_MGY)
+        _rect(slide, _cx2+3.05, 4.88, 0.02, 0.58, _SEP)       # vertical divider
+        _tb(slide, _cx2+3.15, 4.84, _hw, 0.38,
+            f"{_bess_av:,.0f} MWh", 15, bold=True, color=_GLD)
+        _tb(slide, _cx2+3.15, 5.22, _hw, 0.22,
+            "BESS  ·  peak-dispatched", 8, color=_MGY)
+        _narrative(slide, _cx2+0.16, 5.50, 5.80, 0.65,
+                   f"{_pv_av+_bess_av:,.0f} MWh combined over 20 years — "
+                   "peak-tariff grid purchases permanently eliminated.  "
+                   "Measurable cost reduction and carbon footprint improvement.")
+    else:
+        _tb(slide, _cx2+0.16, 4.84, 5.80, 0.38,
+            f"{avoided:,.0f} MWh", 15, bold=True, color=_GLD)
+        if has_bess and not has_pv:
+            _bd = (f"Over 20 years the BESS dispatches {avoided:,.0f} MWh during peak "
+                   "tariff windows — eliminating the highest-cost grid purchases "
+                   "and reducing the site's carbon footprint.")
+        else:
+            _bd = (f"Over 20 years the PV system generates {avoided:,.0f} MWh on-site — "
+                   "eliminating peak-hour grid purchases and reducing the site's "
+                   "carbon footprint.")
+        _narrative(slide, _cx2+0.16, 5.28, 5.80, 0.88, _bd)
 
     _footer(slide, company, page, total=total)
 
@@ -722,8 +753,8 @@ def _s4_financial(prs, results: dict, fin_df, company: str,
     _rect(slide, 0.28, 5.72, 12.78, 0.03, _SEP)
     _narrative(slide, 0.28, 5.82, 12.78, 0.62,
                "The 20-year model includes O&M escalation, PV degradation, and "
-               "BESS SOH decline.  Section 12B (100% Year-1 for <1 MW assets) "
-               "materially improves early cash flows.  NPV remains positive across "
+               "BESS SOH decline.  Section 12B/11E applied on equipment CAPEX (60%) "
+               "improves early cash flows.  NPV remains positive across "
                "±2% tariff-escalation sensitivity (available in the full Excel model).")
     _footer(slide, company, page, total=total)
 
@@ -1011,12 +1042,13 @@ def _s6_tariff(prs, params: dict, results: dict, company: str,
 
     # Right: savings KPIs + escalation
     d1      = results.get("dispatch_yr1") or {}
-    ann_sav = d1.get("annual_savings_zar", 0) or 0
+    ann_sav = (d1.get("annual_savings_zar")
+               or (d1.get("annual_pv_saving_ZAR", 0) + d1.get("annual_bess_saving_ZAR", 0)))
     def _mv(v): return (f"R {abs(v)/1e6:.2f}M/yr" if abs(v)>=1e6
                         else f"R {abs(v)/1e3:.0f}k/yr")
 
     _kpi_block(slide, 6.55, 1.68, "YR-1 GRID SAVINGS",
-               _mv(ann_sav) if ann_sav else "Run sim",
+               _mv(ann_sav) if ann_sav else "—",
                "Avoided grid purchase cost", w=3.20)
     _kpi_block(slide, 10.0, 1.68, "TARIFF ESCALATION",
                f"{esc:.1f}% p.a.", "Annual increase assumed", w=3.05)
@@ -1189,7 +1221,8 @@ def _s9_assumptions(prs, params: dict, company: str,
         ("Tariff escalation",      f"{params.get('tariff_escalation',8.0):.1f}% per annum (real)"),
         ("Discount rate (WACC)",   f"{params.get('discount_rate',12.0):.1f}%  (nominal, after-tax)"),
         ("Corporate Income Tax",   f"{params.get('tax_rate',27):.0f}%  (CIT)"),
-        ("Section 12B",            "100% Year-1 for <1 MW; 50/30/20% over 3 yrs for >1 MW"),
+        ("Section 12B / 11E",      "Equipment only (60% of CAPEX): 100% Yr-1 <1MW; 50/30/20% >1MW"),
+        ("Service fraction",       "40% of CAPEX = installation / services  (not depreciable)"),
         ("Battery DoD",            f"{params.get('dod',90):.0f}%  (usable capacity)"),
         ("FX rate",                f"USD/ZAR  {params.get('forex_usd_zar',18.5):.2f}"),
     ]

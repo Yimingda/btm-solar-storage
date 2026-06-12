@@ -1856,7 +1856,12 @@ def run_20yr_financial_model(
         ebitda = saving - total_opex
 
         # Depreciation (12B 50/30/20 for PV; 20%×5yr straight-line for pure BESS)
-        depreciation = total_capex * _depr_sched.get(yr, 0.0)
+        # Only the equipment portion of CAPEX qualifies for Section 12B / 11E.
+        # Services (installation, commissioning, civil works) ≈ 40% of total CAPEX
+        # are NOT depreciable under these sections.
+        _svc_frac    = params.get("service_fraction", 0.40)   # default 40% services
+        _equip_capex = total_capex * (1.0 - _svc_frac)        # depreciable equipment only
+        depreciation = _equip_capex * _depr_sched.get(yr, 0.0)
         # Tax shield = dep × tax rate — realized immediately (BTM at profitable company)
         tax_shield = depreciation * tax
 
@@ -2602,9 +2607,10 @@ def generate_excel_report() -> bytes:
         # Col I: EBITDA = F - G - H
         _wc(9, formula=f"=F{r}-G{r}-H{r}", bold=True)
 
-        # Col J: Section 12B Depreciation
+        # Col J: Section 12B Depreciation (equipment portion only — 60% of CAPEX)
+        # 40% services are excluded from 12B / 11E accelerated depreciation
         if dep_pct > 0:
-            _wc(10, formula=f"=$H$4*{dep_pct}")
+            _wc(10, formula=f"=$H$4*0.60*{dep_pct}")
         else:
             _wc(10, val=0)
 
