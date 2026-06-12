@@ -762,134 +762,174 @@ def _s4_financial(prs, results: dict, fin_df, company: str,
 
 def _s4b_financial_table(prs, results: dict, fin_df, company: str,
                           page: int = 5, total: int = 12):
-    """Slide 4b — 20-Year Financial Projections Table (two-panel layout)."""
+    """Slide 4b — 20-Year Cash Flow: full-width 18-column Excel-style table.
+
+    Columns mirror the Excel output exactly:
+      Yr | BESS Status | SOH% | PV Saving | BESS Saving | Total Saving |
+      PV O&M | BESS O&M | EBITDA | Depr. | Tax Shield | EBIT | Net Tax |
+      NCF | Disc.CF | Cum.CF | Net Profit | Ass.Loss
+    All monetary values in R millions (2 dp < 100 M, 1 dp ≥ 100 M).
+    """
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
-    capex   = results.get("total_capex", 0) or 0
-    tax_r   = results.get("tax_rate", 27)
-    disc_r  = results.get("discount_rate", 12)
+    capex  = results.get("total_capex", 0) or 0
+    tax_r  = results.get("tax_rate", 27)
+    disc_r = results.get("discount_rate", 12)
 
     _header_bar(
         slide,
         "20-Year Projected Cash Flow — Year-by-Year Breakdown",
         (f"CAPEX R {abs(capex)/1e6:.2f}M  ·  All values in R millions  ·  "
          f"Discount {disc_r:.1f}%  ·  CIT {tax_r:.0f}%  ·  "
-         "Green Cum.CF = post-payback positive territory"),
+         "Payback row = green  ·  Red = negative  ·  Green Cum.CF = post-payback"),
     )
 
     if fin_df is None or len(fin_df) == 0:
         _narrative(slide, 0.28, 3.50, 12.78, 0.60,
-                   "Run simulation first to generate the 20-year financial table.",
-                   )
+                   "Run simulation first to generate the 20-year financial table.")
         _footer(slide, company, page, total=total)
         return
 
-    # ── Layout constants ──────────────────────────────────────────────────────
-    TBL_Y   = 1.68          # top of table area
-    TBL_H   = 5.54          # y=1.68 → y=7.22 (above footer)
-    HDR_H   = 0.38          # header row height
-    ROW_H   = (TBL_H - HDR_H) / 10  # 10 rows per panel
-    GAP     = 0.18          # gap between panels
-
-    # Column defs per panel: (header_text, width_in, data_key_or_fn, align)
-    #   data_key_or_fn: either a column name in fin_df, or a callable(row)->str
-    def _rv(v, neg_brackets=False):
-        """Format R-million value."""
-        if abs(v) >= 100:
-            s = f"{v/1e6:.1f}"
-        elif abs(v) >= 10:
-            s = f"{v/1e6:.2f}"
-        else:
-            s = f"{v/1e6:.2f}"
-        if neg_brackets and v < 0:
-            return f"({abs(v)/1e6:.2f})"
-        return s
-
-    # payback year (rounded up to next integer year)
-    payback = results.get("payback") or 0
+    # ── Layout ────────────────────────────────────────────────────────────────
+    payback    = results.get("payback") or 0
     payback_yr = int(payback) + (1 if payback % 1 > 0.01 else 0)
 
-    PANEL_COLS = [
-        # header_text       width  key / lambda                           align
-        ("Yr",              0.42,  lambda r: str(int(r["Year"])),         "center"),
-        ("Gross Saving\nR M", 1.60, lambda r: _rv(r.get("Total Saving (ZAR)", 0)), "right"),
-        ("NCF\nR M",        1.60,  lambda r: _rv(r.get("Net Cash Flow NCF (ZAR)", 0)), "right"),
-        ("Cum. CF\nR M",    2.22,  lambda r: _rv(r.get("Cumulative CF (ZAR)", 0)), "right"),
-        ("",                0.36,  lambda r: "✓" if r.get("Status", "✓") == "✓" else "EoL", "center"),
+    TBL_X  = 0.13            # left margin
+    TBL_W  = 13.33 - 2 * TBL_X  # 13.07"
+    TBL_Y  = 1.44
+    HDR_H  = 0.38
+    FTR_Y  = 7.12
+    N_ROWS = 21              # year-0 sentinel + 20 data years
+    ROW_H  = (FTR_Y - TBL_Y - HDR_H) / N_ROWS   # ≈ 0.252"
+
+    def _rm(v):
+        """ZAR → R millions string.  Zero → '0'."""
+        if v is None:
+            return "—"
+        m = v / 1_000_000
+        if m == 0:
+            return "0"
+        if abs(m) >= 100:
+            return f"{m:,.1f}"
+        return f"{m:.2f}"
+
+    # ── Column definitions ────────────────────────────────────────────────────
+    # (hdr-line-1, hdr-line-2, raw-width, value-lambda, align, neg-flag)
+    # neg-flag: True = colour negative values red
+    COLS = [
+        ("Yr",        "",        0.28,
+         lambda r: str(int(r["Year"])),                                    "c", False),
+        ("BESS",      "Status",  0.44,
+         lambda r: r.get("Status", "✓"),                                  "c", False),
+        ("SOH",       "%",       0.36,
+         lambda r: f"{r.get('SOH%', 0):.1f}",                             "c", False),
+        ("PV Saving", "R M",     0.84,
+         lambda r: _rm(r.get("PV Saving (ZAR)")),                         "r", False),
+        ("BESS Save", "R M",     0.80,
+         lambda r: _rm(r.get("BESS Saving (ZAR)")),                       "r", False),
+        ("Total Save","R M",     0.88,
+         lambda r: _rm(r.get("Total Saving (ZAR)")),                      "r", False),
+        ("PV O&M",    "R M",     0.58,
+         lambda r: _rm(r.get("PV O&M (ZAR)")),                            "r", False),
+        ("BESS O&M",  "R M",     0.62,
+         lambda r: _rm(r.get("BESS O&M (ZAR)")),                          "r", False),
+        ("EBITDA",    "R M",     0.88,
+         lambda r: _rm(r.get("EBITDA (ZAR)")),                            "r", False),
+        ("Depr.",     "R M",     0.68,
+         lambda r: _rm(r.get("Depreciation (ZAR)")),                      "r", False),
+        ("Tax Shld",  "R M",     0.66,
+         lambda r: _rm(r.get("Tax Shield (ZAR)")),                        "r", False),
+        ("EBIT",      "R M",     0.72,
+         lambda r: _rm((r.get("EBITDA (ZAR)") or 0)
+                       - (r.get("Depreciation (ZAR)") or 0)),             "r", True),
+        ("Net Tax",   "R M",     0.66,
+         lambda r: _rm((r.get("EBITDA (ZAR)") or 0)
+                       - (r.get("Net Cash Flow NCF (ZAR)") or 0)),        "r", True),
+        ("NCF",       "R M",     0.88,
+         lambda r: _rm(r.get("Net Cash Flow NCF (ZAR)")),                 "r", False),
+        ("Disc.CF",   "R M",     0.72,
+         lambda r: _rm(r.get("Discounted CF PV (ZAR)")),                  "r", False),
+        ("Cum.CF",    "R M",     0.88,
+         lambda r: _rm(r.get("Cumulative CF (ZAR)")),                     "r", True),
+        ("Net Profit","R M",     0.76,
+         lambda r: _rm(r.get("Net Profit (ZAR)")),                        "r", False),
+        ("Ass.Loss",  "R M",     0.68,
+         lambda r: _rm(r.get("Assess. Loss C/F (ZAR)")),                  "r", False),
     ]
-    L_PAN_W = sum(c[1] for c in PANEL_COLS)  # 6.20"
-    R_PAN_W = L_PAN_W + 0.20                 # 6.40" (slightly wider)
-    # recalc R panel col widths (proportional scale)
-    _scale  = R_PAN_W / L_PAN_W
-    R_COLS  = [(h, w * _scale, fn, a) for h, w, fn, a in PANEL_COLS]
 
-    def _draw_panel(x_start, pan_w, col_defs, year_start, year_end):
-        rows_slice = fin_df[
-            (fin_df["Year"] >= year_start) & (fin_df["Year"] <= year_end)
-        ]
-        n = len(rows_slice)
+    # scale column widths proportionally to fill TBL_W exactly
+    _raw_w = sum(c[2] for c in COLS)
+    _sc    = TBL_W / _raw_w
+    COLS   = [(h1, h2, w * _sc, fn, al, neg) for h1, h2, w, fn, al, neg in COLS]
 
-        # compute column x positions
-        xs = []
-        cx = x_start
-        for _, w, _, _ in col_defs:
-            xs.append(cx)
-            cx += w
+    # pre-compute left-edge x for each column
+    _xs = []
+    _cx = TBL_X
+    for _, _, w, _, _, _ in COLS:
+        _xs.append(_cx)
+        _cx += w
 
-        # ── Header row ────────────────────────────────────────────────────
-        _rect(slide, x_start, TBL_Y, pan_w, HDR_H, _DGY)
-        for (hdr, w, _, align), hx in zip(col_defs, xs):
-            _tb(slide, hx + 0.03, TBL_Y + 0.05, w - 0.06, HDR_H - 0.06,
-                hdr, 7.5, bold=True, color=_WHT, align=align, wrap=False)
+    _am_str = {"c": "center", "r": "right", "l": "left"}
 
-        # ── Data rows ─────────────────────────────────────────────────────
-        for ri, (_, row) in enumerate(rows_slice.iterrows()):
-            yr     = int(row["Year"])
-            ry     = TBL_Y + HDR_H + ri * ROW_H
-            is_eol = (str(row.get("Status", "✓")) != "✓")
-            cum_cf = row.get("Cumulative CF (ZAR)", 0)
+    # ── Header row ────────────────────────────────────────────────────────────
+    _rect(slide, TBL_X, TBL_Y, TBL_W, HDR_H, "141E2C")   # near-black navy
+    for (h1, h2, w, _, al, _), hx in zip(COLS, _xs):
+        label = f"{h1}\n{h2}" if h2 else h1
+        _tb(slide, hx + 0.02, TBL_Y + 0.03, w - 0.04, HDR_H - 0.05,
+            label, 5.5, bold=True, color=_WHT, align=_am_str[al])
 
-            # Row background
-            if yr == payback_yr:
-                bg = _GLD
-            elif ri % 2 == 0:
-                bg = _LGRY
-            else:
-                bg = _WHT
-            _rect(slide, x_start, ry, pan_w, ROW_H - 0.01, bg)
+    # ── Year-0 row — Initial Investment ───────────────────────────────────────
+    _y0 = TBL_Y + HDR_H
+    _rect(slide, TBL_X, _y0, TBL_W, ROW_H - 0.008, "1C2A38")
+    _tb(slide, _xs[0] + 0.02, _y0 + 0.025, COLS[0][2] - 0.04, ROW_H - 0.04,
+        "0", 6, bold=True, color=_WHT, align="center", wrap=False)
+    _tb(slide, _xs[1], _y0 + 0.025, 3.6, ROW_H - 0.04,
+        "Initial Investment", 5.5, color="7A9EB5", align="center", wrap=False)
+    for _ci in (13, 14, 15):   # NCF, Disc.CF, Cum.CF = −CAPEX
+        _tb(slide, _xs[_ci] + 0.03, _y0 + 0.025,
+            COLS[_ci][2] - 0.06, ROW_H - 0.04,
+            _rm(-abs(capex)), 6, bold=(_ci == 13),
+            color=_NEG, align="right", wrap=False)
 
-            for ci, ((_, w, fn, align), hx) in enumerate(zip(col_defs, xs)):
+    # ── Data rows (years 1-20) ────────────────────────────────────────────────
+    for _ri, (_, row) in enumerate(fin_df.iterrows()):
+        yr     = int(row["Year"])
+        ry     = TBL_Y + HDR_H + ROW_H * (_ri + 1)   # +1 offsets year-0 row
+        is_eol = str(row.get("Status", "✓")) not in ("✓", "✓ Active")
+        cum_cf = row.get("Cumulative CF (ZAR)") or 0
+        is_pb  = (yr == payback_yr)
+
+        bg = (_GLD if is_pb
+              else ("EEF4FA" if _ri % 2 == 0 else _WHT))
+        _rect(slide, TBL_X, ry, TBL_W, ROW_H - 0.008, bg)
+
+        for ci, ((h1, h2, w, fn, al, neg_flag), hx) in enumerate(zip(COLS, _xs)):
+            try:
+                val = fn(row)
+            except Exception:
+                val = "—"
+
+            # colour logic
+            if is_pb:
+                clr = "0D1117"          # near-black on vivid-green row
+            elif ci == 1:               # Status column
+                clr = _GLD if not is_eol else _NEG
+            elif ci == 15:              # Cum.CF — green/red
+                clr = "15803D" if cum_cf >= 0 else _NEG
+            elif neg_flag and val not in ("—", "0"):
                 try:
-                    val_str = fn(row)
+                    num = float(val.replace(",", ""))
+                    clr = _NEG if num < -0.0005 else _DGY
                 except Exception:
-                    val_str = "—"
+                    clr = _DGY
+            elif is_eol:
+                clr = "9AACB8"
+            else:
+                clr = _DGY
 
-                # Text colour
-                if ci == 3:        # Cum. CF column
-                    if cum_cf > 0:
-                        clr = "15803D"   # dark green
-                    else:
-                        clr = _NEG
-                elif ci == 4:      # Status column
-                    clr = "15803D" if not is_eol else _HRD
-                else:
-                    clr = _MGY if is_eol else _DGY
-
-                _tb(slide, hx + 0.04, ry + 0.04,
-                    w - 0.08, ROW_H - 0.06,
-                    val_str, 8.5, bold=(ci == 0),
-                    color=clr, align=align, wrap=False)
-
-    # Left panel: years 1-10
-    _draw_panel(0.28, L_PAN_W, PANEL_COLS, 1, 10)
-    # Right panel: years 11-20
-    _draw_panel(0.28 + L_PAN_W + GAP, R_PAN_W, R_COLS, 11, 20)
-
-    # Panel labels above the header rows
-    _tb(slide, 0.28,              TBL_Y - 0.26, L_PAN_W, 0.24,
-        "◀  Years 1 – 10", 8.5, bold=True, color=_HRD)
-    _tb(slide, 0.28 + L_PAN_W + GAP, TBL_Y - 0.26, R_PAN_W, 0.24,
-        "◀  Years 11 – 20", 8.5, bold=True, color=_HRD)
+            _tb(slide, hx + 0.03, ry + 0.025, w - 0.06, ROW_H - 0.04,
+                val, 6, bold=(ci in (0, 5, 8, 13, 15) and not is_eol),
+                color=clr, align=_am_str[al], wrap=False)
 
     _footer(slide, company, page, total=total)
 
@@ -1518,8 +1558,8 @@ def generate_pptx(
     _slide_ids = (["cover", "thesis", "system", "financial", "financial_table"]
                   + (["energy"] if has_pv   else [])
                   + (["tariff"] if has_bess else [])
-                  + ["roadmap", "huawei_partner", "sa_projects", "market",
-                     "assumptions"])
+                  + ["roadmap", "huawei_partner", "market",
+                     "assumptions"])   # sa_projects removed per client request
     _total = len(_slide_ids)
 
     for _pg, _sid in enumerate(_slide_ids, start=1):
