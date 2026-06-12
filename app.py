@@ -1163,6 +1163,10 @@ def init_session_state():
         # Load profile CSV upload state (not persisted in snapshots)
         st.session_state["load_profile_8760"] = None
         st.session_state["load_profile_name"] = ""
+        # PV generation profile upload state (overrides PVGIS when set)
+        st.session_state["pv_profile_8760"]   = None   # raw uploaded array
+        st.session_state["pv_profile_name"]   = ""
+        st.session_state["pv_profile_per_kwp"] = False # True = values are kW/kWp
 
 init_session_state()
 
@@ -1383,6 +1387,41 @@ def build_hourly_pv_profile(pvgis_data: dict, pv_kwp: float) -> np.ndarray:
     return hourly_pv
 
 
+def get_effective_pv_profile() -> "np.ndarray | None":
+    """
+    Return the user-uploaded 8760-h PV generation profile in absolute kW,
+    or None if no profile is active.  Per-kWp profiles are scaled by the
+    currently-configured pv_kwp so capacity changes rescale automatically.
+    """
+    arr = st.session_state.get("pv_profile_8760")
+    if arr is None or len(arr) != 8760:
+        return None
+    if st.session_state.get("pv_profile_per_kwp", False):
+        return arr * max(st.session_state.get("pv_kwp", 0.0), 0.0)
+    return arr
+
+
+def pvgis_from_profile(arr: "np.ndarray") -> dict:
+    """
+    Build a PVGIS-equivalent data dict from an 8760-h generation profile (kW)
+    so every downstream consumer (charts, financial model, reports) works
+    unchanged.  Tagged source='upload' so reports can label it correctly.
+    """
+    days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    monthly, idx = [], 0
+    for n_days in days_in_month:
+        monthly.append(float(arr[idx: idx + n_days * 24].sum()))
+        idx += n_days * 24
+    return {
+        "status": "Custom 8760-h profile ✓",
+        "annual_kwh": float(arr.sum()),
+        "winter_daily_kwh": monthly[6] / 31,   # July
+        "summer_daily_kwh": monthly[0] / 31,   # January
+        "monthly_kwh": monthly,
+        "source": "upload",
+    }
+
+
 def parse_load_csv(uploaded_file) -> "tuple[np.ndarray | None, str]":
     """
     Parse an uploaded load-profile file (CSV / Excel) → 8760-float array (kW).
@@ -1474,6 +1513,7 @@ def run_8760_dispatch(
     pvgis_data: dict,
     pv_degradation_pct: float = 0.0,
     load_profile_8760: "np.ndarray | None" = None,  # 8760-element kW array overrides load_map
+    pv_profile_8760: "np.ndarray | None" = None,    # 8760-element kW array overrides PVGIS synth
 ) -> dict:
     """
     ████████ 8760 / 8760-Hour Physical Dispatch Engine ████████
@@ -1530,7 +1570,12 @@ def run_8760_dispatch(
     else:
         _eff_load_peak = load_peak_kw
 
-    hourly_pv = build_hourly_pv_profile(pvgis_data, pv_kwp)
+    # User-supplied 8760-h generation profile (e.g. PVsyst / Helioscope export)
+    # takes precedence over the PVGIS monthly→hourly Gaussian synthesis.
+    if pv_profile_8760 is not None and len(pv_profile_8760) == 8760:
+        hourly_pv = np.asarray(pv_profile_8760, dtype=np.float64).copy()
+    else:
+        hourly_pv = build_hourly_pv_profile(pvgis_data, pv_kwp)
     hourly_pv *= (1 - pv_degradation_pct / 100.0)
 
     soc = usable * 0.5
@@ -3027,45 +3072,111 @@ with _scroll:
         st.session_state.pv_kwp = pv_kwp
         pv_dis = pv_kwp == 0.0
 
+        # ── Generation source: PVGIS model vs uploaded 8760-h profile ─────
+        _pv_src = st.radio(
+            "PV generation source",
+            ["PVGIS model (lat / lon / tilt / azimuth)",
+             "Upload 8760-h generation profile"],
+            key="pv_profile_mode", horizontal=False,
+            disabled=pv_dis, label_visibility="collapsed",
+        )
+        _pv_csv_mode = _pv_src.startswith("Upload") and not pv_dis
+
+        if _pv_csv_mode:
+            st.caption(
+                "Upload a PVsyst / Helioscope / SAM export — **8 760 rows** (1-h) "
+                "or **17 520 rows** (30-min, auto-resampled). One numeric column."
+            )
+            _pv_unit = st.radio(
+                "Profile units",
+                ["kW — total plant AC output", "kW/kWp — normalised (× capacity)"],
+                key="pv_profile_unit_radio", horizontal=True,
+            )
+            _pv_up = st.file_uploader(
+                "PV generation profile",
+                type=["csv", "txt", "xlsx", "xls"],
+                key="pv_profile_uploader", label_visibility="collapsed",
+                help="Comma / semicolon / tab delimited · optional header row",
+            )
+            if _pv_up is not None:
+                _pv_arr, _pv_msg = parse_load_csv(_pv_up)
+                if _pv_arr is not None:
+                    st.session_state["pv_profile_8760"]    = _pv_arr
+                    st.session_state["pv_profile_name"]    = _pv_up.name
+                    st.session_state["pv_profile_per_kwp"] = _pv_unit.startswith("kW/kWp")
+                    st.success(_pv_msg.replace("kW load", "kW PV"))
+                else:
+                    st.error(_pv_msg)
+
+            _eff_pv = get_effective_pv_profile()
+            if _eff_pv is not None:
+                _pvn = st.session_state.get("pv_profile_name", "profile")
+                st.session_state.annual_pv_kwh = float(_eff_pv.sum())
+                st.session_state.pvgis_status  = "Custom 8760-h profile ✓"
+                st.markdown(
+                    f'<div class="derived-value">📈 Active: <b>{_pvn}</b> &nbsp;·&nbsp; '
+                    f'Annual {_eff_pv.sum()/1000:.1f} MWh &nbsp;·&nbsp; '
+                    f'Peak {_eff_pv.max():.0f} kW &nbsp;·&nbsp; '
+                    f'{_eff_pv.sum()/max(pv_kwp,1):.0f} h equiv</div>',
+                    unsafe_allow_html=True,
+                )
+                if st.button("🗑️ Clear PV profile — switch to PVGIS",
+                             key="clear_pv_profile_btn"):
+                    st.session_state["pv_profile_8760"] = None
+                    st.session_state["pv_profile_name"] = ""
+                    st.rerun()
+            else:
+                st.info("📂 No PV profile loaded yet — upload a file above.")
+        else:
+            # PVGIS mode — discard any stored profile so model values apply
+            st.session_state["pv_profile_8760"] = None
+
+        # PVGIS-driven inputs greyed out when a custom profile is active —
+        # generation no longer depends on loss / tilt / azimuth.
+        _pvgis_dis = pv_dis or _pv_csv_mode
         pv_loss = st.number_input("System Loss (%)", value=st.session_state.pv_loss,
                                    min_value=0.0, max_value=50.0, step=0.5,
-                                   disabled=pv_dis)
+                                   disabled=_pvgis_dis,
+                                   help="Not used when a custom 8760-h profile is active"
+                                        if _pv_csv_mode else None)
         _tilt_lbl = f"Tilt (°) [optimal≈{abs(st.session_state.lat):.0f}°]"
         tilt = st.number_input(
             _tilt_lbl,
             value=st.session_state.tilt,
-            min_value=0.0, max_value=90.0, step=1.0, disabled=pv_dis
+            min_value=0.0, max_value=90.0, step=1.0, disabled=_pvgis_dis
         )
         azimuth = st.number_input(
             "Azimuth (°)",
             value=st.session_state.azimuth,
-            min_value=-180.0, max_value=180.0, step=5.0, disabled=pv_dis
+            min_value=-180.0, max_value=180.0, step=5.0, disabled=_pvgis_dis
         )
         pv_deg = st.number_input("Annual PV Degradation (%)",
                                   value=st.session_state.pv_degradation,
                                   min_value=0.0, max_value=5.0, step=0.1,
                                   disabled=pv_dis)
         if not pv_dis:
-            st.session_state.pv_loss       = pv_loss
-            st.session_state.tilt          = tilt
-            st.session_state.azimuth       = azimuth
+            if not _pv_csv_mode:
+                st.session_state.pv_loss   = pv_loss
+                st.session_state.tilt      = tilt
+                st.session_state.azimuth   = azimuth
             st.session_state.pv_degradation = pv_deg
 
         # PV PVGIS PV
         # Re-run PVGIS if any PV parameter changed (lat/lon handled above; this covers the rest)
-        check_auto_pvgis()
-        _ok2 = "success-box" if "✓" in st.session_state.pvgis_status else "warning-box"
-        st.markdown(
-            f'<div class="{_ok2}" style="font-size:0.7rem">🌤 {st.session_state.pvgis_status}</div>',
-            unsafe_allow_html=True,
-        )
-        if st.session_state.annual_pv_kwh and not pv_dis:
-            _eq_h = st.session_state.annual_pv_kwh / max(st.session_state.pv_kwp, 1)
+        if not _pv_csv_mode:
+            check_auto_pvgis()
+            _ok2 = "success-box" if "✓" in st.session_state.pvgis_status else "warning-box"
             st.markdown(
-                f'<div class="derived-value">☀️ {_fmw(st.session_state.annual_pv_kwh,"kWh/yr")}'
-                f' ({_eq_h:.0f} h equiv)</div>',
+                f'<div class="{_ok2}" style="font-size:0.7rem">🌤 {st.session_state.pvgis_status}</div>',
                 unsafe_allow_html=True,
             )
+            if st.session_state.annual_pv_kwh and not pv_dis:
+                _eq_h = st.session_state.annual_pv_kwh / max(st.session_state.pv_kwp, 1)
+                st.markdown(
+                    f'<div class="derived-value">☀️ {_fmw(st.session_state.annual_pv_kwh,"kWh/yr")}'
+                    f' ({_eq_h:.0f} h equiv)</div>',
+                    unsafe_allow_html=True,
+                )
 
     # ══════════════════════════════════════════════════════════
     # 3. BESS System
@@ -3469,8 +3580,13 @@ with col_content:
             if st.session_state.pv_kwp == 0 and st.session_state.bess_kwh == 0:
                 st.error("❌ PV and BESS are both 0 — please configure at least one")
             else:
-                # PVGIS
-                if "pvgis_data" not in st.session_state or st.session_state.pv_kwp == 0:
+                # PVGIS — or user-supplied 8760-h generation profile
+                _run_pv_prof = (get_effective_pv_profile()
+                                if st.session_state.pv_kwp > 0 else None)
+                if _run_pv_prof is not None:
+                    pvgis_data = pvgis_from_profile(_run_pv_prof)
+                    st.session_state.pvgis_data = pvgis_data
+                elif "pvgis_data" not in st.session_state or st.session_state.pv_kwp == 0:
                     pvgis_data = get_pvgis_data(
                         st.session_state.lat, st.session_state.lon,
                         max(st.session_state.pv_kwp, 1),
@@ -3497,6 +3613,7 @@ with col_content:
                         dod=st.session_state.dod,
                         pvgis_data=pvgis_data,
                         load_profile_8760=st.session_state.get("load_profile_8760"),
+                        pv_profile_8760=_run_pv_prof,
                     )
 
                 eol_years, annual_cycles = compute_bess_eol(
@@ -3962,6 +4079,11 @@ with col_content:
                         # Merge results-derived capex + tax_rate into params
                         _res = st.session_state.results or {}
                         _pptx_params["tax_rate"] = _pptx_params.get("tax_rate") or 27
+                        # Flag custom PV profile so slides drop PVGIS labels
+                        if st.session_state.get("pv_profile_8760") is not None:
+                            _pptx_params["pv_profile_source"] = "upload"
+                            _pptx_params["pv_profile_name"]   = st.session_state.get(
+                                "pv_profile_name", "")
                         _pptx_params["c_rate"] = C_RATE_OPTIONS.get(
                             str(st.session_state.get("c_rate_label", "0.25C")), 0.25)
 
@@ -4227,6 +4349,10 @@ with col_content:
                 # C
                 c_actual = C_RATE_OPTIONS[st.session_state.c_rate_label]
 
+                # Custom 8760-h PV profile: scale linearly with candidate size
+                _opt_prof_base = get_effective_pv_profile()
+                _opt_prof_kwp  = max(st.session_state.pv_kwp, 1.0)
+
                 prog = st.progress(0)
                 stat = st.empty()
                 results_opt = []
@@ -4234,14 +4360,19 @@ with col_content:
 
                 for pv_o in pv_range:
                     for bess_o in bess_range:
-                        scale = pv_o / max(float(pv_max), 1.0)
-                        pvgis_s = {
-                            **opt_pvgis,
-                            "monthly_kwh": [v * scale for v in opt_pvgis["monthly_kwh"]],
-                            "annual_kwh":        opt_pvgis["annual_kwh"] * scale,
-                            "winter_daily_kwh":  opt_pvgis["winter_daily_kwh"] * scale,
-                            "summer_daily_kwh":  opt_pvgis["summer_daily_kwh"] * scale,
-                        }
+                        if _opt_prof_base is not None:
+                            _prof_o = _opt_prof_base * (pv_o / _opt_prof_kwp)
+                            pvgis_s = pvgis_from_profile(_prof_o)
+                        else:
+                            _prof_o = None
+                            scale = pv_o / max(float(pv_max), 1.0)
+                            pvgis_s = {
+                                **opt_pvgis,
+                                "monthly_kwh": [v * scale for v in opt_pvgis["monthly_kwh"]],
+                                "annual_kwh":        opt_pvgis["annual_kwh"] * scale,
+                                "winter_daily_kwh":  opt_pvgis["winter_daily_kwh"] * scale,
+                                "summer_daily_kwh":  opt_pvgis["summer_daily_kwh"] * scale,
+                            }
                         try:
                             d_o = run_8760_dispatch(
                                 pv_kwp=pv_o, bess_kwh=bess_o,
@@ -4253,6 +4384,7 @@ with col_content:
                                 dod=st.session_state.dod,
                                 pvgis_data=pvgis_s,
                                 load_profile_8760=st.session_state.get("load_profile_8760"),
+                                pv_profile_8760=_prof_o,
                             )
                             eol_o, ac_o = compute_bess_eol(
                                 d_o["tot_throughput_kWh"], bess_o,

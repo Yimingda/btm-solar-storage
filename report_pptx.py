@@ -160,14 +160,12 @@ def _embed_video(slide, x: float, y: float, w: float, h: float,
                  video_path: str, poster_hex: str = "0D1A2A") -> None:
     """Embed an MP4 at (x,y,w,h) inches — autoplay, silent, looped.
 
-    Generates a solid-colour poster frame (no Pillow dependency) and injects
-    PPTX timing XML so the video starts automatically when the slide appears,
-    plays muted, and loops indefinitely.  Only one timing element per slide
-    is supported; calling this twice on the same slide replaces the first.
+    Generates a solid-colour poster frame (no Pillow dependency), then tweaks
+    the timing attributes python-pptx generated for the movie so it autoplays
+    muted and loops.  Safe to call multiple times per slide.
     """
     import struct as _struct
     import zlib   as _zlib
-    from lxml import etree as _et
     from pptx.oxml.ns import qn as _qn
 
     # ── Minimal solid-colour PNG poster frame (pure Python, no Pillow) ────────
@@ -193,44 +191,29 @@ def _embed_video(slide, x: float, y: float, w: float, h: float,
         mime_type="video/mp4",
     )
 
-    # ── Autoplay + loop + muted timing XML ────────────────────────────────────
-    # sp_id is the integer id of the picture element wrapping the video
-    pic_el = movie._element
-    sp_id  = pic_el.find(_qn("p:nvPicPr")).find(_qn("p:cNvPr")).get("id")
-
-    _pns = 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"'
-    timing_xml = (
-        f'<p:timing {_pns}>'
-        f'<p:tnLst><p:par>'
-        f'<p:cTn id="1" dur="indefinite" restart="whenNotActive" nodeType="tmRoot">'
-        f'<p:childTnLst>'
-        # Onclick (interactive) node — required stub
-        f'<p:par><p:cTn id="2" fill="hold">'
-        f'<p:stCondLst><p:cond delay="indefinite"/></p:stCondLst>'
-        f'</p:cTn></p:par>'
-        # Autoplay node — delay="0" fires immediately on slide entry
-        f'<p:par><p:cTn id="3" fill="hold">'
-        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
-        f'<p:childTnLst><p:par>'
-        f'<p:cTn id="4" dur="indefinite" fill="hold" repeatCount="indefinite">'
-        f'<p:stCondLst><p:cond delay="0"/></p:stCondLst>'
-        f'<p:childTnLst><p:video>'
-        f'<p:cMediaNode vol="0" mute="1" showWhenStopped="0">'
-        f'<p:cTn id="5" dur="indefinite" fill="hold"/>'
-        f'<p:tgtEl><p:spTgt spid="{sp_id}"/></p:tgtEl>'
-        f'</p:cMediaNode></p:video></p:childTnLst>'
-        f'</p:cTn></p:par></p:childTnLst>'
-        f'</p:cTn></p:par>'
-        f'</p:childTnLst>'
-        f'</p:cTn>'
-        f'</p:par></p:tnLst>'
-        f'<p:bldLst/></p:timing>'
-    )
-
-    old = slide._element.find(_qn("p:timing"))
-    if old is not None:
-        slide._element.remove(old)
-    slide._element.append(_et.fromstring(timing_xml))
+    # ── Autoplay + loop + mute ────────────────────────────────────────────────
+    # python-pptx's add_movie() already builds a schema-valid <p:timing> tree
+    # with a <p:video> media node set to click-to-play (delay="indefinite").
+    # Flip its attributes in place — replacing the tree with hand-rolled XML
+    # fails OOXML validation and triggers PowerPoint's "repair" dialog.
+    sp_id = (movie._element.find(_qn("p:nvPicPr"))
+                           .find(_qn("p:cNvPr")).get("id"))
+    _ns = {"p": "http://schemas.openxmlformats.org/presentationml/2006/main"}
+    for _vid in slide._element.findall(".//p:timing//p:video", _ns):
+        _tgt = _vid.find(".//p:spTgt", _ns)
+        if _tgt is None or _tgt.get("spid") != sp_id:
+            continue
+        _media = _vid.find("p:cMediaNode", _ns)
+        if _media is None:
+            continue
+        _media.set("mute", "1")
+        _media.set("vol", "0")
+        _ctn = _media.find("p:cTn", _ns)
+        if _ctn is not None:
+            _ctn.set("repeatCount", "indefinite")        # loop forever
+            _cond = _ctn.find(".//p:cond", _ns)
+            if _cond is not None:
+                _cond.set("delay", "0")                  # autoplay on entry
 
 # ── Chart helpers (matplotlib → PNG, Huawei red palette) ─────────────────────
 
@@ -687,7 +670,12 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
         hl = (f"{_fmw(bess_kh,'kWh')} BESS — "
               f"{_fmw(bess_kh*c_rate,'kW')} max discharge, "
               f"{params.get('dod',90):.0f}% DoD")
-    if has_pv:
+    _custom_pv = params.get("pv_profile_source") == "upload"
+    if has_pv and _custom_pv:
+        _pf_name = params.get("pv_profile_name") or "user-supplied file"
+        _hl_sub = (f"Generation: user-supplied 8760-h profile ({_pf_name})  "
+                   f"·  Lat {params.get('lat',0):.3f}°  Lon {params.get('lon',0):.3f}°")
+    elif has_pv:
         _hl_sub = (f"Lat {params.get('lat',0):.3f}°  Lon {params.get('lon',0):.3f}°  "
                    f"·  Tilt {params.get('tilt',20):.0f}°  ·  Azimuth {params.get('azimuth',180):.0f}°  "
                    f"·  Irradiance: EU PVGIS API (Joint Research Centre)")
@@ -718,9 +706,11 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
     c_rate  = params.get("c_rate", 0.25)
     pv_rows = [
         ("Peak power",          _fmw(pv_kwp, "kWp")),
-        ("System losses",       f"{params.get('pv_loss',14):.0f}%"),
-        ("Tilt / Azimuth",      f"{params.get('tilt',20):.0f}° / "
-                                f"{params.get('azimuth',180):.0f}°"),
+        ("System losses",       "— (in profile)" if _custom_pv
+                                else f"{params.get('pv_loss',14):.0f}%"),
+        ("Tilt / Azimuth",      "— (in profile)" if _custom_pv
+                                else f"{params.get('tilt',20):.0f}° / "
+                                     f"{params.get('azimuth',180):.0f}°"),
         ("Annual generation",   _fmw(annual_kwh, "kWh/yr")),
         ("Specific yield",      f"{spec_yield:,.0f} kWh/kWp/yr"),
         ("Summer daily avg",    f"{pvgis_data.get('summer_daily_kwh',0):.1f} kWh/day"),
@@ -786,7 +776,11 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
     # In single mode limit the separator/narrative to the spec table width only
     _sep_w = 12.78 if _dual else 6.60
     _rect(slide, 0.28, 6.78, _sep_w, 0.03, _SEP)
-    if has_pv:
+    if has_pv and _custom_pv:
+        _note = ("Generation from user-supplied 8760-hour profile "
+                 f"({params.get('pv_profile_name') or 'uploaded file'}) — "
+                 "tilt / azimuth / loss model parameters not applicable.")
+    elif has_pv:
         _note = ("Irradiance sourced from EU PVGIS API — crystalline silicon, "
                  "free-mounted, site coordinates.  Fallback: 1,650 kWh/kWp/yr.")
     else:
@@ -1358,7 +1352,12 @@ def _s9_assumptions(prs, params: dict, company: str,
     ]
     if has_pv:
         assumptions.insert(0, ("PV degradation", f"{params.get('pv_degradation',0.5):.1f}% per year (linear)"))
-        assumptions.append(("Irradiance data", "EU PVGIS API — crystSi, free-mount, site lat/lon"))
+        if params.get("pv_profile_source") == "upload":
+            assumptions.append(("Generation data",
+                                "User-supplied 8760-h profile "
+                                f"({(params.get('pv_profile_name') or 'uploaded')[:30]})"))
+        else:
+            assumptions.append(("Irradiance data", "EU PVGIS API — crystSi, free-mount, site lat/lon"))
     mid = len(assumptions)//2
     for col_i, chunk in enumerate([assumptions[:mid], assumptions[mid:]]):
         x = 0.42+col_i*6.45
