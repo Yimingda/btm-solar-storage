@@ -884,6 +884,41 @@ if st.session_state.get("_light_mode", False):
    BTM LIGHT MODE — comprehensive overrides
    ═══════════════════════════════════════════════════════════════ */
 
+/* ── 0. Design tokens — remap dark vars to light values ──────
+   Every base rule that uses var(--bg-input), var(--bg-card), etc.
+   flips to light automatically once the tokens are redefined.  */
+:root {
+    --primary:    #059669;
+    --secondary:  #C2410C;
+    --accent:     #0E7490;
+    --bg-dark:    #F0F4F8;
+    --bg-card:    #FFFFFF;
+    --bg-input:   #FFFFFF;
+    --text-main:  #1A202C;
+    --text-dim:   #4A5568;
+    --border:     #CBD5E0;
+    --border-hi:  #94A3B8;
+    --warning:    #B45309;
+    --danger:     #DC2626;
+}
+
+/* ── 0b. Header row strip (hard-coded dark gradient in base) ── */
+div[data-testid="stHorizontalBlock"]:first-of-type {
+    background: linear-gradient(180deg, #FFFFFF 0%, #EDF2F7 100%) !important;
+    border-bottom: 1px solid #CBD5E0 !important;
+}
+
+/* ── 0c. Popover trigger buttons ("📁 Projects" pill etc.) ──── */
+[data-testid="stPopover"] button {
+    background: #FFFFFF !important;
+    color:      #374151 !important;
+    border:     1px solid #CBD5E0 !important;
+}
+[data-testid="stPopover"] button p,
+[data-testid="stPopover"] button span {
+    color: #374151 !important;
+}
+
 /* ── 1. Root surfaces ──────────────────────────────────────── */
 html, body,
 .stApp,
