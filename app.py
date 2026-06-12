@@ -4149,13 +4149,13 @@ with col_content:
                         st.session_state["_pptx_fname"] = (
                             f"{_pproj_safe}_IRR{_ppirr:.1f}pct_{_edt.datetime.now():%Y%m%d}.pptx"
                         )
-                        st.success("✅ PPTX ready — click below to download")
+                        st.session_state["_pptx_just_built"] = True
                     except Exception as _pe:
                         st.error(f"❌ PPTX generation failed: {_pe}")
 
             if "_pptx_bytes" in st.session_state:
+                # Same row as Export — no spacer, buttons stay aligned
                 with _pp_dl_col:
-                    st.markdown("<br>", unsafe_allow_html=True)
                     st.download_button(
                         "⬇ Download PowerPoint Report",
                         data      = st.session_state["_pptx_bytes"],
@@ -4164,6 +4164,8 @@ with col_content:
                                      ".presentationml.presentation"),
                         use_container_width=True,
                     )
+            if st.session_state.pop("_pptx_just_built", False):
+                st.success("✅ PPTX ready — use the ⬇ Download button above")
 
             st.markdown(
                 "**Solution Info:** "
