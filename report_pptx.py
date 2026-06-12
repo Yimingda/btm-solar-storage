@@ -959,19 +959,19 @@ def _s4b_financial_table(prs, results: dict, fin_df, company: str,
     for (h1, h2, w, _, al, _), hx in zip(COLS, _xs):
         label = f"{h1}\n{h2}" if h2 else h1
         _tb(slide, hx + 0.02, TBL_Y + 0.03, w - 0.04, HDR_H - 0.05,
-            label, 5.5, bold=True, color=_WHT, align=_am_str[al])
+            label, 8, bold=True, color=_WHT, align=_am_str[al])
 
     # ── Year-0 row — Initial Investment ───────────────────────────────────────
     _y0 = TBL_Y + HDR_H
     _rect(slide, TBL_X, _y0, TBL_W, ROW_H - 0.008, "1C2A38")
     _tb(slide, _xs[0] + 0.02, _y0 + 0.025, COLS[0][2] - 0.04, ROW_H - 0.04,
-        "0", 6, bold=True, color=_WHT, align="center", wrap=False)
+        "0", 8, bold=True, color=_WHT, align="center", wrap=False)
     _tb(slide, _xs[1], _y0 + 0.025, 3.6, ROW_H - 0.04,
-        "Initial Investment", 5.5, color="7A9EB5", align="center", wrap=False)
+        "Initial Investment", 8, color="7A9EB5", align="center", wrap=False)
     for _ci in (13, 14, 15):   # NCF, Disc.CF, Cum.CF = −CAPEX
         _tb(slide, _xs[_ci] + 0.03, _y0 + 0.025,
             COLS[_ci][2] - 0.06, ROW_H - 0.04,
-            _rm(-abs(capex)), 6, bold=(_ci == 13),
+            _rm(-abs(capex)), 8, bold=(_ci == 13),
             color=_NEG, align="right", wrap=False)
 
     # ── Data rows (years 1-20) ────────────────────────────────────────────────
@@ -1011,7 +1011,7 @@ def _s4b_financial_table(prs, results: dict, fin_df, company: str,
                 clr = _DGY
 
             _tb(slide, hx + 0.03, ry + 0.025, w - 0.06, ROW_H - 0.04,
-                val, 6, bold=(ci in (0, 5, 8, 13, 15) and not is_eol),
+                val, 8, bold=(ci in (0, 5, 8, 13, 15) and not is_eol),
                 color=clr, align=_am_str[al], wrap=False)
 
     _footer(slide, company, page, total=total)
