@@ -2939,9 +2939,9 @@ with _user_col:
         _theme_icon = "☀️" if _light_mode else "🌙"
         _theme_tip  = "Switch to Dark mode" if _light_mode else "Switch to Light mode"
 
-        # ── Layout: [🌙] [badge + name  →right-aligned] [⏻ 退出]
-        # Logout gets 2 units so it's visually part of the same row
-        _tc, _mc, _lc = st.columns([1, 7, 2], gap="small")
+        # ── Layout: [spacer] [🌙] [badge + name] [⏻ 退出] — all right-aligned
+        # Leading spacer pushes the whole control group to the right edge
+        _sp, _tc, _mc, _lc = st.columns([2, 1, 5, 2], gap="small")
 
         with _tc:
             if st.button(_theme_icon, key="hdr_theme_btn",
