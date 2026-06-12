@@ -224,6 +224,108 @@ def _png_monthly(pvgis_data: dict) -> bytes | None:
     except Exception:
         return None
 
+def _png_megaflex_tariff() -> bytes | None:
+    """Bar chart — SA Eskom Megaflex blended tariff 2016–2030 (actual + projection)."""
+    try:
+        import matplotlib; matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+
+        # ── NERSA-approved Eskom tariff escalations → representative blended rate ─
+        # Starting base: ~R 0.90/kWh blended effective (VAT incl.) in FY2015
+        _base = 0.90
+        _increases = {
+            2016: 9.40, 2017: 2.20, 2018: 5.20, 2019: 9.40, 2020: 8.10,
+            2021: 15.06, 2022: 9.61, 2023: 18.65, 2024: 12.74, 2025: 11.90,
+            2026: 8.76,
+        }
+        hist_yrs, hist_rates, hist_pcts = [], [], []
+        r = _base
+        for yr, pct in sorted(_increases.items()):
+            r = r * (1 + pct / 100)
+            hist_yrs.append(yr)
+            hist_rates.append(round(r, 3))
+            hist_pcts.append(pct)
+
+        # Projection: FY2027 NERSA approved +8.83%, then ~8.5% p.a.
+        proj_yrs, proj_rates = [], []
+        _fwd = {2027: 8.83, 2028: 8.50, 2029: 8.50, 2030: 8.50}
+        rp = hist_rates[-1]
+        for yr, pct in sorted(_fwd.items()):
+            rp = rp * (1 + pct / 100)
+            proj_yrs.append(yr)
+            proj_rates.append(round(rp, 3))
+
+        all_yrs  = hist_yrs + proj_yrs
+        all_rates = hist_rates + proj_rates
+
+        fig, ax = plt.subplots(figsize=(11.0, 3.6), facecolor="white")
+
+        # Actual bars
+        b1 = ax.bar(hist_yrs, hist_rates, color=f"#{_HRD}", alpha=0.88,
+                    width=0.72, zorder=3, label="Actual (NERSA-approved)")
+        # Projected bars (hatched, lighter)
+        b2 = ax.bar(proj_yrs, proj_rates, color=f"#{_MGY}", alpha=0.40,
+                    width=0.72, zorder=3, hatch="///", label="Projected")
+
+        # Trend line
+        ax.plot(all_yrs, all_rates, color=f"#{_BLK}", linewidth=2.0,
+                marker="o", markersize=4.5, zorder=5, alpha=0.80)
+
+        # Divider: actual vs projected
+        ax.axvline(2026.5, color=f"#{_MGY}", linewidth=1.2,
+                   linestyle="--", alpha=0.60)
+        ax.text(2026.6, max(all_rates) * 0.72, "Projected →",
+                fontsize=7.5, color=f"#{_MGY}", va="bottom",
+                style="italic", fontname=_FONT)
+
+        # Annotate large-increase years
+        annot_yrs  = {2021: 15.06, 2023: 18.65}
+        for yr, pct in annot_yrs.items():
+            rate = dict(zip(hist_yrs, hist_rates))[yr]
+            ax.text(yr, rate + 0.04, f"+{pct:.0f}%",
+                    ha="center", va="bottom", fontsize=8,
+                    color=f"#{_HRD}", fontweight="bold", fontname=_FONT)
+
+        # All bars: show rate value above
+        for bar, rate in zip(b1, hist_rates):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    rate + 0.01, f"R{rate:.2f}",
+                    ha="center", va="bottom", fontsize=6.5,
+                    color=f"#{_DGY}", fontname=_FONT)
+        for bar, rate in zip(b2, proj_rates):
+            ax.text(bar.get_x() + bar.get_width() / 2,
+                    rate + 0.01, f"R{rate:.2f}",
+                    ha="center", va="bottom", fontsize=6.5,
+                    color=f"#{_MGY}", fontname=_FONT)
+
+        ax.set_ylabel("Blended Rate  (R / kWh, VAT incl.)",
+                      fontsize=9, color=f"#{_MGY}", fontname=_FONT)
+        ax.set_ylim(0, max(all_rates) * 1.22)
+        ax.set_xticks(all_yrs)
+        ax.set_xticklabels([str(y) for y in all_yrs], rotation=45, ha="right")
+        _style_ax(ax)
+
+        # CAGR annotation
+        cagr = (hist_rates[-1] / hist_rates[0]) ** (1 / (len(hist_yrs) - 1)) - 1
+        ax.text(0.02, 0.96,
+                f"10-yr CAGR  +{cagr * 100:.1f}% p.a.  "
+                f"(FY2016 → FY2026)",
+                transform=ax.transAxes, fontsize=8.5, fontweight="bold",
+                color=f"#{_HRD}", va="top", fontname=_FONT,
+                bbox=dict(boxstyle="round,pad=0.35", facecolor="white",
+                          edgecolor=f"#{_SEP}", alpha=0.92))
+
+        ax.legend(fontsize=8, loc="upper left", bbox_to_anchor=(0.0, 0.82),
+                  frameon=True, framealpha=0.9, edgecolor=f"#{_SEP}")
+
+        plt.tight_layout(pad=0.40)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160, bbox_inches="tight")
+        plt.close(fig); buf.seek(0); return buf.read()
+    except Exception:
+        return None
+
 # ── Slide builders ────────────────────────────────────────────────────────────
 
 def _s1_cover(prs, project_name: str, client_name: str,
@@ -565,6 +667,140 @@ def _s4_financial(prs, results: dict, fin_df, company: str,
     _footer(slide, company, page, total=total)
 
 
+def _s4b_financial_table(prs, results: dict, fin_df, company: str,
+                          page: int = 5, total: int = 12):
+    """Slide 4b — 20-Year Financial Projections Table (two-panel layout)."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    capex   = results.get("total_capex", 0) or 0
+    tax_r   = results.get("tax_rate", 27)
+    disc_r  = results.get("discount_rate", 12)
+
+    _header_bar(
+        slide,
+        "20-Year Projected Cash Flow — Year-by-Year Breakdown",
+        (f"CAPEX R {abs(capex)/1e6:.2f}M  ·  All values in R millions  ·  "
+         f"Discount {disc_r:.1f}%  ·  CIT {tax_r:.0f}%  ·  "
+         "Green Cum.CF = post-payback positive territory"),
+    )
+
+    if fin_df is None or len(fin_df) == 0:
+        _narrative(slide, 0.28, 3.50, 12.78, 0.60,
+                   "Run simulation first to generate the 20-year financial table.",
+                   )
+        _footer(slide, company, page, total=total)
+        return
+
+    # ── Layout constants ──────────────────────────────────────────────────────
+    TBL_Y   = 1.68          # top of table area
+    TBL_H   = 5.54          # y=1.68 → y=7.22 (above footer)
+    HDR_H   = 0.38          # header row height
+    ROW_H   = (TBL_H - HDR_H) / 10  # 10 rows per panel
+    GAP     = 0.18          # gap between panels
+
+    # Column defs per panel: (header_text, width_in, data_key_or_fn, align)
+    #   data_key_or_fn: either a column name in fin_df, or a callable(row)->str
+    def _rv(v, neg_brackets=False):
+        """Format R-million value."""
+        if abs(v) >= 100:
+            s = f"{v/1e6:.1f}"
+        elif abs(v) >= 10:
+            s = f"{v/1e6:.2f}"
+        else:
+            s = f"{v/1e6:.2f}"
+        if neg_brackets and v < 0:
+            return f"({abs(v)/1e6:.2f})"
+        return s
+
+    # payback year (rounded up to next integer year)
+    payback = results.get("payback") or 0
+    payback_yr = int(payback) + (1 if payback % 1 > 0.01 else 0)
+
+    PANEL_COLS = [
+        # header_text       width  key / lambda                           align
+        ("Yr",              0.42,  lambda r: str(int(r["Year"])),         "center"),
+        ("Gross Saving\nR M", 1.60, lambda r: _rv(r.get("Total Saving (ZAR)", 0)), "right"),
+        ("NCF\nR M",        1.60,  lambda r: _rv(r.get("Net Cash Flow NCF (ZAR)", 0)), "right"),
+        ("Cum. CF\nR M",    2.22,  lambda r: _rv(r.get("Cumulative CF (ZAR)", 0)), "right"),
+        ("",                0.36,  lambda r: "✓" if r.get("Status", "✓") == "✓" else "EoL", "center"),
+    ]
+    L_PAN_W = sum(c[1] for c in PANEL_COLS)  # 6.20"
+    R_PAN_W = L_PAN_W + 0.20                 # 6.40" (slightly wider)
+    # recalc R panel col widths (proportional scale)
+    _scale  = R_PAN_W / L_PAN_W
+    R_COLS  = [(h, w * _scale, fn, a) for h, w, fn, a in PANEL_COLS]
+
+    def _draw_panel(x_start, pan_w, col_defs, year_start, year_end):
+        rows_slice = fin_df[
+            (fin_df["Year"] >= year_start) & (fin_df["Year"] <= year_end)
+        ]
+        n = len(rows_slice)
+
+        # compute column x positions
+        xs = []
+        cx = x_start
+        for _, w, _, _ in col_defs:
+            xs.append(cx)
+            cx += w
+
+        # ── Header row ────────────────────────────────────────────────────
+        _rect(slide, x_start, TBL_Y, pan_w, HDR_H, _DGY)
+        for (hdr, w, _, align), hx in zip(col_defs, xs):
+            _tb(slide, hx + 0.03, TBL_Y + 0.05, w - 0.06, HDR_H - 0.06,
+                hdr, 7.5, bold=True, color=_WHT, align=align, wrap=False)
+
+        # ── Data rows ─────────────────────────────────────────────────────
+        for ri, (_, row) in enumerate(rows_slice.iterrows()):
+            yr     = int(row["Year"])
+            ry     = TBL_Y + HDR_H + ri * ROW_H
+            is_eol = (str(row.get("Status", "✓")) != "✓")
+            cum_cf = row.get("Cumulative CF (ZAR)", 0)
+
+            # Row background
+            if yr == payback_yr:
+                bg = _GLD
+            elif ri % 2 == 0:
+                bg = _LGRY
+            else:
+                bg = _WHT
+            _rect(slide, x_start, ry, pan_w, ROW_H - 0.01, bg)
+
+            for ci, ((_, w, fn, align), hx) in enumerate(zip(col_defs, xs)):
+                try:
+                    val_str = fn(row)
+                except Exception:
+                    val_str = "—"
+
+                # Text colour
+                if ci == 3:        # Cum. CF column
+                    if cum_cf > 0:
+                        clr = "15803D"   # dark green
+                    else:
+                        clr = _NEG
+                elif ci == 4:      # Status column
+                    clr = "15803D" if not is_eol else _HRD
+                else:
+                    clr = _MGY if is_eol else _DGY
+
+                _tb(slide, hx + 0.04, ry + 0.04,
+                    w - 0.08, ROW_H - 0.06,
+                    val_str, 8.5, bold=(ci == 0),
+                    color=clr, align=align, wrap=False)
+
+    # Left panel: years 1-10
+    _draw_panel(0.28, L_PAN_W, PANEL_COLS, 1, 10)
+    # Right panel: years 11-20
+    _draw_panel(0.28 + L_PAN_W + GAP, R_PAN_W, R_COLS, 11, 20)
+
+    # Panel labels above the header rows
+    _tb(slide, 0.28,              TBL_Y - 0.26, L_PAN_W, 0.24,
+        "◀  Years 1 – 10", 8.5, bold=True, color=_HRD)
+    _tb(slide, 0.28 + L_PAN_W + GAP, TBL_Y - 0.26, R_PAN_W, 0.24,
+        "◀  Years 11 – 20", 8.5, bold=True, color=_HRD)
+
+    _footer(slide, company, page, total=total)
+
+
 def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
                page: int = 5, total: int = 11, has_bess: bool = True):
     """Slide 5 – Energy Analysis (PV yield + optional BESS dispatch)."""
@@ -811,64 +1047,46 @@ def _s7_roadmap(prs, results: dict, params: dict, company: str,
 
 
 def _s8_market(prs, company: str, page: int = 10, total: int = 11):
-    """Slide 8 – South Africa Market Context (2026 industry data)."""
+    """Slide – SA Eskom Megaflex Tariff Growth Trend (10-year history + projection)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
     _header_bar(
         slide,
-        "Technology costs −90%+ while SA tariffs rise 8.8% p.a. — the BTM ROI window has never been stronger",
-        "Sources: BloombergNEF (2025)  ·  IRENA (2024)  ·  SA DMRE IRP 2025  ·  NERSA FY2026/27 determination  ·  CSIR (2026)",
+        "SA Eskom Megaflex tariff has compounded at +10.8% p.a. over 10 years — BTM economics strengthen every year",
+        "Source: NERSA tariff determinations FY2016–FY2027  ·  Representative blended effective rate, VAT-inclusive  "
+        "·  Projections at NERSA FY2027-approved +8.83% forward",
     )
 
-    # ── 4 KPI cards ───────────────────────────────────────────────────────────
+    # ── 4 KPI cards ──────────────────────────────────────────────────────────
     kpis = [
-        ("BESS PACK COST",  "$108/kWh",  "2025 — down from $1,160\nin 2010  (−91%)"),
-        ("PV MODULE PRICE", "$0.13/W",   "2024 global avg — down\nfrom $8.70 in 2010  (−98%)"),
-        ("SA IRP 2025",     "8,500 MW",  "BESS target by 2039\nR 161.2 B opportunity"),
-        ("ESKOM TARIFF",    "+8.76%",    "NERSA-approved FY2026\n+8.83% in FY2027"),
+        ("10-YR CAGR",       "+10.8% p.a.",  "FY2016 → FY2026\nEskom Megaflex"),
+        ("FY2026 RATE",      "≈R 2.56/kWh",  "NERSA-approved +8.76%\nvs FY2025"),
+        ("EST. FY2030 RATE", "≈R 3.55/kWh",  "At 8.5% p.a. forward\n+R 0.99/kWh in 4 yrs"),
+        ("CUMUL. INCREASE",  "+184%",         "FY2016 → FY2026\n(R 0.90 → R 2.56/kWh)"),
     ]
     for i, (lbl, val, sub) in enumerate(kpis):
         _kpi_block(slide, 0.28 + i * 3.21, 1.68, lbl, val, sub, w=3.08)
 
     # ── Separator ─────────────────────────────────────────────────────────────
-    _rect(slide, 0.28, 3.36, 12.78, 0.03, _SEP)
+    _rect(slide, 0.28, 3.12, 12.78, 0.03, _SEP)
 
-    # ── Left panel — technology & tariff context ───────────────────────────────
-    _rect(slide, 0.28, 3.48, 6.25, 3.44, _LRD)
-    _rect(slide, 0.28, 3.48, 0.07, 3.44, _HRD)
-    _section_hdr(slide, 0.35, 3.48, 6.11, 0.38, "TECHNOLOGY & TARIFF COST DRIVERS")
-    left_txt = (
-        "BESS pack prices fell from $1,160/kWh (2010) to $108/kWh (2025) — a 91% "
-        "reduction in 15 years driven by lithium-ion manufacturing scale.  PV modules "
-        "dropped from $8.70/W to $0.13/W over the same period (−98%), following "
-        "Swanson's Law: every doubling of cumulative PV shipments cuts module cost ~20%.\n\n"
-        "NERSA approved an 8.76% Eskom tariff increase for April 2026 and 8.83% for "
-        "April 2027, recovering R 54.7 billion over three years following a High Court "
-        "RAB recalculation.  Municipal bulk purchasers face a 9.01% increase from "
-        "July 2026.  At compound escalation, a site paying R 2.50/kWh today will "
-        "pay ~R 4.50/kWh by 2034 — making solar self-consumption increasingly valuable "
-        "with every passing year."
-    )
-    _narrative(slide, 0.44, 3.94, 6.0, 2.86, left_txt)
+    # ── Tariff trend chart ────────────────────────────────────────────────────
+    chart_png = _png_megaflex_tariff()
+    if chart_png:
+        slide.shapes.add_picture(io.BytesIO(chart_png),
+                                 _in(0.28), _in(3.22), _in(12.78), _in(3.72))
+    else:
+        _rect(slide, 0.28, 3.22, 12.78, 3.72, _LGRY)
+        _tb(slide, 0.28, 4.90, 12.78, 0.40,
+            "Megaflex tariff chart unavailable — run pip install matplotlib",
+            10, color=_MGY, align="center")
 
-    # ── Right panel — SA policy & market ─────────────────────────────────────
-    _rect(slide, 6.82, 3.48, 6.23, 3.44, _LRD)
-    _rect(slide, 6.82, 3.48, 0.07, 3.44, _HRD)
-    _section_hdr(slide, 6.89, 3.48, 6.09, 0.38, "SA POLICY & MARKET OUTLOOK")
-    right_txt = (
-        "SA IRP 2025 (January 2025) targets 105 GW of new capacity by 2039, including "
-        "8,500 MW of utility-scale BESS and a rapid expansion of distributed generation.  "
-        "South Africa recorded 365 consecutive days without load-shedding through "
-        "May 2026 — a milestone — but grid fragility persists; BTM BESS retains "
-        "resilience value beyond the tariff-arbitrage case alone.\n\n"
-        "7.5 GW of rooftop solar is already installed nationally (CSIR, 2026). "
-        "The C&I BTM market is projected to reach 2.6 GW PV + 0.19 GW BESS by 2030 "
-        "(R 35 B combined).  Section 12B of the Income Tax Act provides a 100% "
-        "Year-1 capital allowance for renewable assets below 1 MW, or a 50/30/20% "
-        "three-year schedule for larger systems — materially improving after-tax returns "
-        "and shortening effective payback periods."
-    )
-    _narrative(slide, 6.98, 3.94, 6.0, 2.86, right_txt)
+    # ── Bottom source note ────────────────────────────────────────────────────
+    _tb(slide, 0.28, 7.04, 12.78, 0.16,
+        "NERSA approved an 8.76% increase for April 2026 and 8.83% for April 2027.  "
+        "At compound escalation, a site paying ≈R 2.56/kWh today will pay ≈R 3.55/kWh by 2030 "
+        "— an additional 39% cost increase in just 4 years.",
+        7.5, color=_MGY, wrap=True)
 
     _footer(slide, company, page, total=total)
 
@@ -1177,10 +1395,11 @@ def generate_pptx(
     if not has_pv and not has_bess:
         has_pv = has_bess = True
 
-    # ── Dynamic slide list: omit PV-only slide if no PV, BESS-only if no BESS ─
-    #   "energy"  (Slide 5) = PV yield analysis  → include only if has_pv
-    #   "tariff"  (Slide 6) = BESS arbitrage      → include only if has_bess
-    _slide_ids = (["cover", "thesis", "system", "financial"]
+    # ── Dynamic slide list ────────────────────────────────────────────────────
+    #   "financial_table" — 20-yr detail table, always included after "financial"
+    #   "energy"  — PV yield analysis  → include only if has_pv
+    #   "tariff"  — BESS arbitrage     → include only if has_bess
+    _slide_ids = (["cover", "thesis", "system", "financial", "financial_table"]
                   + (["energy"] if has_pv   else [])
                   + (["tariff"] if has_bess else [])
                   + ["roadmap", "huawei_partner", "sa_projects", "market",
@@ -1202,6 +1421,9 @@ def generate_pptx(
         elif _sid == "financial":
             _s4_financial(prs, results, fin_df, company,
                           page=_pg, total=_total)
+        elif _sid == "financial_table":
+            _s4b_financial_table(prs, results, fin_df, company,
+                                 page=_pg, total=_total)
         elif _sid == "energy":
             _s5_energy(prs, pvgis_data, results, company,
                        page=_pg, total=_total, has_bess=has_bess)
