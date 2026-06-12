@@ -33,7 +33,17 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 from datetime import date
+
+# ── Asset manifest (PV / BESS scenario-tagged media catalogue) ────────────────
+_SELF_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SELF_DIR not in sys.path:
+    sys.path.insert(0, _SELF_DIR)
+try:
+    import assets_manifest as _am
+except ImportError:
+    _am = None   # type: ignore[assignment]
 
 # ── Palette (Huawei Digital Power) ───────────────────────────────────────────
 _BLK  = "0D0D0D"   # near-black   — header bars, cover background
@@ -348,7 +358,13 @@ def _s1_cover(prs, project_name: str, client_name: str,
     #   Dark BG of photo blends seamlessly with dark navy overlays above/below
     _COVER_BG = "0B1929"          # Huawei deep navy
     _ASSETS   = os.path.join(os.path.dirname(__file__), "assets")
-    _cover_ph = os.path.join(_ASSETS, "hw_kv_dark.jpg")
+    # Scenario-aware cover hero: BESS-only → ESS container; PV-only → utility
+    # PV+BESS → retain the existing dark mixed-product shot (hw_kv_dark.jpg)
+    if _am is not None:
+        _cover_ph = _am.cover_hero(has_pv=has_pv, has_bess=has_bess) \
+                    or os.path.join(_ASSETS, "hw_kv_dark.jpg")
+    else:
+        _cover_ph = os.path.join(_ASSETS, "hw_kv_dark.jpg")
 
     if os.path.exists(_cover_ph):
         # Photo — z-order lowest; width fills panel, height keeps native ratio
@@ -561,9 +577,12 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
                 f"·  Tilt {params.get('tilt',20):.0f}°  ·  Azimuth {params.get('azimuth',180):.0f}°  "
                 f"·  Irradiance: EU PVGIS API (Joint Research Centre)")
 
-    # Column width: full-width (12.50) for single component, split for both
-    _W  = 5.95 if (has_pv and has_bess) else 12.50
-    _x2 = 7.05  # x-position of right column (only used in dual mode)
+    # ── Column width ──────────────────────────────────────────────────────────
+    # PV+BESS  → two equal 5.95" columns (unchanged dual layout)
+    # Single   → spec table 6.60" on the left; product image panel on the right
+    _dual = has_pv and has_bess
+    _W    = 5.95 if _dual else 6.60
+    _x2   = 7.05  # x-position of BESS column in dual mode
 
     def _spec_col(title, rows, x, W=_W):
         _section_hdr(slide, x, 1.68, W, 0.46, title)
@@ -601,16 +620,40 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
         ("Dispatch strategy",    "Peak shaving + arbitrage"),
     ]
 
-    if has_pv and has_bess:
-        _spec_col("SOLAR PV ARRAY",       pv_rows,   0.28, _W)
-        _spec_col("BATTERY ENERGY STORAGE", bess_rows, _x2, _W)
+    if _dual:
+        _spec_col("SOLAR PV ARRAY",         pv_rows,   0.28, _W)
+        _spec_col("BATTERY ENERGY STORAGE", bess_rows, _x2,  _W)
     elif has_pv:
-        _spec_col("SOLAR PV ARRAY",       pv_rows,   0.28, _W)
+        _spec_col("SOLAR PV ARRAY",         pv_rows,   0.28, _W)
     else:
         _spec_col("BATTERY ENERGY STORAGE", bess_rows, 0.28, _W)
 
-    _rect(slide, 0.28, 6.78, 12.78, 0.03, _SEP)
-    _narrative(slide, 0.28, 6.85, 12.78, 0.28,
+    # ── Right product image panel (single-component mode only) ────────────────
+    # PV+BESS: spec tables already fill the full width — no panel added.
+    # Single mode: 5.90"-wide product showcase to the right of the spec table.
+    if not _dual and _am is not None:
+        img_path, img_caption = _am.system_product_image(has_pv, has_bess)
+        _PNL_X = 7.12; _PNL_Y = 1.68; _PNL_W = 5.90; _PNL_H = 5.48
+        # White card background with subtle border
+        _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, _WHT, line=_SEP)
+        # Thin Huawei-red accent at the top of the card
+        _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)
+        if img_path and os.path.exists(img_path):
+            # Centre the product image with 0.30" padding on each side
+            slide.shapes.add_picture(
+                img_path,
+                _in(_PNL_X + 0.35), _in(_PNL_Y + 0.22),
+                _in(_PNL_W - 0.70), _in(_PNL_H - 0.66),
+            )
+        # Caption inside the card (bottom-aligned)
+        _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.30,
+            img_caption, 8, color=_MGY, align="center")
+
+    # ── Bottom separator + PVGIS note ─────────────────────────────────────────
+    # In single mode limit the separator/narrative to the spec table width only
+    _sep_w = 12.78 if _dual else 6.60
+    _rect(slide, 0.28, 6.78, _sep_w, 0.03, _SEP)
+    _narrative(slide, 0.28, 6.85, _sep_w, 0.28,
                "Irradiance sourced from EU PVGIS API — crystalline silicon, "
                "free-mounted, site coordinates.  Fallback: 1,650 kWh/kWp/yr.")
     _footer(slide, company, page, total=total)
@@ -920,16 +963,24 @@ def _s6_tariff(prs, params: dict, results: dict, company: str,
         _tb(slide, 4.14, yy+0.10, 1.8, 0.36, c, 10,
             bold=True, color=_DGY, align="center")
 
-    # Dispatch logic
+    # ── Dispatch logic block — split: narrative (left 55%) + BESS product (right 45%) ──
     _rect(slide, 0.28, 4.96, 5.80, 1.58, _LRD)
     _rect(slide, 0.28, 4.96, 0.07, 1.58, _HRD)
-    _tb(slide, 0.44, 5.04, 5.45, 0.32,
+    _txt_w = 3.10   # text area width (narrowed to make room for product image)
+    _tb(slide, 0.44, 5.04, _txt_w, 0.32,
         "Dispatch Strategy", 10, bold=True, color=_DGY)
-    _narrative(slide, 0.44, 5.40, 5.45, 1.05,
+    _narrative(slide, 0.44, 5.40, _txt_w, 1.05,
                f"BESS charges from PV surplus and cheap off-peak grid power "
                f"(≤R {w_op:.2f}/kWh). It discharges during 07:00–09:00 and "
                f"17:00–20:00 peak windows — capturing the full "
                f"R {w_pk-w_op:.2f}/kWh arbitrage spread.")
+    # BESS product image inset (right 40% of dispatch block)
+    if _am is not None:
+        _bess_img = _am.tariff_product_image()
+        if _bess_img and os.path.exists(_bess_img):
+            _rect(slide, 3.58, 5.01, 2.46, 1.50, _WHT)
+            slide.shapes.add_picture(
+                _bess_img, _in(3.62), _in(5.04), _in(2.38), _in(1.44))
 
     # Right: savings KPIs + escalation
     d1      = results.get("dispatch_yr1") or {}
