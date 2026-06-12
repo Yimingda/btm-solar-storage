@@ -4143,6 +4143,7 @@ with col_content:
                             project_name     = st.session_state.get("_active_snap_name", ""),
                             client_name      = st.session_state.get("_pptx_client_name", ""),
                             consultant_name  = st.session_state.get("_pptx_consultant", ""),
+                            hourly_df        = st.session_state.hourly_df,
                         )
                         st.session_state["_pptx_bytes"] = _pptx_bytes
                         _pproj = (st.session_state.get("_active_snap_name") or "BTM_Project")

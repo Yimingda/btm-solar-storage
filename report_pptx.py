@@ -264,14 +264,75 @@ def _png_cashflow(fin_df) -> bytes | None:
     except Exception:
         return None
 
-def _png_monthly(pvgis_data: dict) -> bytes | None:
+def _png_daily_dispatch(hourly_df) -> bytes | None:
+    """Typical winter weekday (mid-July) 24-h dispatch — PV, BESS, grid, SOC."""
+    try:
+        if hourly_df is None or len(hourly_df) == 0:
+            return None
+        import matplotlib; matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        d = hourly_df[(hourly_df["month"] == 7) & (hourly_df["day"] == 16)]
+        if len(d) != 24:
+            _md = hourly_df[hourly_df["month"] == 7]
+            if len(_md) == 0:
+                return None
+            d = _md[_md["day"] == int(_md["day"].median())]
+            if len(d) != 24:
+                return None
+        hrs  = range(24)
+        pv   = d["pv_gen_kWh"].values
+        dis  = d["discharge_kWh"].values
+        chg  = d["charge_grid_kWh"].values
+        load = d["load_kWh"].values
+        gbuy = d["grid_buy_kWh"].values
+        soc  = d["soc_kWh"].values
+
+        fig, ax = plt.subplots(figsize=(8.8, 2.55), facecolor="white")
+        ax.bar(hrs, pv,  color=f"#{_AMBR}", width=0.72, zorder=3,
+               alpha=0.92, label="PV generation")
+        ax.bar(hrs, dis, bottom=pv, color=f"#{_GLD}", width=0.72, zorder=3,
+               alpha=0.92, label="BESS discharge")
+        ax.bar(hrs, -chg, color="#94A3B8", width=0.72, zorder=3,
+               alpha=0.85, label="Grid charge")
+        ax.plot(hrs, load, color="#111111", ls=":", lw=1.8, zorder=5,
+                label="Site load")
+        ax.plot(hrs, gbuy + chg, color="#0EA5E9", lw=1.7, zorder=5,
+                label="Total grid import")
+        ax.axhline(0, color="#9CA3AF", lw=0.8, zorder=2)
+        _style_ax(ax)
+        ax.set_ylabel("kWh / h", fontsize=8.5, color="#6B7280", fontname=_FONT)
+        ax.set_xticks(range(0, 24, 2))
+        ax.set_xticklabels([f"{h:02d}" for h in range(0, 24, 2)], fontsize=7.5)
+
+        ax2 = ax.twinx()
+        ax2.plot(hrs, soc, color="#8B5CF6", lw=1.6, ls="--", zorder=4,
+                 label="SOC")
+        ax2.set_ylabel("SOC (kWh)", fontsize=8, color="#8B5CF6", fontname=_FONT)
+        ax2.tick_params(colors="#8B5CF6", labelsize=7)
+        ax2.spines[["top", "left", "bottom"]].set_visible(False)
+        ax2.spines["right"].set_color("#E5E7EB")
+
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        ax.legend(h1 + h2, l1 + l2, ncol=6, fontsize=6.8, frameon=False,
+                  loc="upper center", bbox_to_anchor=(0.5, 1.22))
+        plt.tight_layout(pad=0.4)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160, bbox_inches="tight")
+        plt.close(fig); buf.seek(0); return buf.read()
+    except Exception:
+        return None
+
+
+def _png_monthly(pvgis_data: dict, fig_h: float = 3.0) -> bytes | None:
     try:
         import matplotlib; matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         months  = ["Jan","Feb","Mar","Apr","May","Jun",
                    "Jul","Aug","Sep","Oct","Nov","Dec"]
         monthly = pvgis_data.get("monthly_kwh", [0]*12)
-        fig, ax = plt.subplots(figsize=(8.8, 3.0), facecolor="white")
+        fig, ax = plt.subplots(figsize=(8.8, fig_h), facecolor="white")
         bar_clr = [f"#{_DRD}" if i in (5,6,7) else f"#{_HRD}"
                    for i in range(12)]
         bars = ax.bar(months, monthly, color=bar_clr, alpha=0.88,
@@ -1023,7 +1084,8 @@ def _s4b_financial_table(prs, results: dict, fin_df, company: str,
 
 
 def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
-               page: int = 5, total: int = 11, has_bess: bool = True):
+               page: int = 5, total: int = 11, has_bess: bool = True,
+               hourly_df=None):
     """Slide 5 – Energy Analysis (PV yield + optional BESS dispatch)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     d1          = results.get("dispatch_yr1") or {}
@@ -1050,12 +1112,17 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
             slide.shapes.add_picture(
                 _pv_hero, _in(0), _in(0.94), _in(13.33), _in(0.70))
 
-    chart_png = _png_monthly(pvgis_data)
+    # Daily dispatch chart — only when the 8760-h log is available
+    _daily_png = _png_daily_dispatch(hourly_df) if has_bess else None
+
+    _mc_h = 2.36 if _daily_png else 3.18           # monthly chart height
+    chart_png = _png_monthly(pvgis_data,
+                             fig_h=2.4 if _daily_png else 3.0)
     if chart_png:
         slide.shapes.add_picture(io.BytesIO(chart_png),
-                                 _in(0.28), _in(1.68), _in(8.80), _in(3.18))
+                                 _in(0.28), _in(1.68), _in(8.80), _in(_mc_h))
     else:
-        _rect(slide, 0.28, 1.68, 8.80, 3.18, _LGRY)
+        _rect(slide, 0.28, 1.68, 8.80, _mc_h, _LGRY)
 
     kpi_rows = [
         ("PV GENERATION",  f"{annual_gen/1e3:,.0f} MWh",  "Year-1 total"),
@@ -1074,39 +1141,53 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
         _kpi_block(slide, 9.55, 1.68+i*kpi_h, lbl, val, sub,
                    w=3.20, h=_card_h)
 
-    # Monthly mini-table
-    _rect(slide, 0.28, 4.96, 8.80, 0.03, _SEP)
-    months  = ["Jan","Feb","Mar","Apr","May","Jun",
-               "Jul","Aug","Sep","Oct","Nov","Dec"]
-    monthly = pvgis_data.get("monthly_kwh", [0]*12)
-    cw = 8.74/12
-    for j, (m, v) in enumerate(zip(months, monthly)):
-        xx  = 0.31 + j*cw
-        bg  = _LRD if j in (5,6,7) else _WHT
-        clr = _DRD if j in (5,6,7) else _DGY
-        _rect(slide, xx, 5.02, cw-0.04, 0.68, bg)
-        _tb(slide, xx+0.02, 5.05, cw-0.06, 0.27, m, 7.5,
-            color=_MGY, align="center")
-        _tb(slide, xx+0.02, 5.34, cw-0.06, 0.30, f"{v/1000:.1f}k", 8.5,
-            bold=True, color=clr, align="center")
-
-    # Separator + narrative limited to 8.80" — must NOT bleed into the KPI
-    # sidebar that starts at x=9.55 (same fix as the financial slide)
-    _rect(slide, 0.28, 5.82, 8.80, 0.03, _SEP)
-    if has_bess:
-        _narrative(slide, 0.28, 5.92, 8.80, 0.95,
-                   f"Self-sufficiency of {self_suf:.0f}% means only "
-                   f"{annual_grid/1e3:,.0f} MWh is drawn from the grid in Year 1.  "
-                   "The BESS charges during off-peak periods and discharges into "
-                   "morning (07:00–09:00) and evening (17:00–20:00) Eskom peak "
-                   "windows — shaded columns indicate the high-demand season.")
+    if _daily_png:
+        # ── Two-chart layout: monthly (top) + typical-day dispatch (bottom) ──
+        _tb(slide, 0.28, 4.12, 8.80, 0.22,
+            "TYPICAL WINTER WEEKDAY — MID-JULY  ·  HOURLY DISPATCH",
+            8.5, bold=True, color=_DGY)
+        slide.shapes.add_picture(io.BytesIO(_daily_png),
+                                 _in(0.28), _in(4.38), _in(8.80), _in(2.32))
+        _rect(slide, 0.28, 6.76, 8.80, 0.02, _SEP)
+        _narrative(slide, 0.28, 6.82, 8.80, 0.36,
+                   f"Self-sufficiency {self_suf:.0f}% — only "
+                   f"{annual_grid/1e3:,.0f} MWh grid draw in Year 1.  BESS "
+                   "charges off-peak (grey bars), discharges into 07–09 h and "
+                   "17–20 h Eskom peak windows (green bars).")
     else:
-        _narrative(slide, 0.28, 5.92, 8.80, 0.95,
-                   f"Solar PV generates {annual_gen/1e3:,.0f} MWh in Year 1, "
-                   f"displacing {displaced/1e3:,.0f} MWh of grid purchases and "
-                   f"achieving {self_suf:.0f}% self-sufficiency.  "
-                   "Shaded red columns indicate the high-demand winter season "
-                   "(June–August) where PV self-consumption delivers peak savings.")
+        # ── Single-chart layout: monthly mini-table + full narrative ─────────
+        _rect(slide, 0.28, 4.96, 8.80, 0.03, _SEP)
+        months  = ["Jan","Feb","Mar","Apr","May","Jun",
+                   "Jul","Aug","Sep","Oct","Nov","Dec"]
+        monthly = pvgis_data.get("monthly_kwh", [0]*12)
+        cw = 8.74/12
+        for j, (m, v) in enumerate(zip(months, monthly)):
+            xx  = 0.31 + j*cw
+            bg  = _LRD if j in (5,6,7) else _WHT
+            clr = _DRD if j in (5,6,7) else _DGY
+            _rect(slide, xx, 5.02, cw-0.04, 0.68, bg)
+            _tb(slide, xx+0.02, 5.05, cw-0.06, 0.27, m, 7.5,
+                color=_MGY, align="center")
+            _tb(slide, xx+0.02, 5.34, cw-0.06, 0.30, f"{v/1000:.1f}k", 8.5,
+                bold=True, color=clr, align="center")
+
+        # Separator + narrative limited to 8.80" — must NOT bleed into the KPI
+        # sidebar that starts at x=9.55 (same fix as the financial slide)
+        _rect(slide, 0.28, 5.82, 8.80, 0.03, _SEP)
+        if has_bess:
+            _narrative(slide, 0.28, 5.92, 8.80, 0.95,
+                       f"Self-sufficiency of {self_suf:.0f}% means only "
+                       f"{annual_grid/1e3:,.0f} MWh is drawn from the grid in Year 1.  "
+                       "The BESS charges during off-peak periods and discharges into "
+                       "morning (07:00–09:00) and evening (17:00–20:00) Eskom peak "
+                       "windows — shaded columns indicate the high-demand season.")
+        else:
+            _narrative(slide, 0.28, 5.92, 8.80, 0.95,
+                       f"Solar PV generates {annual_gen/1e3:,.0f} MWh in Year 1, "
+                       f"displacing {displaced/1e3:,.0f} MWh of grid purchases and "
+                       f"achieving {self_suf:.0f}% self-sufficiency.  "
+                       "Shaded red columns indicate the high-demand winter season "
+                       "(June–August) where PV self-consumption delivers peak savings.")
     _footer(slide, company, page, total=total)
 
 
@@ -1613,6 +1694,7 @@ def generate_pptx(
     project_name:    str = "",
     client_name:     str = "",
     consultant_name: str = "",
+    hourly_df=None,          # 8760-h dispatch log → daily-profile chart
 ) -> bytes:
     """
     Generate an executive PPTX report (Huawei Digital Power style).
@@ -1685,7 +1767,8 @@ def generate_pptx(
                                  page=_pg, total=_total)
         elif _sid == "energy":
             _s5_energy(prs, pvgis_data, results, company,
-                       page=_pg, total=_total, has_bess=has_bess)
+                       page=_pg, total=_total, has_bess=has_bess,
+                       hourly_df=hourly_df)
         elif _sid == "tariff":
             _s6_tariff(prs, params, results, company,
                        page=_pg, total=_total)
