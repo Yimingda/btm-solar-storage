@@ -331,6 +331,7 @@ st.markdown("""
         box-shadow:   none !important;
     }
     /* Header control group — uniform 40px height for top-bar buttons */
+    div.st-key-btm_back_to_scenarios button,
     div.st-key-hdr_theme_btn button,
     div.st-key-logout_btn_hdr button {
         height:     40px !important;
@@ -2899,11 +2900,11 @@ def generate_excel_report() -> bytes:
 # App header — back | title | user info
 # ─────────────────────────────────────────────────────────────
 _main_title = "BTM PV+BESS Financial Modelling System"
-_back_col, _hdr_col, _user_col = st.columns([1, 5, 4], gap="small")
+_back_col, _hdr_col, _user_col = st.columns([1.8, 4.2, 4], gap="small")
 
 with _back_col:
-    if st.button("◀", key="btm_back_to_scenarios",
-                 help="Back to project list",
+    if st.button("◀ Back to Scenarios", key="btm_back_to_scenarios",
+                 help="Back to scenario selection",
                  use_container_width=True):
         st.session_state.pop("_scenario", None)
         st.rerun()
