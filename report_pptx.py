@@ -123,7 +123,7 @@ def _header_bar(slide, title: str, subtitle: str = ""):
     _tb(slide, 0.28, 0.08, 12.8, 0.40, title,
         19, bold=True, color=_WHT)
     if subtitle:
-        _tb(slide, 0.28, 0.55, 12.8, 0.35, subtitle, 9.5, color=_MGY)
+        _tb(slide, 0.28, 0.55, 12.8, 0.20, subtitle, 9.5, color=_MGY)
 
 def _footer(slide, company: str, page: int, total: int = 11):
     _rect(slide, 0, 7.22, 13.33, 0.02, _SEP)
@@ -134,16 +134,17 @@ def _footer(slide, company: str, page: int, total: int = 11):
         7.5, color=_MGY, align="right")
 
 def _kpi_block(slide, x, y, label: str, value: str,
-               sub: str = "", w: float = 2.8):
+               sub: str = "", w: float = 2.8, h: float = 1.38):
     """KPI card: Huawei gold value, red left strip (aligned with Huawei template)."""
-    _rect(slide, x, y, w, 1.38, _LRD)
-    _rect(slide, x, y, 0.07, 1.38, _HRD)            # red left accent
+    _rect(slide, x, y, w, h, _LRD)
+    _rect(slide, x, y, 0.07, h, _HRD)               # red left accent
     _tb(slide, x+0.16, y+0.10, w-0.22, 0.28,
         label, 8, bold=True, color=_MGY)
-    _tb(slide, x+0.16, y+0.38, w-0.22, 0.60,
+    _tb(slide, x+0.16, y+0.38, w-0.22, min(0.60, h-0.72),
         value, 25, bold=True, color=_GLD)             # gold value
     if sub:
-        _tb(slide, x+0.16, y+1.06, w-0.22, 0.26, sub, 7.5, color=_MGY)
+        # Anchor sub-caption to the card bottom so shorter cards stay clean
+        _tb(slide, x+0.16, y+h-0.32, w-0.22, 0.26, sub, 7.5, color=_MGY)
 
 def _narrative(slide, x, y, w, h, text: str):
     _tb(slide, x, y, w, h, text, 10, color=_MGY, wrap=True)
@@ -278,13 +279,17 @@ def _png_monthly(pvgis_data: dict) -> bytes | None:
         ax.set_ylabel("kWh / month", fontsize=9, color="#6B7280",
                       fontname=_FONT)
         _style_ax(ax)
+        _ymax = max(monthly) if max(monthly) > 0 else 1.0
         for bar in bars:
             h = bar.get_height()
-            ax.text(bar.get_x()+bar.get_width()/2, h+max(monthly)*0.01,
+            ax.text(bar.get_x()+bar.get_width()/2, h+_ymax*0.015,
                     f"{h/1000:.1f}k", ha="center", va="bottom",
                     fontsize=7, color="#6B7280", fontname=_FONT)
         ax.axvspan(4.45, 7.55, color="#D1FAE5", alpha=0.9, zorder=0)   # pale green winter-peak band
-        ax.text(6.0, max(monthly)*0.92, "Peak-tariff\nseason",
+        # Headroom so the season annotation clears every bar + value label
+        # (winter bars are the TALLEST at SA highveld sites)
+        ax.set_ylim(0, _ymax * 1.24)
+        ax.text(6.0, _ymax * 1.14, "Peak-tariff season",
                 ha="center", fontsize=7.5, color=f"#{_DRD}",
                 style="italic", fontname=_FONT)
         plt.tight_layout(pad=0.4)
@@ -487,8 +492,8 @@ def _s1_cover(prs, project_name: str, client_name: str,
         f"Report Date:   {date.today().strftime('%B %Y')}",
         10.5, color="999999")
 
-    # Solution reference — bottom left
-    _tb(slide, 0.42, 6.85, 8.0, 0.38,
+    # Solution reference — bottom left (h kept clear of Confidential at 7.08)
+    _tb(slide, 0.42, 6.85, 8.0, 0.20,
         f"Solution Info: {_SOL_URL}",
         8.5, color=_HRD)
 
@@ -699,7 +704,7 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
             yy = 2.22 + i * 0.54
             bg = _LGRY if i % 2 == 0 else _WHT
             _rect(slide, x, yy, W, 0.52, bg)
-            _tb(slide, x+0.18, yy+0.10, W*0.50, 0.36, k, 9.5, color=_MGY)
+            _tb(slide, x+0.18, yy+0.10, W*0.46, 0.36, k, 9.5, color=_MGY)
             _tb(slide, x+W*0.52, yy+0.10, W*0.46, 0.36, v, 10,
                 bold=True, color=_DGY, align="right")
 
@@ -1064,8 +1069,10 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
                          f"{annual_disc/1e3:,.0f} MWh" if annual_disc else "—",
                          "Battery output"))
     kpi_h = 5.04 / len(kpi_rows)
+    _card_h = min(1.38, kpi_h - 0.08)   # 4-row layout: card < pitch, no stacking
     for i, (lbl, val, sub) in enumerate(kpi_rows):
-        _kpi_block(slide, 9.55, 1.68+i*kpi_h, lbl, val, sub, w=3.20)
+        _kpi_block(slide, 9.55, 1.68+i*kpi_h, lbl, val, sub,
+                   w=3.20, h=_card_h)
 
     # Monthly mini-table
     _rect(slide, 0.28, 4.96, 8.80, 0.03, _SEP)
@@ -1083,16 +1090,18 @@ def _s5_energy(prs, pvgis_data: dict, results: dict, company: str,
         _tb(slide, xx+0.02, 5.34, cw-0.06, 0.30, f"{v/1000:.1f}k", 8.5,
             bold=True, color=clr, align="center")
 
-    _rect(slide, 0.28, 5.82, 12.78, 0.03, _SEP)
+    # Separator + narrative limited to 8.80" — must NOT bleed into the KPI
+    # sidebar that starts at x=9.55 (same fix as the financial slide)
+    _rect(slide, 0.28, 5.82, 8.80, 0.03, _SEP)
     if has_bess:
-        _narrative(slide, 0.28, 5.92, 12.78, 0.65,
+        _narrative(slide, 0.28, 5.92, 8.80, 0.95,
                    f"Self-sufficiency of {self_suf:.0f}% means only "
                    f"{annual_grid/1e3:,.0f} MWh is drawn from the grid in Year 1.  "
                    "The BESS charges during off-peak periods and discharges into "
                    "morning (07:00–09:00) and evening (17:00–20:00) Eskom peak "
                    "windows — shaded columns indicate the high-demand season.")
     else:
-        _narrative(slide, 0.28, 5.92, 12.78, 0.65,
+        _narrative(slide, 0.28, 5.92, 8.80, 0.95,
                    f"Solar PV generates {annual_gen/1e3:,.0f} MWh in Year 1, "
                    f"displacing {displaced/1e3:,.0f} MWh of grid purchases and "
                    f"achieving {self_suf:.0f}% self-sufficiency.  "
@@ -1387,7 +1396,7 @@ def _s9_assumptions(prs, params: dict, company: str,
         f"© {date.today().year} {company}.  "
         f"Solution Info: {_SOL_URL}"
     )
-    _tb(slide, 0.28, 6.80, 12.78, 0.60, disc, 8, color="BBBBBB", wrap=True)
+    _tb(slide, 0.28, 6.80, 12.78, 0.40, disc, 8, color="BBBBBB", wrap=True)
     _footer(slide, company, page, total=total)
 
 
@@ -1404,27 +1413,28 @@ def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
     )
 
     # ── Left dark panel (38%) — SA campus photo + company facts ──────────────
-    _rect(slide, 0.28, 0.68, 4.90, 6.54, _DNAV)          # dark navy panel bg
+    # Content starts at 0.78 so the header-bar subtitle (ends ~0.71) stays clear
+    _rect(slide, 0.28, 0.78, 4.90, 6.44, _DNAV)          # dark navy panel bg
 
     _grid_vid  = os.path.join(ASSETS, "hw_grid_forming_loop.mp4")
     campus_img = os.path.join(ASSETS, "hw_sa_grid.jpg")
     if os.path.exists(_grid_vid):
         # Embed All-Scenario Grid Forming ambient loop in place of static photo
-        _embed_video(slide, 0.28, 0.68, 4.90, 2.78, _grid_vid, "0D1118")
+        _embed_video(slide, 0.28, 0.78, 4.90, 2.78, _grid_vid, "0D1118")
     elif os.path.exists(campus_img):
         slide.shapes.add_picture(
-            campus_img, _in(0.28), _in(0.68), _in(4.90), _in(2.78))
+            campus_img, _in(0.28), _in(0.78), _in(4.90), _in(2.78))
     else:
-        _rect(slide, 0.28, 0.68, 4.90, 2.78, "1C2A3A")
-        _tb(slide, 0.28, 1.88, 4.90, 0.40,
+        _rect(slide, 0.28, 0.78, 4.90, 2.78, "1C2A3A")
+        _tb(slide, 0.28, 1.98, 4.90, 0.40,
             "HUAWEI South Africa Campus · Johannesburg",
             9, color="7A8FA8", align="center")
 
     # Red rule under photo
-    _rect(slide, 0.28, 3.46, 4.90, 0.04, _HRD)
+    _rect(slide, 0.28, 3.56, 4.90, 0.04, _HRD)
 
     # SA facts heading
-    _tb(slide, 0.44, 3.56, 4.60, 0.28,
+    _tb(slide, 0.44, 3.66, 4.60, 0.28,
         "HUAWEI SOUTH AFRICA", 8, bold=True, color=_GLD)
 
     sa_facts = [
@@ -1436,7 +1446,7 @@ def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
         ("C&I / Res",      "400+ C&I sites · 10,000+ residential"),
     ]
     for k, (label, val) in enumerate(sa_facts):
-        yy = 3.94 + k * 0.50
+        yy = 4.04 + k * 0.50
         _tb(slide, 0.44,  yy, 1.70, 0.38, label.upper(),
             7,   bold=True, color="7A8FA8")
         _tb(slide, 2.18, yy, 2.85, 0.38, val,
@@ -1447,43 +1457,43 @@ def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
     card_w = 2.32
 
     # Row 1: GLOBAL FOOTPRINT
-    _section_hdr(slide, 5.42, 0.68, 7.63, 0.38, "GLOBAL FOOTPRINT")
+    _section_hdr(slide, 5.42, 0.78, 7.63, 0.38, "GLOBAL FOOTPRINT")
     for k, (lbl, val, sub) in enumerate([
         ("EMPLOYEES",      "213,000",    "worldwide"),
         ("COUNTRIES",      "170+",       "countries & regions"),
         ("R&D INVESTMENT", "15%+",       "of annual revenue"),
     ]):
         x = col_x[k]
-        _rect(slide, x, 1.14, card_w, 1.40, _DNAV)
-        _tb(slide, x+0.14, 1.21, card_w-0.20, 0.26, lbl, 7, bold=True, color="9CA3AF")
-        _tb(slide, x+0.14, 1.47, card_w-0.20, 0.60, val, 26, bold=True, color=_GLD)
-        _tb(slide, x+0.14, 2.09, card_w-0.20, 0.24, sub, 7, color="6B7280")
+        _rect(slide, x, 1.24, card_w, 1.40, _DNAV)
+        _tb(slide, x+0.14, 1.31, card_w-0.20, 0.26, lbl, 7, bold=True, color="9CA3AF")
+        _tb(slide, x+0.14, 1.57, card_w-0.20, 0.60, val, 26, bold=True, color=_GLD)
+        _tb(slide, x+0.14, 2.19, card_w-0.20, 0.24, sub, 7, color="6B7280")
 
     # Row 2: R&D & TECHNOLOGY
-    _section_hdr(slide, 5.42, 2.66, 7.63, 0.38, "R&D & TECHNOLOGY")
+    _section_hdr(slide, 5.42, 2.76, 7.63, 0.38, "R&D & TECHNOLOGY")
     for k, (lbl, val, sub) in enumerate([
         ("R&D CENTRES",    "13",         "global locations"),
         ("ACTIVE PATENTS", "3,484",      "in energy domain"),
         ("INSTALLED BASE", "800+ GW",    "PV inverter capacity"),
     ]):
         x = col_x[k]
-        _rect(slide, x, 3.12, card_w, 1.40, _DNAV)
-        _tb(slide, x+0.14, 3.19, card_w-0.20, 0.26, lbl, 7, bold=True, color="9CA3AF")
-        _tb(slide, x+0.14, 3.45, card_w-0.20, 0.60, val, 26, bold=True, color=_GLD)
-        _tb(slide, x+0.14, 4.07, card_w-0.20, 0.24, sub, 7, color="6B7280")
+        _rect(slide, x, 3.22, card_w, 1.40, _DNAV)
+        _tb(slide, x+0.14, 3.29, card_w-0.20, 0.26, lbl, 7, bold=True, color="9CA3AF")
+        _tb(slide, x+0.14, 3.55, card_w-0.20, 0.60, val, 26, bold=True, color=_GLD)
+        _tb(slide, x+0.14, 4.17, card_w-0.20, 0.24, sub, 7, color="6B7280")
 
     # Row 3: GLOBAL IMPACT
-    _section_hdr(slide, 5.42, 4.64, 7.63, 0.38, "GLOBAL IMPACT  (Dec 2025)")
+    _section_hdr(slide, 5.42, 4.74, 7.63, 0.38, "GLOBAL IMPACT  (Dec 2025)")
     for k, (lbl, val, sub) in enumerate([
         ("GREEN POWER",    "2,087B kWh", "generated for customers"),
         ("CO₂ REDUCED", "1.06B tons", "carbon emissions avoided"),
         ("TREES EQUIV.",   "1.45B",      "billion trees equivalent"),
     ]):
         x = col_x[k]
-        _rect(slide, x, 5.10, card_w, 2.10, _DNAV)
-        _tb(slide, x+0.14, 5.17, card_w-0.20, 0.26, lbl, 7, bold=True, color="9CA3AF")
-        _tb(slide, x+0.14, 5.43, card_w-0.20, 0.72, val, 22, bold=True, color=_GLD)
-        _tb(slide, x+0.14, 6.17, card_w-0.20, 0.60, sub, 7, color="6B7280", wrap=True)
+        _rect(slide, x, 5.20, card_w, 2.00, _DNAV)
+        _tb(slide, x+0.14, 5.27, card_w-0.20, 0.26, lbl, 7, bold=True, color="9CA3AF")
+        _tb(slide, x+0.14, 5.53, card_w-0.20, 0.72, val, 22, bold=True, color=_GLD)
+        _tb(slide, x+0.14, 6.27, card_w-0.20, 0.60, sub, 7, color="6B7280", wrap=True)
 
     _footer(slide, company, page, total=total)
 
