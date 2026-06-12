@@ -179,15 +179,18 @@ def list_assets(tag: str | None = None,
 
 def cover_hero(has_pv: bool = True, has_bess: bool = True) -> str | None:
     """
-    Cover background image — always the large-scale BESS deployment aerial
-    regardless of scenario.  Falls back to hw_kv_dark.jpg if file not found.
+    Cover background image — hw_kv_dark.jpg (Huawei KV dark) for clarity and
+    overall slide quality.  Falls back to the aerial BESS deployment if missing.
     """
+    # Primary: high-quality Huawei KV dark photo
+    primary = os.path.join(_ASSETS_DIR, "hw_kv_dark.jpg")
+    if os.path.exists(primary):
+        return primary
+    # Fallback: large-scale BESS deployment aerial
     p = asset_path("huge_bess_deployed")
     if p:
         return p
-    # Legacy fallback
-    legacy = os.path.join(_ASSETS_DIR, "hw_kv_dark.jpg")
-    return legacy if os.path.exists(legacy) else None
+    return None
 
 
 def system_product_image(has_pv: bool, has_bess: bool) -> tuple[str | None, str]:

@@ -2894,8 +2894,9 @@ with _user_col:
         _theme_icon = "☀️" if _light_mode else "🌙"
         _theme_tip  = "Switch to Dark mode" if _light_mode else "Switch to Light mode"
 
-        # ── Layout: [🌙] [badge + name] [⏻]  (3 cols = tighter than 4) ──────
-        _tc, _mc, _lc = st.columns([1, 9, 1], gap="small")
+        # ── Layout: [🌙] [badge + name  →right-aligned] [⏻ 退出]
+        # Logout gets 2 units so it's visually part of the same row
+        _tc, _mc, _lc = st.columns([1, 7, 2], gap="small")
 
         with _tc:
             if st.button(_theme_icon, key="hdr_theme_btn",
@@ -2904,9 +2905,11 @@ with _user_col:
                 st.rerun()
 
         with _mc:
+            # justify-content:flex-end pushes badge+name to the right edge
             st.markdown(
                 f"<div style='padding-top:4px;display:flex;"
-                f"align-items:center;gap:10px;overflow:hidden'>"
+                f"align-items:center;justify-content:flex-end;"
+                f"gap:10px;overflow:hidden'>"
                 f"<span style='background:{_s_bg};color:{_s_clr};"
                 f"border:1px solid {_s_clr}44;border-radius:4px;"
                 f"padding:2px 8px;font-size:0.72rem;"
@@ -2920,7 +2923,8 @@ with _user_col:
             )
 
         with _lc:
-            if st.button("⏻", key="logout_btn_hdr", help="Sign out"):
+            if st.button("⏻ 退出", key="logout_btn_hdr", help="Sign out",
+                         use_container_width=True):
                 logout()
 
 # ─────────────────────────────────────────────────────────────

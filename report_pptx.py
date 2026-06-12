@@ -751,7 +751,8 @@ def _s4_financial(prs, results: dict, fin_df, company: str,
         _kpi_block(slide, 9.55, 1.68+i*1.36, lbl, val, sub, w=3.20)
 
     _rect(slide, 0.28, 5.72, 12.78, 0.03, _SEP)
-    _narrative(slide, 0.28, 5.82, 12.78, 0.62,
+    # Narrative width matches chart (8.80") — must not bleed into KPI sidebar (x=9.55)
+    _narrative(slide, 0.28, 5.82, 8.80, 0.62,
                "The 20-year model includes O&M escalation, PV degradation, and "
                "BESS SOH decline.  Section 12B/11E applied on equipment CAPEX (60%) "
                "improves early cash flows.  NPV remains positive across "
