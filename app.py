@@ -330,6 +330,15 @@ st.markdown("""
         color:        var(--text-main) !important;
         box-shadow:   none !important;
     }
+    /* Header control group — uniform 40px height for top-bar buttons */
+    div.st-key-hdr_theme_btn button,
+    div.st-key-logout_btn_hdr button {
+        height:     40px !important;
+        min-height: 40px !important;
+        max-height: 40px !important;
+        padding:    0 0.8rem !important;
+        white-space: nowrap !important;
+    }
     /* Primary buttons — green fill */
     .stButton > button[kind="primary"],
     button[data-testid="stBaseButton-primary"] {
@@ -2939,22 +2948,16 @@ with _user_col:
         _theme_icon = "☀️" if _light_mode else "🌙"
         _theme_tip  = "Switch to Dark mode" if _light_mode else "Switch to Light mode"
 
-        # ── Layout: [spacer] [🌙] [badge + name] [⏻ 退出] — all right-aligned
-        # Leading spacer pushes the whole control group to the right edge
-        _sp, _tc, _mc, _lc = st.columns([2, 1, 5, 2], gap="small")
-
-        with _tc:
-            if st.button(_theme_icon, key="hdr_theme_btn",
-                         help=_theme_tip, use_container_width=True):
-                st.session_state["_light_mode"] = not _light_mode
-                st.rerun()
+        # ── Layout: [spacer][BTM + user chip][🌙][⏻ Sign out] — flush right ──
+        # Chip is styled as a 40px bordered control to match the two buttons.
+        _sp, _mc, _tc, _lc = st.columns([3.6, 4.0, 0.9, 1.8], gap="small")
 
         with _mc:
-            # justify-content:flex-end pushes badge+name to the right edge
             st.markdown(
-                f"<div style='padding-top:4px;display:flex;"
-                f"align-items:center;justify-content:flex-end;"
-                f"gap:10px;overflow:hidden'>"
+                f"<div style='height:40px;display:flex;align-items:center;"
+                f"gap:10px;float:right;max-width:100%;overflow:hidden;"
+                f"border:1px solid var(--border);border-radius:4px;"
+                f"padding:0 14px'>"
                 f"<span style='background:{_s_bg};color:{_s_clr};"
                 f"border:1px solid {_s_clr}44;border-radius:4px;"
                 f"padding:2px 8px;font-size:0.72rem;"
@@ -2967,8 +2970,15 @@ with _user_col:
                 unsafe_allow_html=True,
             )
 
+        with _tc:
+            if st.button(_theme_icon, key="hdr_theme_btn",
+                         help=_theme_tip, use_container_width=True):
+                st.session_state["_light_mode"] = not _light_mode
+                st.rerun()
+
         with _lc:
-            if st.button("⏻ 退出", key="logout_btn_hdr", help="Sign out",
+            if st.button("⏻ Sign out", key="logout_btn_hdr",
+                         help="Sign out of your account",
                          use_container_width=True):
                 logout()
 
