@@ -1185,10 +1185,9 @@ _scenario = st.session_state.get("_scenario")
 if not _scenario:
     render_scenario_selector()
     st.stop()
-elif _scenario == "wheeling":
-    render_wheeling_placeholder()
-    st.stop()
-# _scenario == "btm"  →  fall through to the BTM app below
+# _scenario == "wheeling" → handled AFTER the engine functions are defined
+#                           (see "PPA / Wheeling scenario gate" below)
+# _scenario == "btm"      → fall through to the BTM app below
 
 # ─────────────────────────────────────────────────────────────
 # Session State Initialization
@@ -2207,8 +2206,13 @@ def generate_excel_report() -> bytes:
     ws1.row_dimensions[5].height = 20
 
     payback_str = f"{res['payback']:.2f} yr" if res['payback'] else "20yr+"
+    # Report branding — same fields as the PPTX report (UI: Export tab)
+    _xl_client = ss.get("_pptx_client_name", "") or "—"
+    _xl_epc    = ss.get("_pptx_consultant", "")  or "—"
     if _en_mode:
         info_rows = [
+            ("Client Name",          _xl_client),
+            ("EPC / Consultant",     _xl_epc),
             ("Location",             f"Lat {ss.lat:.3f}°  /  Lon {ss.lon:.3f}°"),
             ("System Size",          f"PV  {_fmw(ss.pv_kwp,'kWp')}  +  BESS  {_fmw(ss.bess_kwh,'kWh')}"),
             ("Tariff Mode",          ss.get("tariff_mode", "—")),
@@ -2220,6 +2224,8 @@ def generate_excel_report() -> bytes:
         ]
     else:
         info_rows = [
+            ("Client Name", _xl_client),
+            ("EPC / Consultant", _xl_epc),
             (" Location", f"Lat {ss.lat:.3f}° / Lon {ss.lon:.3f}°"),
             (" System Size", f"PV {_fmw(ss.pv_kwp,'kWp')} + BESS {_fmw(ss.bess_kwh,'kWh')}"),
             ("Tariff Mode",    ss.get("tariff_mode", "—")),
@@ -2241,7 +2247,7 @@ def generate_excel_report() -> bytes:
         cv.alignment = _align(); cv.border = _bdr()
         ws1.row_dimensions[r].height = 18
 
-    # Timeline row (row 14) — between info block and KPI header
+    # Timeline row (row 16) — between info block and KPI header
     _tl_res = res  # res is the results dict available in generate_excel_report
     _bess_lead_xl = _tl_res.get("bess_lead_months", ss.get("bess_lead_months", 6))
     _pv_lead_xl   = _tl_res.get("pv_lead_months",   ss.get("pv_lead_months",  12))
@@ -2266,19 +2272,19 @@ def generate_excel_report() -> bytes:
             + (f" | BESS: {_pcomm_xl} → Year-0: R {_pcomm_ncf_xl:,.0f}"
                if _pcomm_xl > 0 else "")
         )
-    ws1.merge_cells("B14:G14")
-    c14 = ws1.cell(row=14, column=2, value=_tl_str)
+    ws1.merge_cells("B16:G16")
+    c14 = ws1.cell(row=16, column=2, value=_tl_str)
     c14.font = Font("Calibri", size=9, italic=True, color=C_NAVY)
     c14.fill = _fill("EAF0FB"); c14.alignment = _align(wrap=False); c14.border = _bdr()
-    ws1.row_dimensions[14].height = 16
+    ws1.row_dimensions[16].height = 16
 
     # KPI section header
-    ws1.merge_cells("B15:G15")
-    c = ws1["B15"]
+    ws1.merge_cells("B17:G17")
+    c = ws1["B17"]
     c.value = (" Key Financial Metrics" if _en_mode else " / Key Financial Metrics")
     c.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
     c.fill = _fill(C_DARK); c.alignment = _align("left")
-    ws1.row_dimensions[15].height = 20
+    ws1.row_dimensions[17].height = 20
 
     if _en_mode:
         kpis = [
@@ -2300,8 +2306,8 @@ def generate_excel_report() -> bytes:
         ]
     # 3 cols × 2 rows layout
     kpi_layout = [
-        ((16, 17), (2, 3)), ((16, 17), (4, 5)), ((16, 17), (6, 6)),
-        ((19, 20), (2, 3)), ((19, 20), (4, 5)), ((19, 20), (6, 6)),
+        ((18, 19), (2, 3)), ((18, 19), (4, 5)), ((18, 19), (6, 6)),
+        ((21, 22), (2, 3)), ((21, 22), (4, 5)), ((21, 22), (6, 6)),
     ]
     for idx, ((r_top, r_bot), (c_l, c_r)) in enumerate(kpi_layout):
         if idx >= len(kpis):
@@ -2319,15 +2325,15 @@ def generate_excel_report() -> bytes:
         kpi_color = (C_GREEN if res["npv"] > 0 else C_RED) if idx == 1 else C_NAVY
         cv_k.font = Font("Calibri", size=13, bold=True, color=kpi_color)
         cv_k.fill = _fill(C_LTBLUE); cv_k.alignment = _align("center"); cv_k.border = _bdr()
-    ws1.row_dimensions[18].height = 6  # gap row
+    ws1.row_dimensions[20].height = 6  # gap row
 
     # Instructions
-    ws1.merge_cells("B22:G22")
-    c = ws1["B22"]
+    ws1.merge_cells("B24:G24")
+    c = ws1["B24"]
     c.value = (" Instructions" if _en_mode else " / Instructions")
     c.font = Font("Calibri", size=10, bold=True, color="FFFFFF")
     c.fill = _fill(C_MID); c.alignment = _align("left")
-    ws1.row_dimensions[22].height = 20
+    ws1.row_dimensions[24].height = 20
 
     if _en_mode:
         notes_text = (
@@ -2345,12 +2351,12 @@ def generate_excel_report() -> bytes:
             "● Sheet 6 is a static 8,760-hour dispatch snapshot — it does not update with parameter changes / Sheet6 \n"
             "● Adjustable: tariff escalation, discount rate, tax rate, PV/BESS unit costs, O&M rates"
         )
-    ws1.merge_cells("B23:G26")
-    cn = ws1.cell(row=23, column=2, value=notes_text)
+    ws1.merge_cells("B25:G28")
+    cn = ws1.cell(row=25, column=2, value=notes_text)
     cn.font = Font("Calibri", size=9, color="444444")
     cn.alignment = Alignment(wrap_text=True, vertical="top")
     cn.fill = _fill("F9F9F9"); cn.border = _bdr()
-    for r_ in range(23, 27):
+    for r_ in range(25, 29):
         ws1.row_dimensions[r_].height = 15
 
     # ════════════════════════════════════════════════════════════
@@ -2930,6 +2936,24 @@ def generate_excel_report() -> bytes:
     buf.seek(0)
     return buf.getvalue()
 
+
+# ─────────────────────────────────────────────────────────────
+# PPA / Wheeling scenario gate
+# All BTM engine functions are now defined — hand over to the
+# PPA/Wheeling module, which reuses the BTM engine (generation,
+# escalation and 20-yr cash-flow framework) via dependency injection.
+# ─────────────────────────────────────────────────────────────
+if _scenario == "wheeling":
+    from ppa_wheeling import render_ppa_wheeling
+    render_ppa_wheeling({
+        "get_pvgis_data":      get_pvgis_data,
+        "get_tariff_for_hour": get_tariff_for_hour,
+        "get_capex_zar":       get_capex_zar,
+        "SECTION_12B":         SECTION_12B,
+        "ANALYSIS_YEARS":      ANALYSIS_YEARS,
+        "fmw":                 _fmw,
+    })
+    st.stop()
 
 # ─────────────────────────────────────────────────────────────
 # App header — back | title | user info
@@ -4566,29 +4590,3 @@ with col_content:
                         height=480, margin=dict(l=10, r=10, t=20, b=10),
                     )
                     st.plotly_chart(fig_h, use_container_width=True)
-
-                    st.markdown(f"#### 📊 Full Optimisation Results")
-                    st.dataframe(opt_df.sort_values("NPV (ZAR)", ascending=False),
-                                 use_container_width=True, height=380)
-
-# ── Admin Tab (only visible to admins) ──────────────────────
-if _admin_tab is not None:
-    with _admin_tab:
-        render_admin_panel()
-
-# ─────────────────────────────────────────────────────────────
-# Footer
-# ─────────────────────────────────────────────────────────────
-st.markdown("---")
-st.markdown("""
-<div style="text-align:center; color:var(--text-dim); font-family:'IBM Plex Mono',monospace;
-            font-size:0.68rem; padding:0.8rem 0;">
-    Powered by Huawei SA Digital Power — BD Kevin Yi &nbsp;|&nbsp;
-    <a href="https://wa.me/27834976899?text=Hi%20Kevin%2C%20I%20would%20like%20more%20info%20on%20BTM%20PV%2BBESS%20solutions"
-       target="_blank"
-       style="color:#25D366; text-decoration:none; font-weight:600;">
-       💬 WhatsApp: 083 497 6899
-    </a>
-    &nbsp;|&nbsp; SA Megaflex · PVGIS · Section 12B · 8760H Dispatch · Weekday/Weekend TOU
-</div>
-""", unsafe_allow_html=True)

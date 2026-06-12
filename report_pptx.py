@@ -28,6 +28,8 @@ Slide sequence  (11 slides)
   11. Assumptions & Disclaimer
 
 Solution Info: https://info.support.huawei.com/Energy/info/en_US/all/index
+
+PPA / Wheeling editions: generate_ppa_pptx() at end of file.
 """
 from __future__ import annotations
 
@@ -73,6 +75,32 @@ def _fmw(v: float, unit: str = "kWp") -> str:
     if v >= 1000:
         return f"{v / 1000:,.1f} {_MW_UP.get(unit, unit)}"
     return f"{v:,.0f} {unit}"
+
+# ── Brand logos (Huawei + FusionSolar) ───────────────────────────────────────
+_ASSETS_ROOT  = os.path.join(_SELF_DIR, "assets")
+_HW_LOGO_PATH = os.path.join(_ASSETS_ROOT, "hw_logo.png")          # white text → dark bg
+_FS_LOGO_PATH = os.path.join(_ASSETS_ROOT, "common",
+                             "brand_fusionsolar_logo.png")          # red → light bg
+
+def _logo_w(path: str, h: float, fallback_ratio: float = 3.2) -> float:
+    """Native width (inches) for a logo rendered at height h — no stretching."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            return h * im.width / im.height
+    except Exception:
+        return h * fallback_ratio
+
+def _add_logo(slide, path: str, h: float, y: float,
+              x: float | None = None, right: float | None = None):
+    """Place a logo at fixed height, width from native aspect ratio.
+    Anchor with either x (left edge) or right (right edge), inches."""
+    if not os.path.exists(path):
+        return None
+    w = _logo_w(path, h)
+    if x is None:
+        x = (right if right is not None else 13.33) - w
+    return slide.shapes.add_picture(path, _in(x), _in(y), _in(w), _in(h))
 
 # ── python-pptx micro-helpers ─────────────────────────────────────────────────
 
@@ -120,16 +148,20 @@ def _header_bar(slide, title: str, subtitle: str = ""):
     _rect(slide, 0, 0.52, 13.33, 6.98, _WHT)        # white body
     _rect(slide, 0, 0.52, 0.09, 6.98, _LRD)         # faint red left border
 
-    _tb(slide, 0.28, 0.08, 12.8, 0.40, title,
+    _tb(slide, 0.28, 0.08, 11.5, 0.40, title,
         19, bold=True, color=_WHT)
     if subtitle:
         _tb(slide, 0.28, 0.55, 12.8, 0.20, subtitle, 9.5, color=_MGY)
+    # Huawei logo — right end of the black header bar (white text → dark bg)
+    _add_logo(slide, _HW_LOGO_PATH, 0.30, y=0.11, right=13.08)
 
 def _footer(slide, company: str, page: int, total: int = 11):
     _rect(slide, 0, 7.22, 13.33, 0.02, _SEP)
     _tb(slide, 0.28, 7.26, 4.5, 0.22, company, 7.5, color=_MGY)
     _tb(slide, 4.8,  7.26, 5.8, 0.22,
         f"Solution Info: {_SOL_URL}", 7.5, color=_HRD)
+    # FusionSolar logo — footer right, left of the page number (red → white bg)
+    _add_logo(slide, _FS_LOGO_PATH, 0.15, y=7.29, right=11.72)
     _tb(slide, 11.8, 7.26, 1.5, 0.22, f"{page} / {total}",
         7.5, color=_MGY, align="right")
 
@@ -514,6 +546,13 @@ def _s1_cover(prs, project_name: str, client_name: str,
     _rect(slide, 8.88, 0, 0.10, 7.5, _HRD)
     # White right panel
     _rect(slide, 8.98, 0, 4.35, 7.5, _WHT)
+
+    # Brand logos — Huawei (white text) on dark panel top-right;
+    # FusionSolar (red) centred near the top of the white right panel
+    _add_logo(slide, _HW_LOGO_PATH, 0.42, y=0.20, right=8.58)
+    _fs_w = _logo_w(_FS_LOGO_PATH, 0.26)
+    _add_logo(slide, _FS_LOGO_PATH, 0.26, y=0.45,
+              x=8.98 + (4.35 - _fs_w) / 2)
 
     # EPC + OEM — top left (OEM hardcoded per Huawei partner requirement)
     epc_label = f"EPC:  {consultant_name}" if consultant_name else "EPC:  —"
@@ -1746,46 +1785,4 @@ def generate_pptx(
                      "assumptions"])   # sa_projects removed per client request
     _total = len(_slide_ids)
 
-    for _pg, _sid in enumerate(_slide_ids, start=1):
-        if _sid == "cover":
-            _s1_cover(prs, project_name, client_name, consultant_name,
-                      pv_kwp, bess_kwh, params.get("tariff_mode", ""),
-                      has_pv=has_pv, has_bess=has_bess)
-        elif _sid == "thesis":
-            _s2_thesis(prs, results, params, company,
-                       page=_pg, total=_total,
-                       has_pv=has_pv, has_bess=has_bess)
-        elif _sid == "system":
-            _s3_system(prs, params, pvgis_data, company,
-                       page=_pg, total=_total,
-                       has_pv=has_pv, has_bess=has_bess)
-        elif _sid == "financial":
-            _s4_financial(prs, results, fin_df, company,
-                          page=_pg, total=_total)
-        elif _sid == "financial_table":
-            _s4b_financial_table(prs, results, fin_df, company,
-                                 page=_pg, total=_total)
-        elif _sid == "energy":
-            _s5_energy(prs, pvgis_data, results, company,
-                       page=_pg, total=_total, has_bess=has_bess,
-                       hourly_df=hourly_df)
-        elif _sid == "tariff":
-            _s6_tariff(prs, params, results, company,
-                       page=_pg, total=_total)
-        elif _sid == "roadmap":
-            _s7_roadmap(prs, results, params, company,
-                        page=_pg, total=_total)
-        elif _sid == "huawei_partner":
-            _s8_huawei_partner(prs, company, page=_pg, total=_total)
-        elif _sid == "sa_projects":
-            _s9_sa_projects(prs, company, page=_pg, total=_total)
-        elif _sid == "market":
-            _s8_market(prs, company, page=_pg, total=_total)
-        elif _sid == "assumptions":
-            _s9_assumptions(prs, params, company, page=_pg, total=_total,
-                            has_pv=has_pv)
-
-    buf = io.BytesIO()
-    prs.save(buf)
-    buf.seek(0)
-    return buf.read()
+    for _pg, 
