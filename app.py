@@ -4042,13 +4042,13 @@ with col_content:
                             st.session_state["_excel_rpt_fname"] = (
                                 f"{_xproj_safe}_IRR{_xirr:.1f}pct_{_edt.datetime.now():%Y%m%d}.xlsx"
                             )
-                            st.success("✅ Report ready — click below to download")
+                            st.session_state["_excel_just_built"] = True
                         except Exception as _e:
                             st.error(f"❌ Generation failed: {_e}")
 
                 if "_excel_rpt_bytes" in st.session_state:
+                    # Same row as Export — no spacer, buttons stay aligned
                     with _xdl_col:
-                        st.markdown("<br>", unsafe_allow_html=True)
                         st.download_button(
                             "⬇ Download Excel Report",
                             data=st.session_state["_excel_rpt_bytes"],
@@ -4058,6 +4058,8 @@ with col_content:
                                   "officedocument.spreadsheetml.sheet"),
                             use_container_width=True,
                         )
+                if st.session_state.pop("_excel_just_built", False):
+                    st.success("✅ Excel ready — use the ⬇ Download button above")
 
             # ── PPTX / PowerPoint Presentation Report ──────────────
             st.markdown("---")
