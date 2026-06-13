@@ -5,3 +5,9 @@ __pycache__/
 *.bat
 *.pdf
 .env
+
+# Local scratch / generated artifacts — never commit
+_scan.txt
+reset_admin_pw.py
+test_*.pptx
+*_test.pptx
