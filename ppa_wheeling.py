@@ -116,16 +116,54 @@ def _blended_grid_tariff(eng: dict) -> float:
         return 2.50
 
 
+def _auto_pvgis(eng: dict) -> None:
+    """
+    Auto-fetch PVGIS when site / capacity / array angles change — identical
+    behaviour to BTM's check_auto_pvgis(), but keyed on the wheeling PV
+    capacity (whl_pv_kwp). Stores the full monthly dataset in
+    `whl_pvgis_data` and derives the specific yield, so the wheeling model
+    and energy split run off the same PVGIS data BTM uses. Skipped when a
+    custom 8760-h profile is active or PV capacity is zero.
+    """
+    ss = st.session_state
+    if str(ss.get("whl_pv_src", "")).startswith("Upload"):
+        return
+    kwp = float(ss.get("whl_pv_kwp", 0) or 0)
+    if kwp <= 0:
+        return
+    key = (f"{ss.get('lat', -26.1):.3f}_{ss.get('lon', 28.0):.3f}_{kwp:.0f}_"
+           f"{ss.get('pv_loss', 14.0):.1f}_{ss.get('tilt', 26.0):.1f}_"
+           f"{ss.get('azimuth', 180.0):.1f}")
+    if ss.get("whl_pvgis_key") == key:
+        return
+    try:
+        res = eng["get_pvgis_data"](
+            ss.get("lat", -26.1), ss.get("lon", 28.0), kwp,
+            ss.get("pv_loss", 14.0), ss.get("tilt", 26.0),
+            ss.get("azimuth", 180.0))
+        ss["whl_pvgis_data"]   = res
+        ss["whl_pvgis_status"] = res.get("status", "")
+        _akwh = float(res.get("annual_kwh", 0) or 0)
+        if _akwh > 0:
+            ss["whl_spec_yield"] = round(_akwh / kwp, 1)
+        ss["whl_pvgis_key"] = key
+    except Exception as _e:
+        ss["whl_pvgis_status"] = f"Offline / {str(_e)[:35]}"
+
+
 _WINTER_MONTHS = (6, 7, 8)        # Eskom high season Jun–Aug = "winter"
 
 
-def energy_split(eng: dict) -> dict:
+def energy_split(eng: dict, pvgis_data: dict | None = None) -> dict:
     """
     PV generation fractions over (season, TOU-period) buckets, plus the
     battery season split. Season = Eskom high season (Jun–Aug = winter).
-    Builds an 8760-h Gaussian daylight PV profile and classifies each weekday
-    hour via the BTM tariff engine, so the split honours the active
-    tariff_mode's peak windows. PV is daylight only → off-peak share ≈ 0.
+
+    Consistent with BTM: each month's generation is taken from the PVGIS
+    monthly_kwh distribution (the same data BTM's build_hourly_pv_profile
+    uses) and spread across the day with a Gaussian daylight shape, then
+    classified into TOU periods via the BTM tariff engine. When no PVGIS
+    data is supplied the month weight falls back to calendar days (uniform).
 
     Returns {
       "pv":          {("win"|"sum", "peak"|"std"|"off"): fraction},  # Σ = 1.0
@@ -133,6 +171,8 @@ def energy_split(eng: dict) -> dict:
     }
     """
     days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    monthly = (pvgis_data or {}).get("monthly_kwh") or []
+    use_pvgis = len(monthly) == 12 and sum(monthly) > 0
     try:
         import numpy as _np
         hours = _np.arange(24)
@@ -144,21 +184,27 @@ def energy_split(eng: dict) -> dict:
         pv = {}
         for m in range(1, 13):
             season = "win" if m in _WINTER_MONTHS else "sum"
+            m_weight = float(monthly[m - 1]) if use_pvgis else days[m - 1]
             for h in range(24):
                 _, period = eng["get_tariff_for_hour"](h, m, "weekday")
                 pk = ("peak" if "peak" in str(period) and "off" not in str(period)
                       else "off" if "off" in str(period) else "std")
-                pv[(season, pk)] = pv.get((season, pk), 0.0) + w[h] * days[m - 1]
+                pv[(season, pk)] = pv.get((season, pk), 0.0) + w[h] * m_weight
         tot = sum(pv.values()) or 1.0
         pv = {k: v / tot for k, v in pv.items()}
     except Exception:
         # Fallback: daylight PV split, no off-peak, ~25% winter (Jun–Aug)
         pv = {("win", "std"): 0.205, ("win", "peak"): 0.045,
               ("sum", "std"): 0.615, ("sum", "peak"): 0.135}
-    win_days = sum(days[m - 1] for m in _WINTER_MONTHS)
-    return {"pv": pv,
-            "bess_season": {"win": win_days / 365.0,
-                            "sum": 1.0 - win_days / 365.0}}
+    # Battery season split: by PVGIS monthly weight if available, else days
+    if use_pvgis:
+        win_w = sum(monthly[m - 1] for m in _WINTER_MONTHS)
+        tot_w = sum(monthly) or 1.0
+        bess = {"win": win_w / tot_w, "sum": 1.0 - win_w / tot_w}
+    else:
+        win_days = sum(days[m - 1] for m in _WINTER_MONTHS)
+        bess = {"win": win_days / 365.0, "sum": 1.0 - win_days / 365.0}
+    return {"pv": pv, "bess_season": bess}
 
 
 def price_buckets(split_season: bool, split_tou: bool, split_asset: bool):
@@ -1119,6 +1165,15 @@ def render_ppa_wheeling(eng: dict) -> None:
                     _arr, _msg = eng["parse_load_csv"](_up)
                     if _arr is not None and ss.whl_pv_kwp > 0:
                         ss.whl_spec_yield = round(float(_arr.sum()) / ss.whl_pv_kwp, 1)
+                        # Real monthly distribution → feeds the season/TOU split
+                        _dim = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+                        _mk, _idx = [], 0
+                        for _nd in _dim:
+                            _mk.append(float(_arr[_idx:_idx + _nd * 24].sum()))
+                            _idx += _nd * 24
+                        ss["whl_pvgis_data"] = {
+                            "monthly_kwh": _mk, "annual_kwh": float(_arr.sum()),
+                            "status": "Custom 8760-h profile ✓"}
                         st.success(f"Annual {_arr.sum()/1e3:,.0f} MWh → "
                                    f"yield {ss.whl_spec_yield:.0f} kWh/kWp")
                     elif _arr is not None:
@@ -1136,23 +1191,16 @@ def render_ppa_wheeling(eng: dict) -> None:
                 with _t2:
                     st.number_input("Azimuth (°)", -180.0, 180.0,
                                     step=5.0, key="azimuth")
-                if st.button("↻ Fetch yield from PVGIS", key="whl_pvgis_btn",
-                             use_container_width=True):
-                    try:
-                        pvg = eng["get_pvgis_data"](
-                            ss.lat, ss.lon, ss.whl_pv_kwp,
-                            ss.get("pv_loss", 14.0), ss.get("tilt", 26.0),
-                            ss.get("azimuth", 180.0))
-                        _akwh = float(pvg.get("annual_kwh", 0) or 0)
-                        if _akwh > 0 and ss.whl_pv_kwp > 0:
-                            ss.whl_spec_yield = round(_akwh / ss.whl_pv_kwp, 1)
-                            st.rerun()
-                        else:
-                            st.warning("PVGIS returned no data — kept manual yield.")
-                    except Exception as _e:
-                        st.warning(f"PVGIS unavailable: {_e}")
+                # Auto-fetch on any change — identical to BTM (no manual button)
+                _auto_pvgis(eng)
+                _ps = str(ss.get("whl_pvgis_status", "Pending"))
+                _ok = "success-box" if "✓" in _ps else "warning-box"
+                st.markdown(
+                    f'<div class="{_ok}" style="font-size:0.7rem">🌤 {_ps}</div>',
+                    unsafe_allow_html=True)
             st.number_input("Specific Yield Yr-1 (kWh/kWp)", 500.0, 3000.0,
-                            key="whl_spec_yield", step=10.0)
+                            key="whl_spec_yield", step=10.0,
+                            help="Auto-derived from PVGIS; overrideable")
             st.number_input("PV Degradation (%/yr)", 0.0, 3.0,
                             key="whl_pv_degradation", step=0.1)
             st.markdown(
@@ -1374,7 +1422,7 @@ def render_ppa_wheeling(eng: dict) -> None:
     # ── Model run (cheap — every rerun) ──────────────────────
     p     = _params_dict()
     p["section_12b"]  = eng["SECTION_12B"]
-    p["energy_split"] = energy_split(eng)
+    p["energy_split"] = energy_split(eng, ss.get("whl_pvgis_data"))
     # Battery: Huawei official SOH/EoL curve (vs simple linear fade)
     if (ss.get("whl_split_asset") and ss.get("whl_bess_use_soh")
             and eng.get("get_soh_by_year")):
