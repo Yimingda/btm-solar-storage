@@ -332,8 +332,11 @@ st.markdown("""
     }
     /* Header control group — uniform 40px height for top-bar buttons */
     div.st-key-btm_back_to_scenarios button,
+    div.st-key-whl_back_btn2 button,
     div.st-key-hdr_theme_btn button,
-    div.st-key-logout_btn_hdr button {
+    div.st-key-whl_theme_btn button,
+    div.st-key-logout_btn_hdr button,
+    div.st-key-whl_logout_btn button {
         height:     40px !important;
         min-height: 40px !important;
         max-height: 40px !important;
@@ -2955,6 +2958,9 @@ if _scenario == "wheeling":
         "TARIFF_DB":           TARIFF_DB,
         "MAP_AVAILABLE":       MAP_AVAILABLE,
         "parse_load_csv":      parse_load_csv,
+        "get_current_user":    get_current_user,
+        "logout":              logout,
+        "render_project_bar":  render_project_bar,
     })
     st.stop()
 

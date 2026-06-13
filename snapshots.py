@@ -39,15 +39,29 @@ def _default_name() -> str:
     """Generate default project name from current session state."""
     pv   = st.session_state.get("pv_kwp",   0) or 0
     bess = st.session_state.get("bess_kwh", 0) or 0
+    # Wheeling mode uses the whl_* namespace — fall back to it when BTM is empty
+    if pv == 0 and bess == 0:
+        pv   = st.session_state.get("whl_pv_kwp",  0) or 0
+        bess = st.session_state.get("whl_bess_kwh", 0) or 0
+        if pv or bess:
+            return (f"PPA {pv:.0f}kWp" + (f" + {bess:.0f}kWh" if bess else ""))
     if bess > 0:
         return f"{pv:.0f}kWp + {bess:.0f}kWh"
     return f"{pv:.0f}kWp PV Only"
 
 
 def get_params_to_save() -> dict:
-    """Collect all saveable params from session_state."""
+    """Collect all saveable params from session_state.
+
+    Captures the fixed BTM key list plus every PPA/Wheeling param in the
+    `whl_*` namespace (including dynamic price-bucket keys), so projects
+    saved from either mode round-trip fully. Transient internals use the
+    `_whl_*` prefix and are skipped.
+    """
     params = {}
-    for key in _SAVE_KEYS:
+    _keys = list(_SAVE_KEYS) + [k for k in st.session_state.keys()
+                                if isinstance(k, str) and k.startswith("whl_")]
+    for key in _keys:
         val = st.session_state.get(key)
         if val is not None:
             try:

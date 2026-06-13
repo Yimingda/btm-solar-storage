@@ -891,14 +891,14 @@ def render_ppa_wheeling(eng: dict) -> None:
     ss  = st.session_state
     fmw = eng["fmw"]
 
-    # ── Header ───────────────────────────────────────────────
-    _b, _h, _x = st.columns([1.8, 6.2, 2], gap="small")
-    with _b:
+    # ── Top bar: back | title | theme · mode badge · user · logout ───
+    _back_col, _hdr_col, _user_col = st.columns([1.8, 4.2, 4], gap="small")
+    with _back_col:
         if st.button("◀ Back to Scenarios", key="whl_back_btn2",
                      use_container_width=True):
             ss.pop("_scenario", None)
             st.rerun()
-    with _h:
+    with _hdr_col:
         st.markdown("""
 <div class="main-header">
     <div style="font-size:1.8rem;line-height:1">🔄</div>
@@ -907,6 +907,54 @@ def render_ppa_wheeling(eng: dict) -> None:
         <div class="sub-title">GRID-WHEELED PPA &nbsp;·&nbsp; DEVELOPER + OFFTAKER DUAL VIEW &nbsp;·&nbsp; BTM 20-YR ENGINE</div>
     </div>
 </div>""", unsafe_allow_html=True)
+    with _user_col:
+        _get_user = eng.get("get_current_user")
+        _u = _get_user() if _get_user else None
+        if _u:
+            _tbadge = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(
+                _u.get("tier", "free"), "🆓")
+            _uname = _u.get("full_name") or _u.get("email", "User")
+            _uname_short = (_uname[:16] + "…") if len(_uname) > 18 else _uname
+            _lm = ss.get("_light_mode", False)
+            _s_clr = "#0E7490" if _lm else "#4ECDC4"
+            _s_bg = "rgba(78,205,196,0.12)" if _lm else "#0d2424"
+            _ticon = "☀️" if _lm else "🌙"
+            _ttip = "Switch to Dark mode" if _lm else "Switch to Light mode"
+            _sp, _mc, _tc, _lc = st.columns([3.6, 4.0, 0.9, 1.8], gap="small")
+            with _mc:
+                st.markdown(
+                    f"<div style='height:40px;display:flex;align-items:center;"
+                    f"gap:10px;float:right;max-width:100%;overflow:hidden;"
+                    f"border:1px solid var(--border);border-radius:4px;"
+                    f"padding:0 14px'>"
+                    f"<span style='background:{_s_bg};color:{_s_clr};"
+                    f"border:1px solid {_s_clr}44;border-radius:4px;"
+                    f"padding:2px 8px;font-size:0.72rem;"
+                    f"font-family:IBM Plex Mono,monospace;letter-spacing:0.05em;"
+                    f"white-space:nowrap;flex-shrink:0'>🔄 Wheeling</span>"
+                    f"<span style='font-size:0.80rem;color:var(--text-dim);"
+                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"
+                    f"👤 <b style='color:var(--text-main)'>{_uname_short}</b>"
+                    f" {_tbadge}</span></div>", unsafe_allow_html=True)
+            with _tc:
+                if st.button(_ticon, key="whl_theme_btn", help=_ttip,
+                             use_container_width=True):
+                    ss["_light_mode"] = not _lm
+                    st.rerun()
+            with _lc:
+                _logout = eng.get("logout")
+                if st.button("⏻ Sign out", key="whl_logout_btn",
+                             help="Sign out of your account",
+                             use_container_width=True) and _logout:
+                    _logout()
+
+    # ── Project bar — save / load / folders (shared with BTM) ────────
+    _rpb = eng.get("render_project_bar")
+    if _rpb:
+        _rpb()
+        _hr = "#CBD5E0" if ss.get("_light_mode", False) else "#1e2a3a"
+        st.markdown(f"<hr style='margin:4px 0 8px;border-color:{_hr}'>",
+                    unsafe_allow_html=True)
 
     col_main, col_prm = st.columns([7, 3], gap="large")
 
