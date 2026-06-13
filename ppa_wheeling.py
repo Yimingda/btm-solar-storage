@@ -207,6 +207,91 @@ def energy_split(eng: dict, pvgis_data: dict | None = None) -> dict:
     return {"pv": pv, "bess_season": bess}
 
 
+def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
+    """
+    8760-hour physical dispatch for the wheeling PPA — same modelling basis as
+    BTM (hourly PV from PVGIS monthly × Gaussian daylight; weekday / Saturday /
+    Sunday / public-holiday TOU calendar via eng.day_type_for). Battery does
+    daily peak arbitrage with discharge POWER capped by the C-rate
+    (bess_kw = capacity × C) and annual throughput capped by the cycle budget.
+
+    Returns real (season, TOU-period) energy fractions + annual delivered
+    energies, replacing the Gaussian energy_split() approximation once run.
+    """
+    import numpy as _np
+    import datetime as _dt2
+    days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    pv_kwp   = float(p.get("pv_kwp", 0) or 0)
+    annual_pv = pv_kwp * float(p.get("spec_yield", 0) or 0)
+    monthly  = p.get("pvgis_monthly") or []
+    use_m    = len(monthly) == 12 and sum(monthly) > 0
+
+    hrs = _np.arange(24)
+    w = _np.exp(-0.5 * ((hrs - 12) / 2.5) ** 2)
+    w[(hrs < 6) | (hrs > 18)] = 0.0
+    w = w / w.sum() if w.sum() > 0 else w
+
+    asset    = bool(p.get("split_asset"))
+    bess_kwh = float(p.get("bess_kwh", 0) or 0) if asset else 0.0
+    c_rate   = float(p.get("bess_c_rate", 0.25) or 0.25)
+    bess_kw  = bess_kwh * c_rate                       # discharge power cap (item 2)
+    usable   = bess_kwh * float(p.get("bess_dod", 90)) / 100.0
+    rte      = float(p.get("bess_rte", 90)) / 100.0
+    cyc_budget = float(p.get("bess_annual_cycles", 365) or 0)
+    dtf = eng.get("day_type_for")
+
+    pv_buk, bs_buk = {}, {}
+    pv_tot = bess_tot = cyc_used = 0.0
+    c_bound_days = 0
+    for m in range(1, 13):
+        season = "win" if m in _WINTER_MONTHS else "sum"
+        m_gen  = monthly[m - 1] if use_m else annual_pv * days[m - 1] / 365.0
+        daily  = m_gen / days[m - 1]
+        for d in range(days[m - 1]):
+            try:
+                dtp = dtf(_dt2.date(2025, m, d + 1)) if dtf else "weekday"
+            except Exception:
+                dtp = "weekday"
+            peak_h = []
+            for hh in range(24):
+                _, period = eng["get_tariff_for_hour"](hh, m, dtp)
+                pk = ("peak" if "peak" in str(period) and "off" not in str(period)
+                      else "off" if "off" in str(period) else "std")
+                e = daily * float(w[hh])
+                pv_buk[(season, pk)] = pv_buk.get((season, pk), 0.0) + e
+                pv_tot += e
+                if pk == "peak":
+                    peak_h.append(hh)
+            # Battery daily discharge — C-rate × peak hours, capped by usable
+            # capacity and the remaining annual cycle budget.
+            if asset and bess_kwh > 0 and peak_h and cyc_used < cyc_budget:
+                _power_cap = bess_kw * len(peak_h)
+                day_dis = min(usable, _power_cap)
+                if _power_cap < usable - 1e-6:    # C-rate (not capacity) binds
+                    c_bound_days += 1
+                if usable > 0 and cyc_used + day_dis / usable > cyc_budget:
+                    day_dis = max(0.0, cyc_budget - cyc_used) * usable
+                deliv = day_dis * rte
+                if peak_h:
+                    bs_buk[(season, "peak")] = (bs_buk.get((season, "peak"), 0.0)
+                                                + deliv)
+                bess_tot += deliv
+                cyc_used += (day_dis / usable) if usable > 0 else 0.0
+
+    pvs = sum(pv_buk.values()) or 1.0
+    pv_split = {k: v / pvs for k, v in pv_buk.items()}
+    bw = sum(v for (s, _p), v in bs_buk.items() if s == "win")
+    bt = sum(bs_buk.values()) or 1.0
+    bess_season = ({"win": bw / bt, "sum": 1.0 - bw / bt} if bt > 1e-9
+                   else {"win": 0.25, "sum": 0.75})
+    return {
+        "pv_split": pv_split, "bess_season": bess_season,
+        "pv_delivered_kwh": pv_tot, "bess_delivered_kwh": bess_tot,
+        "annual_cycles": round(cyc_used, 1),
+        "c_rate_bound": c_bound_days > 0,
+    }
+
+
 def price_buckets(split_season: bool, split_tou: bool, split_asset: bool):
     """
     Enumerate the active price axes for the given dimension toggles.
@@ -336,9 +421,15 @@ def run_ppa_models(p: dict) -> dict:
     # ── Battery leg (asset dimension only) ─────────────────────────────
     if split_asset:
         bess_kwh   = float(p.get("bess_kwh", 0.0) or 0.0)
-        bess_e1    = (bess_kwh * (p.get("bess_dod", 90) / 100.0)
-                      * float(p.get("bess_annual_cycles", 365))
-                      * (p.get("bess_rte", 90) / 100.0))    # delivered kWh/yr
+        # Use the physically-dispatched annual discharge when the 8760 engine
+        # has run (C-rate / calendar limited); else the throughput estimate.
+        _ov = p.get("bess_e1_override")
+        if _ov is not None:
+            bess_e1 = float(_ov)
+        else:
+            bess_e1 = (bess_kwh * (p.get("bess_dod", 90) / 100.0)
+                       * float(p.get("bess_annual_cycles", 365))
+                       * (p.get("bess_rte", 90) / 100.0))   # delivered kWh/yr
         bess_deg   = float(p.get("bess_degradation", 1.5)) / 100.0
         bess_soh   = p.get("bess_soh")    # optional Huawei SOH curve (list, yr0..N)
         bess_opex1 = bess_kwh * float(p.get("bess_opex_per_kwh", 0.0) or 0.0)
@@ -750,6 +841,8 @@ def _params_dict() -> dict:
         "bess_prices":  _collect_bucket_prices(ss)[1],
         # Battery leg (asset dimension)
         "bess_kwh":            ss.get("whl_bess_kwh", 0.0),
+        "bess_c_rate":         _C_RATE_OPTIONS.get(
+                                   ss.get("whl_bess_c_rate_label", "0.25C (4h)"), 0.25),
         "bess_annual_cycles":  ss.get("whl_bess_cycles", 365.0),
         "bess_rte":            ss.get("whl_bess_rte", 90.0),
         "bess_dod":            ss.get("whl_bess_dod", 90.0),
@@ -1422,7 +1515,27 @@ def render_ppa_wheeling(eng: dict) -> None:
     # ── Model run (cheap — every rerun) ──────────────────────
     p     = _params_dict()
     p["section_12b"]  = eng["SECTION_12B"]
-    p["energy_split"] = energy_split(eng, ss.get("whl_pvgis_data"))
+    p["pvgis_monthly"] = (ss.get("whl_pvgis_data") or {}).get("monthly_kwh")
+
+    # 8760 physical dispatch (item 1/2/3) is explicit + cached (item 5): it
+    # depends on PV / battery / tariff, NOT on PPA prices, so it is computed on
+    # the Run button and reused while prices change live. A signature key
+    # invalidates a stale dispatch when those inputs change.
+    _disp_key = (f"{p['pv_kwp']:.0f}|{p['spec_yield']:.1f}|{p['split_asset']}|"
+                 f"{p['bess_kwh']:.0f}|{p['bess_c_rate']}|{p['bess_dod']}|"
+                 f"{p['bess_rte']}|{p['bess_annual_cycles']}|"
+                 f"{ss.get('tariff_mode','')}|{ss.get('whl_pvgis_key','')}")
+    _disp = ss.get("_whl_dispatch")
+    _disp_valid = bool(_disp) and ss.get("_whl_dispatch_key") == _disp_key
+    if _disp_valid:
+        p["energy_split"]     = {"pv": _disp["pv_split"],
+                                 "bess_season": _disp["bess_season"]}
+        if p.get("split_asset"):
+            p["bess_e1_override"] = _disp["bess_delivered_kwh"]
+    else:
+        # Fallback before first run / when stale: Gaussian PVGIS-weighted split
+        p["energy_split"] = energy_split(eng, ss.get("whl_pvgis_data"))
+
     # Battery: Huawei official SOH/EoL curve (vs simple linear fade)
     if (ss.get("whl_split_asset") and ss.get("whl_bess_use_soh")
             and eng.get("get_soh_by_year")):
@@ -1435,8 +1548,38 @@ def render_ppa_wheeling(eng: dict) -> None:
     model = run_ppa_models(p)
     ss["_whl_model"] = model
 
-    # ── Left: dual-perspective tabs ──────────────────────────
+    # ── Left: 8760 dispatch runner + dual-perspective tabs ───────────
     with col_main:
+        _rc1, _rc2 = st.columns([2, 5])
+        with _rc1:
+            if st.button("▶ Run 8760 Dispatch", key="whl_run_dispatch",
+                         type="primary", use_container_width=True):
+                with st.spinner("⚙️ Running 8,760-hour physical dispatch…"):
+                    ss["_whl_dispatch"] = run_wheeling_dispatch(p, eng)
+                    ss["_whl_dispatch_key"] = _disp_key
+                st.rerun()
+        with _rc2:
+            if _disp_valid:
+                _cb = (" · ⚠️ C-rate limits discharge" if _disp.get("c_rate_bound")
+                       else "")
+                st.markdown(
+                    f'<div class="success-box" style="font-size:0.72rem">✅ '
+                    f'8760 dispatch active — PV {_disp["pv_delivered_kwh"]/1e3:,.0f} '
+                    f'MWh, BESS {_disp["bess_delivered_kwh"]/1e3:,.0f} MWh '
+                    f'@ {_disp["annual_cycles"]:.0f} cyc/yr{_cb}</div>',
+                    unsafe_allow_html=True)
+            elif _disp:
+                st.markdown(
+                    '<div class="warning-box" style="font-size:0.72rem">✏️ '
+                    'Inputs changed — re-run the 8760 dispatch to refresh the '
+                    'season/TOU energy split.</div>', unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="warning-box" style="font-size:0.72rem">ⓘ '
+                    'Using Gaussian PVGIS split. Run the 8760 dispatch for '
+                    'C-rate-limited battery + full weekday/weekend/holiday '
+                    'TOU accuracy.</div>', unsafe_allow_html=True)
+
         tab_bal, tab_dev, tab_usr, tab_opt, tab_rpt = st.tabs(
             ["⚖️ Price Balancer", "🏗 Developer / IPP",
              "🏭 End-user / Offtaker", "🔍 Optimisation", "📁 Reports"])

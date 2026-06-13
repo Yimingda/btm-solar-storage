@@ -1259,6 +1259,19 @@ def get_capex_zar() -> tuple[float, float]:
     return pv_per_kwp, bess_per_kwh
 
 
+def day_type_for(cal_date) -> str:
+    """Day-type ('weekday'|'saturday'|'sunday') for a calendar date, honouring
+    SA public holidays — the SAME rule the 8760 dispatch engine uses, exposed
+    so the wheeling dispatch shares identical calendar logic."""
+    _mode = st.session_state.get("tariff_mode", "Megaflex ≤300km <500V")
+    is_eth = _mode.startswith("eThekwini")
+    hdb = ETHEKWINI_HOLIDAYS_2025_26 if is_eth else SA_PUBLIC_HOLIDAYS_2025
+    if cal_date in hdb:
+        return hdb[cal_date] if is_eth else "sunday"
+    wday = cal_date.weekday()
+    return "saturday" if wday == 5 else "sunday" if wday == 6 else "weekday"
+
+
 def get_tariff_for_hour(hour: int, month: int, day_type: str = "weekday") -> tuple[float, str]:
     """
     Unified TOU tariff lookup — routes to the correct schedule per tariff_mode.
@@ -2965,6 +2978,7 @@ if _scenario == "wheeling":
         "get_soh_by_year":     get_soh_by_year,
         "fetch_forex_rate":    fetch_forex_rate,
         "C_RATE_OPTIONS":      C_RATE_OPTIONS,
+        "day_type_for":        day_type_for,
     })
     st.stop()
 
