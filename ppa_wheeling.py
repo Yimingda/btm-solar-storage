@@ -45,7 +45,7 @@ def _init_state(eng: dict) -> None:
     if st.session_state.get("_whl_initialized"):
         return
     ss = st.session_state
-    pv_capex_zar, _ = eng["get_capex_zar"]()
+    pv_capex_zar, _bess_capex_zar = eng["get_capex_zar"]()
     _defaults = {
         # PV plant
         "whl_pv_kwp":          float(ss.get("pv_kwp", 4000.0) or 4000.0),
@@ -55,9 +55,22 @@ def _init_state(eng: dict) -> None:
         "whl_opex_per_kwp":    float(ss.get("pv_opex_per_kwp", 125.0)),
         "whl_insurance_pct":   0.5,               # % of CAPEX / yr
         # PPA terms (shared)
-        "whl_ppa_price":       1.20,              # ZAR/kWh
+        "whl_ppa_price":       1.20,              # ZAR/kWh — single-price mode
         "whl_ppa_escalation":  6.0,               # %/yr
         "whl_contract_years":  20,
+        # PPA pricing model + per-mode prices (ZAR/kWh)
+        "whl_pricing_model":   "Single price",    # Single price | TOU 3-period | By asset PV+Battery
+        "whl_ppa_price_peak":     1.80,           # TOU: evening/morning peak
+        "whl_ppa_price_standard": 1.20,           # TOU: standard
+        "whl_ppa_price_offpeak":  0.70,           # TOU: off-peak
+        "whl_ppa_price_pv":       1.10,           # Asset-split: PV energy
+        "whl_ppa_price_bess":     2.20,           # Asset-split: battery-dispatched
+        # Battery (only used by the PV+Battery asset-split pricing model)
+        "whl_bess_kwh":          float(ss.get("bess_kwh", 0.0) or 0.0),
+        "whl_bess_cycles":       365.0,           # equivalent full cycles / yr
+        "whl_bess_rte":          90.0,            # round-trip efficiency %
+        "whl_bess_dod":          90.0,            # depth of discharge %
+        "whl_bess_capex_per_kwh": round(_bess_capex_zar, 0),
         # Wheeling terms (shared)
         "whl_fee_mode":        "Per kWh (ZAR/kWh)",
         "whl_fee_kwh":         0.25,              # ZAR/kWh use-of-system
@@ -96,6 +109,39 @@ def _blended_grid_tariff(eng: dict) -> float:
         return 2.50
 
 
+def tou_generation_split(eng: dict) -> dict:
+    """
+    Fraction of annual PV generation falling in each TOU period
+    (peak / standard / off_peak).  Builds an 8760-h Gaussian daylight PV
+    profile and classifies each weekday hour via the BTM tariff engine, so
+    the split honours the active tariff_mode's peak windows.  PV is daylight
+    only → off-peak (night) share ≈ 0; bulk lands in standard + peak shoulders.
+    Returns {"peak":f, "standard":f, "off_peak":f} summing to 1.0.
+    """
+    try:
+        import numpy as _np
+        hours = _np.arange(24)
+        w = _np.exp(-0.5 * ((hours - 12) / 2.5) ** 2)   # daylight bell, same as BTM
+        w[(hours < 6) | (hours > 18)] = 0.0
+        if w.sum() <= 0:
+            raise ValueError
+        w /= w.sum()
+        days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        buckets = {"peak": 0.0, "standard": 0.0, "off_peak": 0.0}
+        for m in range(1, 13):
+            for h in range(24):
+                _, period = eng["get_tariff_for_hour"](h, m, "weekday")
+                key = ("peak" if "peak" in str(period) and "off" not in str(period)
+                       else "off_peak" if "off" in str(period)
+                       else "standard")
+                buckets[key] += w[h] * days[m - 1]
+        tot = sum(buckets.values()) or 1.0
+        return {k: v / tot for k, v in buckets.items()}
+    except Exception:
+        # Fallback: typical SA daylight PV split (no off-peak generation)
+        return {"peak": 0.18, "standard": 0.82, "off_peak": 0.0}
+
+
 # ─────────────────────────────────────────────────────────────
 # Core model — 20-yr PPA/Wheeling cash flows, both perspectives
 # (pure function: no streamlit access — unit-testable)
@@ -132,6 +178,13 @@ def run_ppa_models(p: dict) -> dict:
             fee_mode, fee_kwh, fee_month, loss_pct, fee_borne_by,
             loss_borne_by, discount_rate, tax_rate, cost_escalation,
             grid_escalation, grid_tariff, section_12b, service_fraction
+
+    Pricing model (optional — defaults to single-price, identical to before):
+      pricing_model : "Single price" | "TOU 3-period" | "By asset PV+Battery"
+      tou_split     : {"peak","standard","off_peak"} generation fractions
+      ppa_price_peak/standard/offpeak : TOU prices (ZAR/kWh)
+      ppa_price_pv / ppa_price_bess   : asset-split prices (ZAR/kWh)
+      bess_kwh, bess_cycles, bess_rte, bess_dod, bess_capex_per_kwh : battery leg
     """
     yrs   = int(p["contract_years"])
     gen1  = p["pv_kwp"] * p["spec_yield"]
@@ -143,7 +196,33 @@ def run_ppa_models(p: dict) -> dict:
     disc  = p["discount_rate"] / 100.0
     tax   = p["tax_rate"] / 100.0
 
-    capex     = p["pv_kwp"] * p["capex_per_kwp"]
+    # ── Pricing model ─────────────────────────────────────────────────
+    _pm      = str(p.get("pricing_model", "Single price"))
+    is_tou   = _pm.startswith("TOU")
+    is_asset = _pm.startswith("By asset")
+    tou      = p.get("tou_split") or {"peak": 0.0, "standard": 1.0, "off_peak": 0.0}
+    # Effective year-1 blended PV PPA price by model
+    if is_tou:
+        pv_price1 = (tou["peak"]     * p.get("ppa_price_peak", p["ppa_price"])
+                     + tou["standard"] * p.get("ppa_price_standard", p["ppa_price"])
+                     + tou["off_peak"] * p.get("ppa_price_offpeak", p["ppa_price"]))
+    elif is_asset:
+        pv_price1 = p.get("ppa_price_pv", p["ppa_price"])
+    else:
+        pv_price1 = p["ppa_price"]
+    bess_price1 = p.get("ppa_price_bess", 0.0)
+
+    # ── Battery leg (asset-split model only) ──────────────────────────
+    if is_asset:
+        bess_kwh  = float(p.get("bess_kwh", 0.0) or 0.0)
+        bess_e1   = (bess_kwh * (p.get("bess_dod", 90) / 100.0)
+                     * float(p.get("bess_cycles", 365))
+                     * (p.get("bess_rte", 90) / 100.0))     # delivered kWh/yr
+        bess_capex = bess_kwh * float(p.get("bess_capex_per_kwh", 0.0) or 0.0)
+    else:
+        bess_e1, bess_capex = 0.0, 0.0
+
+    capex     = p["pv_kwp"] * p["capex_per_kwp"] + bess_capex
     svc_frac  = p.get("service_fraction", 0.40)
     dep_basis = capex * (1.0 - svc_frac)          # equipment portion only (12B)
     sec12b    = p.get("section_12b") or {1: 0.50, 2: 0.30, 3: 0.20}
@@ -154,13 +233,20 @@ def run_ppa_models(p: dict) -> dict:
     payback = None
 
     for y in range(1, yrs + 1):
-        gen       = gen1 * (1 - deg) ** (y - 1)
-        delivered = gen * (1 - loss)
+        pv_gen    = gen1 * (1 - deg) ** (y - 1)
+        pv_deliv  = pv_gen * (1 - loss)
         # Billing point: if end-user bears losses they pay for generated
         # energy (loss share); if developer bears, billing = delivered.
-        billed    = gen if p["loss_borne_by"] == "End-user" else delivered
-        price     = p["ppa_price"] * (1 + p_esc) ** (y - 1)
-        revenue   = price * billed
+        pv_billed = pv_gen if p["loss_borne_by"] == "End-user" else pv_deliv
+        # Battery energy (no network loss share applied; billed = delivered)
+        bess_deliv = bess_e1                         # 0 unless asset-split mode
+        gen        = pv_gen + bess_deliv
+        delivered  = pv_deliv + bess_deliv
+        billed     = pv_billed + bess_deliv
+        # Revenue per pricing model (escalation uniform across components)
+        _esc_f = (1 + p_esc) ** (y - 1)
+        revenue = (pv_price1 * pv_billed + bess_price1 * bess_deliv) * _esc_f
+        price   = revenue / max(billed, 1e-9)        # blended display price
 
         if str(p["fee_mode"]).startswith("Per kWh"):
             wheel = delivered * p["fee_kwh"] * (1 + c_esc) ** (y - 1)
@@ -494,6 +580,19 @@ def _params_dict() -> dict:
         "ppa_price":       ss.whl_ppa_price,
         "ppa_escalation":  ss.whl_ppa_escalation,
         "contract_years":  ss.whl_contract_years,
+        # Pricing model + per-mode prices
+        "pricing_model":      ss.get("whl_pricing_model", "Single price"),
+        "ppa_price_peak":     ss.get("whl_ppa_price_peak", ss.whl_ppa_price),
+        "ppa_price_standard": ss.get("whl_ppa_price_standard", ss.whl_ppa_price),
+        "ppa_price_offpeak":  ss.get("whl_ppa_price_offpeak", ss.whl_ppa_price),
+        "ppa_price_pv":       ss.get("whl_ppa_price_pv", ss.whl_ppa_price),
+        "ppa_price_bess":     ss.get("whl_ppa_price_bess", 0.0),
+        # Battery leg (asset-split model)
+        "bess_kwh":            ss.get("whl_bess_kwh", 0.0),
+        "bess_cycles":         ss.get("whl_bess_cycles", 365.0),
+        "bess_rte":            ss.get("whl_bess_rte", 90.0),
+        "bess_dod":            ss.get("whl_bess_dod", 90.0),
+        "bess_capex_per_kwh":  ss.get("whl_bess_capex_per_kwh", 0.0),
         "fee_mode":        ss.whl_fee_mode,
         "fee_kwh":         ss.whl_fee_kwh,
         "fee_month":       ss.whl_fee_month,
@@ -506,6 +605,133 @@ def _params_dict() -> dict:
         "grid_escalation": ss.whl_grid_escalation,
         "grid_tariff":     ss.whl_grid_tariff,
     }
+
+
+def _render_balancer(p: dict, model: dict, eng: dict) -> None:
+    """
+    Interactive PPA-price balancer: one slider per price axis of the active
+    pricing model. Dragging recomputes (on release) the developer return and
+    the offtaker saving live, and plots the full price→outcome trade-off with
+    a marker at the current price so the win-win band is visible.
+    """
+    import plotly.graph_objects as go
+    ss = st.session_state
+
+    _pm = str(ss.get("whl_pricing_model", "Single price"))
+    is_tou   = _pm.startswith("TOU")
+    is_asset = _pm.startswith("By asset")
+
+    # Slider axes for the active model → (state key, label)
+    if is_tou:
+        axes = [("whl_ppa_price_peak", "Peak"),
+                ("whl_ppa_price_standard", "Standard"),
+                ("whl_ppa_price_offpeak", "Off-peak")]
+        primary = "whl_ppa_price_peak"
+    elif is_asset:
+        axes = [("whl_ppa_price_pv", "PV energy"),
+                ("whl_ppa_price_bess", "Battery dispatch")]
+        primary = "whl_ppa_price_pv"
+    else:
+        axes = [("whl_ppa_price", "PPA price")]
+        primary = "whl_ppa_price"
+
+    grid = float(p.get("grid_tariff", 1.5)) or 1.5
+    st.markdown(
+        f'<div class="section-header">⚖️ PPA Price Balancer — '
+        f'{len(axes)} {"axis" if len(axes)==1 else "axes"} '
+        f'({_pm})</div>', unsafe_allow_html=True)
+    st.caption(f"Grid reference tariff R {grid:.2f}/kWh · drag a slider and "
+               "release to recompute both perspectives.")
+
+    # ── Sliders (one per price axis) ─────────────────────────────────
+    _smax = round(max(grid * 1.6, 3.0), 1)
+    scols = st.columns(len(axes))
+    for (key, lbl), c in zip(axes, scols):
+        # Clamp any pre-seeded value into the slider range, then bind by key
+        # only (no `value` arg — key is already seeded in session state).
+        ss[key] = min(max(float(ss.get(key, 1.20)), 0.20), _smax)
+        with c:
+            st.slider(f"{lbl} (ZAR/kWh)", 0.20, _smax, step=0.05, key=key)
+
+    # ── Live verdict KPIs: developer ↔ offtaker ──────────────────────
+    dev_irr  = model["dev_irr"]
+    dev_npv  = model["dev_npv"] / 1e6
+    usr_disc = model["usr_discount_pct"]
+    usr_cum  = model["usr_cum_saving"] / 1e6
+    _pb = (f"{model['dev_payback']:.1f} yr" if model["dev_payback"]
+           else f"{int(p['contract_years'])}yr+")
+    cL, cR = st.columns(2)
+    with cL:
+        st.markdown('<div class="section-header">🏗 Developer / IPP</div>',
+                    unsafe_allow_html=True)
+        d1, d2, d3 = st.columns(3)
+        with d1: _kpi("IRR", f"{dev_irr:.1f}%", "after-tax")
+        with d2: _kpi("NPV", f"R {dev_npv:.1f}M", f"@{p['discount_rate']:.0f}%")
+        with d3: _kpi("PAYBACK", _pb, "simple")
+    with cR:
+        st.markdown('<div class="section-header">🏭 End-user / Offtaker</div>',
+                    unsafe_allow_html=True)
+        u1, u2, u3 = st.columns(3)
+        with u1: _kpi("YR-1 SAVING", f"{usr_disc:.1f}%", "vs grid bill")
+        with u2: _kpi("CUM. SAVING", f"R {usr_cum:.1f}M", "nominal")
+        with u3: _kpi("NPV", f"R {model['usr_npv']/1e6:.1f}M", "of savings")
+
+    # Win-win verdict
+    if dev_irr >= p["discount_rate"] and usr_disc > 0:
+        _vc, _vt = "#00E5A0", "✅ WIN-WIN — developer clears hurdle rate and offtaker saves vs grid"
+    elif dev_irr < p["discount_rate"] and usr_disc > 0:
+        _vc, _vt = "#F6C90E", "⚠️ Offtaker-favoured — developer IRR below hurdle rate"
+    elif dev_irr >= p["discount_rate"] and usr_disc <= 0:
+        _vc, _vt = "#F6C90E", "⚠️ Developer-favoured — offtaker pays above grid parity"
+    else:
+        _vc, _vt = "#FF4444", "⛔ Lose-lose — price outside the viable band"
+    st.markdown(
+        f'<div style="border-left:4px solid {_vc};background:rgba(0,229,160,0.06);'
+        f'padding:8px 14px;border-radius:4px;margin:6px 0 12px;color:var(--text-main);'
+        f'font-family:IBM Plex Mono,monospace;font-size:0.85rem">{_vt}</div>',
+        unsafe_allow_html=True)
+
+    # ── Trade-off sweep: vary the primary price axis, hold others ─────
+    base_p = dict(p)
+    cur = float(ss.get(primary, 1.20))
+    xs = [round(0.20 + i * (_smax - 0.20) / 40, 3) for i in range(41)]
+    dev_y, usr_y = [], []
+    # map primary state key → model-param key
+    _pk = {"whl_ppa_price": "ppa_price", "whl_ppa_price_peak": "ppa_price_peak",
+           "whl_ppa_price_pv": "ppa_price_pv"}[primary]
+    for xv in xs:
+        q = dict(base_p); q[_pk] = xv
+        m = run_ppa_models(q)
+        dev_y.append(m["dev_irr"])
+        usr_y.append(m["usr_cum_saving"] / 1e6)
+
+    _dark = not ss.get("_light_mode", False)
+    fig = go.Figure()
+    fig.add_scatter(x=xs, y=dev_y, name="Developer IRR (%)",
+                    line=dict(color="#00E5A0", width=2.4), yaxis="y")
+    fig.add_scatter(x=xs, y=usr_y, name="Offtaker cum. saving (R M)",
+                    line=dict(color="#4ECDC4", width=2.4, dash="dot"), yaxis="y2")
+    fig.add_hline(y=p["discount_rate"], line=dict(color="#F6C90E", dash="dash"),
+                  annotation_text=f"Hurdle {p['discount_rate']:.0f}%",
+                  annotation_font_color="#F6C90E")
+    fig.add_vline(x=cur, line=dict(color="#FF6B35", width=2),
+                  annotation_text=f"R {cur:.2f}", annotation_font_color="#FF6B35")
+    fig.add_vline(x=grid, line=dict(color="#9CA3AF", dash="dot"),
+                  annotation_text="grid", annotation_font_color="#9CA3AF")
+    fig.update_layout(
+        height=360, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#E8ECF0" if _dark else "#1A202C",
+                  family="IBM Plex Mono"),
+        xaxis=dict(title=f"{axes[0][1] if len(axes)>1 else 'PPA'} price (ZAR/kWh)"),
+        yaxis=dict(title="Developer IRR (%)", side="left"),
+        yaxis2=dict(title="Offtaker cum. saving (R M)", overlaying="y",
+                    side="right"),
+        legend=dict(orientation="h", y=-0.22),
+        margin=dict(l=10, r=10, t=20, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+    if len(axes) > 1:
+        st.caption(f"Sweep varies the **{axes[0][1]}** axis; other axes held at "
+                   "their slider values. Adjust any slider to move the curves.")
 
 
 def render_ppa_wheeling(eng: dict) -> None:
@@ -566,12 +792,36 @@ def render_ppa_wheeling(eng: dict) -> None:
                 unsafe_allow_html=True)
 
         with st.expander("📜 PPA Terms (shared)", expanded=True):
-            st.number_input("PPA Price (ZAR/kWh)", 0.0, 20.0,
-                            key="whl_ppa_price", step=0.01, format="%.4f")
+            st.selectbox(
+                "PPA Pricing Model",
+                ["Single price",
+                 "TOU 3-period (peak / standard / off-peak)",
+                 "By asset (PV + Battery)"],
+                key="whl_pricing_model",
+                help="Sets how the PPA price is structured — the ⚖️ Price "
+                     "Balancer tab shows one slider per price axis of this model.")
+            _pm_sel = str(ss.get("whl_pricing_model", "Single price"))
+            _n_axes = {"Single": 1, "TOU": 3, "By asset": 2}.get(
+                _pm_sel.split(" ")[0] if not _pm_sel.startswith("By") else "By asset", 1)
+            st.caption(f"⚖️ {_n_axes} price "
+                       f"{'axis' if _n_axes == 1 else 'axes'} — drag on the "
+                       "**Price Balancer** tab to set PPA price(s).")
             st.number_input("PPA Escalation (%/yr)", 0.0, 25.0,
                             key="whl_ppa_escalation", step=0.25)
             st.number_input("Contract Term (years)", 1, 25,
                             key="whl_contract_years", step=1)
+            if _pm_sel.startswith("By asset"):
+                st.markdown("**🔋 Battery leg**")
+                st.number_input("Battery Capacity (kWh)", 0.0, 1e6,
+                                key="whl_bess_kwh", step=100.0)
+                st.number_input("Equivalent Full Cycles / yr", 0.0, 730.0,
+                                key="whl_bess_cycles", step=5.0)
+                st.number_input("Round-trip Efficiency (%)", 50.0, 100.0,
+                                key="whl_bess_rte", step=1.0)
+                st.number_input("Depth of Discharge (%)", 10.0, 100.0,
+                                key="whl_bess_dod", step=1.0)
+                st.number_input("Battery CAPEX (ZAR/kWh)", 0.0, 1e5,
+                                key="whl_bess_capex_per_kwh", step=100.0)
 
         with st.expander("🔌 Wheeling Terms (shared)", expanded=True):
             st.selectbox("Use-of-System Fee Basis",
@@ -622,15 +872,21 @@ def render_ppa_wheeling(eng: dict) -> None:
     # ── Model run (cheap — every rerun) ──────────────────────
     p     = _params_dict()
     p["section_12b"] = eng["SECTION_12B"]
+    p["tou_split"]   = tou_generation_split(eng)
     model = run_ppa_models(p)
     ss["_whl_model"] = model
 
     # ── Left: dual-perspective tabs ──────────────────────────
     with col_main:
-        tab_dev, tab_usr, tab_rpt = st.tabs(
-            ["🏗 Developer / IPP", "🏭 End-user / Offtaker", "📁 Reports"])
+        tab_bal, tab_dev, tab_usr, tab_rpt = st.tabs(
+            ["⚖️ Price Balancer", "🏗 Developer / IPP",
+             "🏭 End-user / Offtaker", "📁 Reports"])
 
         import plotly.graph_objects as go
+
+        # ── Price Balancer tab ───────────────────────────────
+        with tab_bal:
+            _render_balancer(p, model, eng)
 
         def _chart(df, bar_col, line_col, title):
             fig = go.Figure()
