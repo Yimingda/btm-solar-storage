@@ -37,6 +37,10 @@ import streamlit as st
 DEV = "Developer / IPP"
 USR = "End-user / Offtaker"
 
+# C-rate options (mirrors BTM C_RATE_OPTIONS) — power = capacity × C
+_C_RATE_OPTIONS = {"0.25C (4h)": 0.25, "0.33C (3h)": 0.33,
+                   "0.5C (2h)": 0.50, "1C (1h)": 1.00}
+
 # ─────────────────────────────────────────────────────────────
 # Session-state defaults (whl_* namespace, seeded from BTM params)
 # ─────────────────────────────────────────────────────────────
@@ -66,9 +70,12 @@ def _init_state(eng: dict) -> None:
         "whl_split_asset":     False,             # distinguish PV / battery price
         # Battery leg (only used when the PV/battery asset dimension is on)
         "whl_bess_kwh":          float(ss.get("bess_kwh", 0.0) or 0.0),
+        "whl_bess_c_rate_label": str(ss.get("c_rate_label", "0.25C (4h)")),
         "whl_bess_cycles":       365.0,           # equivalent full cycles / yr
-        "whl_bess_rte":          90.0,            # round-trip efficiency %
-        "whl_bess_dod":          90.0,            # depth of discharge %
+        "whl_bess_rte":          float(ss.get("rte", 90.0)),     # round-trip eff %
+        "whl_bess_dod":          float(ss.get("dod", 90.0)),     # depth of discharge %
+        "whl_bess_degradation":  1.5,             # capacity fade %/yr
+        "whl_bess_opex_per_kwh": 20.0,            # ZAR/kWh/yr O&M
         "whl_bess_capex_per_kwh": round(_bess_capex_zar, 0),
         # Wheeling terms (shared)
         "whl_fee_mode":        "Per kWh (ZAR/kWh)",
@@ -283,8 +290,10 @@ def run_ppa_models(p: dict) -> dict:
     if split_asset:
         bess_kwh   = float(p.get("bess_kwh", 0.0) or 0.0)
         bess_e1    = (bess_kwh * (p.get("bess_dod", 90) / 100.0)
-                      * float(p.get("bess_cycles", 365))
+                      * float(p.get("bess_annual_cycles", 365))
                       * (p.get("bess_rte", 90) / 100.0))    # delivered kWh/yr
+        bess_deg   = float(p.get("bess_degradation", 1.5)) / 100.0
+        bess_opex1 = bess_kwh * float(p.get("bess_opex_per_kwh", 0.0) or 0.0)
         bess_capex = bess_kwh * float(p.get("bess_capex_per_kwh", 0.0) or 0.0)
         bess_prices = p.get("bess_prices") or {}
         bseason     = es.get("bess_season", {"win": 0.25, "sum": 0.75})
@@ -293,7 +302,8 @@ def run_ppa_models(p: dict) -> dict:
                           * (1.0 if s == "all" else bseason.get(s, 0.5))
                           for s in skeys)
     else:
-        bess_e1, bess_capex, bess_price1 = 0.0, 0.0, 0.0
+        bess_e1 = bess_capex = bess_price1 = bess_opex1 = 0.0
+        bess_deg = 0.0
 
     capex     = p["pv_kwp"] * p["capex_per_kwp"] + bess_capex
     svc_frac  = p.get("service_fraction", 0.40)
@@ -312,7 +322,7 @@ def run_ppa_models(p: dict) -> dict:
         # energy (loss share); if developer bears, billing = delivered.
         pv_billed = pv_gen if p["loss_borne_by"] == "End-user" else pv_deliv
         # Battery energy (no network loss share applied; billed = delivered)
-        bess_deliv = bess_e1                         # 0 unless asset-split mode
+        bess_deliv = bess_e1 * (1 - bess_deg) ** (y - 1)  # 0 unless asset mode
         gen        = pv_gen + bess_deliv
         delivered  = pv_deliv + bess_deliv
         billed     = pv_billed + bess_deliv
@@ -328,7 +338,8 @@ def run_ppa_models(p: dict) -> dict:
         wheel_dev = wheel if p["fee_borne_by"] == "Developer" else 0.0
         wheel_usr = wheel - wheel_dev
 
-        opex = p["pv_kwp"] * p["opex_per_kwp"] * (1 + c_esc) ** (y - 1)
+        opex = ((p["pv_kwp"] * p["opex_per_kwp"] + bess_opex1)
+                * (1 + c_esc) ** (y - 1))            # PV + battery O&M
         ins  = capex * p["insurance_pct"] / 100.0 * (1 + c_esc) ** (y - 1)
 
         # ── Developer / IPP cash flow (BTM 20-yr framework) ─────────────
@@ -684,9 +695,11 @@ def _params_dict() -> dict:
         "bess_prices":  _collect_bucket_prices(ss)[1],
         # Battery leg (asset dimension)
         "bess_kwh":            ss.get("whl_bess_kwh", 0.0),
-        "bess_cycles":         ss.get("whl_bess_cycles", 365.0),
+        "bess_annual_cycles":  ss.get("whl_bess_cycles", 365.0),
         "bess_rte":            ss.get("whl_bess_rte", 90.0),
         "bess_dod":            ss.get("whl_bess_dod", 90.0),
+        "bess_degradation":    ss.get("whl_bess_degradation", 1.5),
+        "bess_opex_per_kwh":   ss.get("whl_bess_opex_per_kwh", 20.0),
         "bess_capex_per_kwh":  ss.get("whl_bess_capex_per_kwh", 0.0),
         "fee_mode":        ss.whl_fee_mode,
         "fee_kwh":         ss.whl_fee_kwh,
@@ -1029,17 +1042,45 @@ def render_ppa_wheeling(eng: dict) -> None:
             st.number_input("Contract Term (years)", 1, 25,
                             key="whl_contract_years", step=1)
             if ss.get("whl_split_asset"):
-                st.markdown("**🔋 Battery leg**")
+                st.markdown("**🔋 Battery leg** (BTM-grade granularity)")
                 st.number_input("Battery Capacity (kWh)", 0.0, 1e6,
                                 key="whl_bess_kwh", step=100.0)
+                _cropts = list(_C_RATE_OPTIONS.keys())
+                _ccur = ss.get("whl_bess_c_rate_label", _cropts[0])
+                if _ccur not in _cropts:
+                    _ccur = _cropts[0]
+                st.selectbox("C-rate (power / capacity)", _cropts,
+                             index=_cropts.index(_ccur),
+                             key="whl_bess_c_rate_label")
+                _crv = _C_RATE_OPTIONS[ss.whl_bess_c_rate_label]
+                st.markdown(
+                    f'<div class="derived-value">⚡ Max power: '
+                    f'<b>{fmw(ss.whl_bess_kwh * _crv, "kW")}</b> '
+                    f'({ss.whl_bess_c_rate_label})</div>',
+                    unsafe_allow_html=True)
                 st.number_input("Equivalent Full Cycles / yr", 0.0, 730.0,
-                                key="whl_bess_cycles", step=5.0)
+                                key="whl_bess_cycles", step=5.0,
+                                help="Annual throughput driver → battery "
+                                     "delivered kWh/yr")
                 st.number_input("Round-trip Efficiency (%)", 50.0, 100.0,
                                 key="whl_bess_rte", step=1.0)
                 st.number_input("Depth of Discharge (%)", 10.0, 100.0,
                                 key="whl_bess_dod", step=1.0)
+                st.number_input("Capacity Fade (%/yr)", 0.0, 5.0,
+                                key="whl_bess_degradation", step=0.1,
+                                help="Annual battery energy decline over the "
+                                     "contract term")
+                st.number_input("Battery O&M (ZAR/kWh/yr)", 0.0, 500.0,
+                                key="whl_bess_opex_per_kwh", step=1.0,
+                                help="Added to developer O&M alongside PV")
                 st.number_input("Battery CAPEX (ZAR/kWh)", 0.0, 1e5,
                                 key="whl_bess_capex_per_kwh", step=100.0)
+                _b_e1 = (ss.whl_bess_kwh * ss.whl_bess_dod / 100.0
+                         * ss.whl_bess_cycles * ss.whl_bess_rte / 100.0)
+                st.markdown(
+                    f'<div class="derived-value">🔋 Yr-1 dispatch: '
+                    f'<b>{fmw(_b_e1, "kWh/yr")}</b></div>',
+                    unsafe_allow_html=True)
 
         with st.expander("🔌 Wheeling Terms (shared)", expanded=True):
             st.selectbox("Use-of-System Fee Basis",
