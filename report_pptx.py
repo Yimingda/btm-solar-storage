@@ -1785,4 +1785,361 @@ def generate_pptx(
                      "assumptions"])   # sa_projects removed per client request
     _total = len(_slide_ids)
 
-    for _pg, 
+    for _pg, _sid in enumerate(_slide_ids, start=1):
+        if _sid == "cover":
+            _s1_cover(prs, project_name, client_name, consultant_name,
+                      pv_kwp, bess_kwh, params.get("tariff_mode", ""),
+                      has_pv=has_pv, has_bess=has_bess)
+        elif _sid == "thesis":
+            _s2_thesis(prs, results, params, company,
+                       page=_pg, total=_total,
+                       has_pv=has_pv, has_bess=has_bess)
+        elif _sid == "system":
+            _s3_system(prs, params, pvgis_data, company,
+                       page=_pg, total=_total,
+                       has_pv=has_pv, has_bess=has_bess)
+        elif _sid == "financial":
+            _s4_financial(prs, results, fin_df, company,
+                          page=_pg, total=_total)
+        elif _sid == "financial_table":
+            _s4b_financial_table(prs, results, fin_df, company,
+                                 page=_pg, total=_total)
+        elif _sid == "energy":
+            _s5_energy(prs, pvgis_data, results, company,
+                       page=_pg, total=_total, has_bess=has_bess,
+                       hourly_df=hourly_df)
+        elif _sid == "tariff":
+            _s6_tariff(prs, params, results, company,
+                       page=_pg, total=_total)
+        elif _sid == "roadmap":
+            _s7_roadmap(prs, results, params, company,
+                        page=_pg, total=_total)
+        elif _sid == "huawei_partner":
+            _s8_huawei_partner(prs, company, page=_pg, total=_total)
+        elif _sid == "sa_projects":
+            _s9_sa_projects(prs, company, page=_pg, total=_total)
+        elif _sid == "market":
+            _s8_market(prs, company, page=_pg, total=_total)
+        elif _sid == "assumptions":
+            _s9_assumptions(prs, params, company, page=_pg, total=_total,
+                            has_pv=has_pv)
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    buf.seek(0)
+    return buf.read()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PPA / Wheeling report — Developer (IPP) & End-user (Offtaker) editions
+# Reuses the BTM deck design language (header bars, KPI cards, footer, logos).
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _png_ppa_chart(years, annual, cumulative,
+                   bar_label: str, line_label: str) -> bytes | None:
+    """Bar (annual ZAR) + line (cumulative ZAR) dual-axis chart PNG."""
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(11.6, 4.4), dpi=150)
+        cols = ["#1A7340" if v >= 0 else "#DC2626" for v in annual]
+        ax.bar(years, [v / 1e6 for v in annual], color=cols,
+               width=0.65, label=bar_label, zorder=3)
+        ax.axhline(0, color="#9CA3AF", lw=0.8)
+        ax.set_ylabel(f"{bar_label}  (R million)", fontsize=9)
+        ax.set_xlabel("Year", fontsize=9)
+        ax.set_xticks(list(years))
+        ax.grid(axis="y", color="#E5E7EB", lw=0.7, zorder=0)
+        for s in ("top", "right"):
+            ax.spines[s].set_visible(False)
+        ax.tick_params(labelsize=8)
+
+        ax2 = ax.twinx()
+        ax2.plot(years, [v / 1e6 for v in cumulative], color="#22C55E",
+                 lw=2.2, marker="o", ms=3.5, label=line_label)
+        ax2.set_ylabel(f"{line_label}  (R million)", fontsize=9,
+                       color="#15803D")
+        ax2.tick_params(labelsize=8, colors="#15803D")
+        ax2.spines["top"].set_visible(False)
+
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        ax.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper left",
+                  frameon=False)
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png")
+        import matplotlib.pyplot as _plt
+        _plt.close(fig)
+        buf.seek(0)
+        return buf.read()
+    except Exception:
+        return None
+
+
+def _ppa_cover(prs, perspective: str, is_dev: bool, p: dict, model: dict,
+               project_name: str, client_name: str, consultant_name: str):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _COVER_BG = "0B1929"
+    _rect(slide, 0, 0, 8.90, 7.5, _COVER_BG)
+    _rect(slide, 0, 4.10, 8.90, 0.05, "00A870")
+    _rect(slide, 8.88, 0, 0.10, 7.5, _HRD)
+    _rect(slide, 8.98, 0, 4.35, 7.5, _WHT)
+
+    # Brand logos
+    _add_logo(slide, _HW_LOGO_PATH, 0.42, y=0.20, right=8.58)
+    _fs_w = _logo_w(_FS_LOGO_PATH, 0.26)
+    _add_logo(slide, _FS_LOGO_PATH, 0.26, y=0.45, x=8.98 + (4.35 - _fs_w) / 2)
+
+    epc_label = f"EPC:  {consultant_name}" if consultant_name else "EPC:  —"
+    _tb(slide, 0.42, 0.18, 6.6, 0.32, epc_label, 9, bold=True, color="AAAAAA")
+    _tb(slide, 0.42, 0.52, 6.6, 0.32,
+        "OEM:  Huawei Technologies SA PTY LTD", 9, bold=True, color="CCCCCC")
+    _rect(slide, 0.42, 0.92, 8.0, 0.04, _HRD)
+
+    title = project_name or f"{_fmw(p['pv_kwp'], 'kWp')} Grid-Wheeled Solar PPA"
+    _tb(slide, 0.42, 1.10, 8.0, 1.80, title, 36, bold=True, color=_WHT)
+    _tb(slide, 0.42, 2.80, 8.0, 0.48,
+        f"PPA / Wheeling Financial Report — {perspective} Perspective",
+        13, color="BBBBBB")
+    _tb(slide, 0.42, 3.40, 8.0, 0.38,
+        f"Report Date:   {date.today().strftime('%B %Y')}", 10.5,
+        color="999999")
+
+    # Key contract facts on the dark panel
+    _facts = [
+        f"PPA Price:  R {p['ppa_price']:.4f}/kWh  ·  +{p['ppa_escalation']:.1f}%/yr"
+        f"  ·  {int(p['contract_years'])}-yr term",
+        f"Wheeling:  "
+        + (f"R {p['fee_kwh']:.4f}/kWh"
+           if str(p['fee_mode']).startswith('Per kWh')
+           else f"R {p['fee_month']:,.0f}/month")
+        + f"  ·  loss {p['loss_pct']:.1f}%  ·  fee borne by {p['fee_borne_by']}",
+        f"Yr-1 Energy:  {_fmw(model['gen_yr1'], 'kWh/yr')} generated  ·  "
+        f"{_fmw(model['delivered_yr1'], 'kWh/yr')} delivered",
+    ]
+    for i, t in enumerate(_facts):
+        _tb(slide, 0.42, 4.45 + i * 0.42, 8.2, 0.36, t, 10.5, color="D6E4F0")
+
+    # Right panel — headline KPI per perspective
+    _tb(slide, 9.22, 1.20, 3.90, 0.38,
+        "DEVELOPER RETURNS" if is_dev else "OFFTAKER SAVINGS",
+        9, bold=True, color=_MGY, align="center")
+    _rect(slide, 9.22, 1.60, 3.78, 0.03, _SEP)
+    if is_dev:
+        _tb(slide, 9.22, 1.80, 3.90, 0.85, f"{model['dev_irr']:.1f}%",
+            42, bold=True, color=_GLD, align="center")
+        _tb(slide, 9.22, 2.72, 3.90, 0.40, "Project IRR (after-tax)",
+            11, color=_MGY, align="center")
+        _rect(slide, 9.22, 3.22, 3.78, 0.03, _SEP)
+        _tb(slide, 9.22, 3.35, 3.90, 0.72,
+            f"R {model['dev_npv']/1e6:.1f}M", 30, bold=True,
+            color=_DGY, align="center")
+        _tb(slide, 9.22, 4.10, 3.90, 0.38,
+            f"NPV @ {p['discount_rate']:.0f}%", 10, color=_MGY, align="center")
+    else:
+        _tb(slide, 9.22, 1.80, 3.90, 0.85,
+            f"R {model['usr_cum_saving']/1e6:.1f}M",
+            34, bold=True, color=_GLD, align="center")
+        _tb(slide, 9.22, 2.72, 3.90, 0.40,
+            f"{int(p['contract_years'])}-yr Cumulative Saving",
+            11, color=_MGY, align="center")
+        _rect(slide, 9.22, 3.22, 3.78, 0.03, _SEP)
+        _tb(slide, 9.22, 3.35, 3.90, 0.72,
+            f"{model['usr_discount_pct']:.1f}%", 30, bold=True,
+            color=_DGY, align="center")
+        _tb(slide, 9.22, 4.10, 3.90, 0.38,
+            "Yr-1 saving vs grid cost", 10, color=_MGY, align="center")
+
+    conf_text = (f"Confidential  ·  Only For: {client_name}" if client_name
+                 else "Confidential  ·  For Authorised Recipients Only")
+    _tb(slide, 0.42, 7.08, 8.0, 0.30, conf_text, 8, color="999999")
+
+
+def generate_ppa_pptx(perspective: str, p: dict, model: dict,
+                      project_name: str = "", client_name: str = "",
+                      consultant_name: str = "") -> bytes:
+    """
+    Executive PPA/Wheeling deck (5 slides) for one perspective:
+      'Developer / IPP'      → revenue / IRR / NPV / payback edition
+      'End-user / Offtaker'  → savings edition
+    p / model come from ppa_wheeling.run_ppa_models().
+    """
+    from pptx import Presentation
+
+    is_dev  = perspective.startswith("Developer")
+    df      = (model["dev_df"] if is_dev else model["usr_df"])
+    company = consultant_name or "Energy Consulting"
+    total   = 5
+
+    prs = Presentation()
+    prs.slide_width, prs.slide_height = _in(13.33), _in(7.5)
+
+    # ── 1 · Cover ────────────────────────────────────────────────────────────
+    _ppa_cover(prs, perspective, is_dev, p, model,
+               project_name, client_name, consultant_name)
+
+    # ── 2 · Key metrics + term sheet ─────────────────────────────────────────
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    yrs = int(p["contract_years"])
+    if is_dev:
+        _header_bar(slide, "Wheeled PPA delivers contracted, escalating revenue",
+                    f"Developer / IPP · {yrs}-year PPA · BTM 20-yr cash-flow engine")
+        _pb = f"{model['dev_payback']:.2f} yr" if model["dev_payback"] else f"{yrs}yr+"
+        kpis = [("TOTAL CAPEX",  f"R {model['capex']/1e6:.1f}M", "PV plant, EPC incl."),
+                ("NPV",          f"R {model['dev_npv']/1e6:.1f}M",
+                                 f"@ {p['discount_rate']:.1f}% discount"),
+                ("PROJECT IRR",  f"{model['dev_irr']:.1f}%", "after-tax, 12B"),
+                ("PAYBACK",      _pb, "simple, cumulative NCF")]
+    else:
+        _header_bar(slide, "Wheeled PPA undercuts the escalating grid tariff",
+                    f"End-user / Offtaker · {yrs}-year PPA · BTM tariff logic baseline")
+        kpis = [("YR-1 NET SAVING", f"R {model['usr_saving_yr1']/1e6:.2f}M",
+                                    "vs avoided grid cost"),
+                (f"{yrs}-YR CUM. SAVING", f"R {model['usr_cum_saving']/1e6:.1f}M",
+                                    "nominal"),
+                ("NPV OF SAVINGS", f"R {model['usr_npv']/1e6:.1f}M",
+                                   f"@ {p['discount_rate']:.1f}% discount"),
+                ("YR-1 SAVING RATE", f"{model['usr_discount_pct']:.1f}%",
+                                     "of grid baseline")]
+    _x = 0.40
+    for lbl, val, sub in kpis:
+        _kpi_block(slide, _x, 1.05, lbl, val, sub, w=3.00)
+        _x += 3.16
+
+    _section_hdr(slide, 0.40, 2.75, 12.5, 0.34, "SHARED PPA / WHEELING TERM SHEET")
+    _fee_str = (f"R {p['fee_kwh']:.4f}/kWh"
+                if str(p["fee_mode"]).startswith("Per kWh")
+                else f"R {p['fee_month']:,.0f}/month")
+    terms = [
+        ("PPA price (Yr-1)",      f"R {p['ppa_price']:.4f}/kWh"),
+        ("PPA escalation",        f"{p['ppa_escalation']:.2f}% per year"),
+        ("Contract term",         f"{yrs} years"),
+        ("Wheeling fee",          f"{_fee_str}  (borne by {p['fee_borne_by']})"),
+        ("Wheeling network loss", f"{p['loss_pct']:.1f}%  (borne by {p['loss_borne_by']})"),
+        ("Grid reference tariff", f"R {p['grid_tariff']:.4f}/kWh  "
+                                  f"(+{p['grid_escalation']:.2f}%/yr — BTM tariff logic)"),
+        ("PV plant",              f"{_fmw(p['pv_kwp'], 'kWp')}  ·  "
+                                  f"{p['spec_yield']:,.0f} kWh/kWp  ·  "
+                                  f"−{p['pv_degradation']:.1f}%/yr degradation"),
+        ("Energy flows (Yr-1)",   f"{_fmw(model['gen_yr1'], 'kWh/yr')} generated → "
+                                  f"{_fmw(model['delivered_yr1'], 'kWh/yr')} delivered"),
+    ]
+    for i, (k, v) in enumerate(terms):
+        _y = 3.28 + i * 0.42
+        _rect(slide, 0.40, _y, 12.5, 0.36, _LGRY if i % 2 else _WHT)
+        _tb(slide, 0.58, _y + 0.05, 3.6, 0.28, k, 10, bold=True, color=_DGY)
+        _tb(slide, 4.40, _y + 0.05, 8.3, 0.28, v, 10, color=_MGY)
+    _narrative(slide, 0.40, 6.72, 12.5, 0.44,
+               "Both contracting parties are modelled off this single term sheet — "
+               "the developer's revenue line equals the offtaker's PPA cost line, "
+               "ensuring the two report editions reconcile exactly.")
+    _footer(slide, company, 2, total)
+
+    # ── 3 · Cash-flow / savings chart ────────────────────────────────────────
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    if is_dev:
+        _header_bar(slide, f"{yrs}-year developer cash-flow profile",
+                    "Annual net cash flow (after tax) and cumulative position")
+        png = _png_ppa_chart(df["Year"], df["Net Cash Flow (ZAR)"],
+                             df["Cumulative CF (ZAR)"],
+                             "Annual Net Cash Flow", "Cumulative Cash Flow")
+    else:
+        _header_bar(slide, f"{yrs}-year offtaker savings profile",
+                    "Annual net saving vs grid baseline and cumulative savings")
+        png = _png_ppa_chart(df["Year"], df["Net Saving (ZAR)"],
+                             df["Cumulative Saving (ZAR)"],
+                             "Annual Net Saving", "Cumulative Saving")
+    if png:
+        slide.shapes.add_picture(io.BytesIO(png), _in(0.40), _in(1.05),
+                                 _in(12.5), _in(4.85))
+    _narrative(slide, 0.40, 6.20, 12.5, 0.80,
+               ("Year-0 outflow equals total CAPEX; Section 12B accelerated "
+                "depreciation (50/30/20 on the equipment portion) front-loads "
+                "after-tax cash flow in years 1-3."
+                if is_dev else
+                "Savings widen over time whenever the grid tariff escalation "
+                "outpaces the contracted PPA escalation — the spread compounds "
+                "annually in the offtaker's favour."))
+    _footer(slide, company, 3, total)
+
+    # ── 4 · 20-yr table ──────────────────────────────────────────────────────
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _header_bar(slide,
+                f"{yrs}-year {'cash-flow statement' if is_dev else 'savings statement'}",
+                "All figures in ZAR · contracted energy flows per the shared term sheet")
+    if is_dev:
+        tbl_cols = ["Year", "Revenue (ZAR)", "O&M (ZAR)", "Insurance (ZAR)",
+                    "Wheeling (ZAR)", "EBITDA (ZAR)", "Tax (ZAR)",
+                    "Net Cash Flow (ZAR)", "Cumulative CF (ZAR)"]
+    else:
+        tbl_cols = ["Year", "Avoided Grid Cost (ZAR)", "PPA Energy Cost (ZAR)",
+                    "Loss Share (ZAR)", "Wheeling (ZAR)", "Net Saving (ZAR)",
+                    "Cumulative Saving (ZAR)"]
+    tbl_cols = [c for c in tbl_cols if c in df.columns]
+    n_rows, n_cols = len(df) + 1, len(tbl_cols)
+    gf = slide.shapes.add_table(n_rows, n_cols, _in(0.40), _in(1.00),
+                                _in(12.5), _in(5.9))
+    tbl = gf.table
+    for ci, cname in enumerate(tbl_cols):
+        cell = tbl.cell(0, ci)
+        cell.text = cname.replace(" (ZAR)", "")
+        cell.fill.solid(); cell.fill.fore_color.rgb = _rgb(_BLK)
+        pr = cell.text_frame.paragraphs[0]
+        pr.runs[0].font.size = _pt(9); pr.runs[0].font.bold = True
+        pr.runs[0].font.color.rgb = _rgb(_WHT); pr.runs[0].font.name = _FONT
+    for ri, rec in enumerate(df[tbl_cols].itertuples(index=False), 1):
+        for ci, v in enumerate(rec):
+            cell = tbl.cell(ri, ci)
+            cell.text = (f"{v:,.0f}" if ci > 0 else f"{int(v)}")
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = _rgb(_LGRY if ri % 2 == 0 else "FFFFFF")
+            pr = cell.text_frame.paragraphs[0]
+            pr.runs[0].font.size = _pt(8); pr.runs[0].font.name = _FONT
+            pr.runs[0].font.color.rgb = _rgb(
+                _NEG if (isinstance(v, (int, float)) and v < 0 and ci > 0)
+                else _DGY)
+    _footer(slide, company, 4, total)
+
+    # ── 5 · Assumptions & disclaimer ─────────────────────────────────────────
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _header_bar(slide, "Assumptions & Disclaimer",
+                "Model basis — review before commercial commitment")
+    assumptions = [
+        f"Generation: {p['spec_yield']:,.0f} kWh/kWp Yr-1, degrading "
+        f"{p['pv_degradation']:.1f}%/yr (BTM PVGIS engine).",
+        "PPA billing point: "
+        + ("generated energy — offtaker pays the network-loss share"
+           if p["loss_borne_by"] == "End-user"
+           else "delivered energy — developer absorbs network losses") + ".",
+        f"Wheeling use-of-system fee {_fee_str}, escalating at CPI "
+        f"{p['cost_escalation']:.1f}%/yr; network loss {p['loss_pct']:.1f}%.",
+        f"Grid baseline: blended daylight Megaflex rate "
+        f"R {p['grid_tariff']:.4f}/kWh escalating {p['grid_escalation']:.2f}%/yr "
+        f"(same tariff-escalation logic as the BTM model).",
+        f"Developer costs: CAPEX R {p['capex_per_kwp']:,.0f}/kWp · O&M "
+        f"R {p['opex_per_kwp']:,.0f}/kWp/yr · insurance "
+        f"{p['insurance_pct']:.1f}% of CAPEX/yr (CPI-escalated).",
+        f"Tax {p['tax_rate']:.0f}% with Section 12B 50/30/20 accelerated "
+        f"depreciation on the equipment portion (60% of CAPEX).",
+        f"Discounting at {p['discount_rate']:.1f}% for NPV; IRR solved on "
+        f"after-tax project cash flows (BTM framework).",
+    ]
+    for i, t in enumerate(assumptions):
+        _y = 1.10 + i * 0.62
+        _rect(slide, 0.40, _y, 0.07, 0.50, _HRD)
+        _tb(slide, 0.62, _y + 0.02, 12.2, 0.56, t, 10.5, color=_DGY)
+    _tb(slide, 0.40, 5.85, 12.5, 1.0,
+        "Disclaimer: This report is an indicative financial model, not an "
+        "offer or tariff determination. Wheeling charges, losses and network "
+        "access are subject to the relevant utility / municipal use-of-system "
+        "agreement and NERSA rules. Verify all inputs before contract signature.",
+        8.5, color=_MGY)
+    _footer(slide, company, 5, total)
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    buf.seek(0)
+    return buf.read()

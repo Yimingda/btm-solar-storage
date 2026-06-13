@@ -4590,3 +4590,29 @@ with col_content:
                         height=480, margin=dict(l=10, r=10, t=20, b=10),
                     )
                     st.plotly_chart(fig_h, use_container_width=True)
+
+                    st.markdown(f"#### 📊 Full Optimisation Results")
+                    st.dataframe(opt_df.sort_values("NPV (ZAR)", ascending=False),
+                                 use_container_width=True, height=380)
+
+# ── Admin Tab (only visible to admins) ──────────────────────
+if _admin_tab is not None:
+    with _admin_tab:
+        render_admin_panel()
+
+# ─────────────────────────────────────────────────────────────
+# Footer
+# ─────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown("""
+<div style="text-align:center; color:var(--text-dim); font-family:'IBM Plex Mono',monospace;
+            font-size:0.68rem; padding:0.8rem 0;">
+    Powered by Huawei SA Digital Power — BD Kevin Yi &nbsp;|&nbsp;
+    <a href="https://wa.me/27834976899?text=Hi%20Kevin%2C%20I%20would%20like%20more%20info%20on%20BTM%20PV%2BBESS%20solutions"
+       target="_blank"
+       style="color:#25D366; text-decoration:none; font-weight:600;">
+       💬 WhatsApp: 083 497 6899
+    </a>
+    &nbsp;|&nbsp; SA Megaflex · PVGIS · Section 12B · 8760H Dispatch · Weekday/Weekend TOU
+</div>
+""", unsafe_allow_html=True)
