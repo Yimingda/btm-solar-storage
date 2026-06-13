@@ -543,6 +543,18 @@ def run_ppa_models(p: dict) -> dict:
     y1 = dev_rows[0]
     u1 = usr_rows[0]
     base1 = max(u1["Avoided Grid Cost (ZAR)"], 1e-9)
+
+    # ── LCOE (PV) & LCOS (BESS) — same annualised basis as BTM compute_lcoe:
+    #    (CAPEX / life + Year-1 O&M) ÷ Year-1 energy. ──────────────────────
+    pv_capex_ = p["pv_kwp"] * p["capex_per_kwp"]
+    pv_opex1_ = p["pv_kwp"] * p["opex_per_kwp"]
+    pv_gen1_  = gen1                                  # Year-1 PV generation
+    lcoe = (round((pv_capex_ / yrs + pv_opex1_) / pv_gen1_, 4)
+            if pv_gen1_ > 0 else 0.0)
+    if split_asset and bess_e1 > 0:
+        lcos = round((bess_capex / yrs + bess_opex1) / bess_e1, 4)
+    else:
+        lcos = 0.0
     return {
         "dev_df": dev_df,
         "usr_df": usr_df,
@@ -557,6 +569,10 @@ def run_ppa_models(p: dict) -> dict:
         "usr_discount_pct": round(100.0 * u1["Net Saving (ZAR)"] / base1, 1),
         "gen_yr1": y1["Generation (kWh)"],
         "delivered_yr1": y1["Delivered (kWh)"],
+        "lcoe_zar_kwh": lcoe,
+        "lcos_zar_kwh": lcos,
+        "pv_gen_yr1": round(pv_gen1_, 0),
+        "bess_dispatch_yr1": round(bess_e1, 0),
     }
 
 
@@ -701,9 +717,26 @@ def generate_ppa_excel(perspective: str, p: dict, model: dict,
         hc.border = _bdr()
         ws2.column_dimensions[get_column_letter(ci)].width = max(12, len(hdr) + 2)
     ws2.row_dimensions[1].height = 30
+    # Derived columns become live Excel formulas (item 12: edit input cells →
+    # EBITDA / NCF / discounted / cumulative recalculate in the workbook).
+    _disc = float(p["discount_rate"]) / 100.0
+    if is_dev:
+        # 1Yr 2Gen 3Deliv 4Price 5Rev 6O&M 7Ins 8Wheel 9EBITDA 10Dep 11Tax
+        # 12NCF 13DiscCF 14CumCF
+        _fcol = {9:  lambda r: f"=E{r}-F{r}-G{r}-H{r}",
+                 12: lambda r: f"=I{r}-K{r}",
+                 13: lambda r: f"=L{r}/(1+{_disc})^A{r}",
+                 14: lambda r: (f"=L{r}" if r == 2 else f"=N{r-1}+L{r}")}
+    else:
+        # 1Yr 2Deliv 3GridRate 4Avoided 5Price 6PPACost 7LossShare 8Wheel
+        # 9NetSaving 10DiscSaving 11CumSaving
+        _fcol = {9:  lambda r: f"=D{r}-F{r}-G{r}-H{r}",
+                 10: lambda r: f"=I{r}/(1+{_disc})^A{r}",
+                 11: lambda r: (f"=I{r}" if r == 2 else f"=K{r-1}+I{r}")}
     for ri, rec in enumerate(df.itertuples(index=False), 2):
         for ci, v in enumerate(rec, 1):
-            cell = ws2.cell(row=ri, column=ci, value=v)
+            cell = ws2.cell(row=ri, column=ci,
+                            value=(_fcol[ci](ri) if ci in _fcol else v))
             cell.font = _font(sz=9)
             cell.fill = _fill(C_ALT if ri % 2 == 0 else "FFFFFF")
             cell.border = _bdr()
@@ -1075,19 +1108,35 @@ def _render_optimiser(p: dict, eng: dict) -> None:
     else:
         bess_vals = [cur_bess]
 
+    # Item 13: run a full 8760 dispatch per PV×BESS combo (same depth as BTM),
+    # so the optimum reflects C-rate-limited battery energy + real TOU split —
+    # not the annual-throughput approximation.
+    _use_disp = st.checkbox("Run 8760 dispatch per combination (slower, exact)",
+                            value=True, key="whl_opt_use_disp")
     rows, best = [], None
+    _prog = st.progress(0.0)
+    _tot = len(pv_vals) * len(bess_vals); _done = 0
     for pv in pv_vals:
         for bs in bess_vals:
             q = dict(p); q["pv_kwp"] = pv; q["bess_kwh"] = bs
+            if _use_disp:
+                _d = run_wheeling_dispatch(q, eng)
+                q["energy_split"] = {"pv": _d["pv_split"],
+                                     "bess_season": _d["bess_season"]}
+                if q.get("split_asset"):
+                    q["bess_e1_override"] = _d["bess_delivered_kwh"]
             m = run_ppa_models(q)
             r = {"PV (kWp)": round(pv), "BESS (kWh)": round(bs),
                  "CAPEX (R M)": round(m["capex"] / 1e6, 1),
                  "Dev NPV (R M)": round(m["dev_npv"] / 1e6, 2),
                  "Dev IRR (%)": m["dev_irr"],
+                 "LCOE": m.get("lcoe_zar_kwh", 0),
                  "Offtaker save (R M)": round(m["usr_cum_saving"] / 1e6, 1)}
             rows.append(r)
             if best is None or m["dev_npv"] > best["_npv"]:
                 best = {**r, "_npv": m["dev_npv"]}
+            _done += 1; _prog.progress(_done / max(_tot, 1))
+    _prog.empty()
 
     if best:
         b1, b2, b3, b4 = st.columns(4)
@@ -1408,8 +1457,29 @@ def render_ppa_wheeling(eng: dict) -> None:
                               "share). Developer → billed on delivered energy.")
 
         with st.expander("💰 Developer Costs", expanded=False):
-            st.number_input("CAPEX (ZAR/kWp)", 0.0, 1e5,
-                            key="whl_capex_per_kwp", step=100.0)
+            # CAPEX basis: enter ZAR directly, or USD unit cost × live FX (BTM)
+            _cap_basis = st.radio(
+                "CAPEX basis", ["ZAR direct", "USD unit cost × FX"],
+                key="whl_capex_basis", horizontal=True)
+            if _cap_basis.startswith("USD"):
+                _fx = float(ss.get("forex_usd_zar", 18.5) or 18.5)
+                ss.setdefault("pv_usd_per_w", 0.75)
+                ss.setdefault("bess_usd_per_wh", 0.20)
+                st.number_input("PV Unit Cost (USD/W)", 0.0, 5.0,
+                                key="pv_usd_per_w", step=0.01, format="%.3f")
+                st.number_input("BESS Unit Cost (USD/Wh)", 0.0, 2.0,
+                                key="bess_usd_per_wh", step=0.01, format="%.3f")
+                # Derive ZAR unit costs (same formula as BTM get_capex_zar)
+                ss.whl_capex_per_kwp      = round(ss.pv_usd_per_w * 1000.0 * _fx, 0)
+                ss.whl_bess_capex_per_kwh = round(ss.bess_usd_per_wh * 1000.0 * _fx, 0)
+                st.markdown(
+                    f'<div class="derived-value">@ {_fx:.2f} ZAR/USD → PV '
+                    f'<b>R{ss.whl_capex_per_kwp:,.0f}</b>/kWp · BESS '
+                    f'<b>R{ss.whl_bess_capex_per_kwh:,.0f}</b>/kWh</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.number_input("CAPEX (ZAR/kWp)", 0.0, 1e5,
+                                key="whl_capex_per_kwp", step=100.0)
             st.number_input("O&M (ZAR/kWp/yr)", 0.0, 2000.0,
                             key="whl_opex_per_kwp", step=5.0)
             st.number_input("Insurance (% CAPEX/yr)", 0.0, 5.0,
@@ -1625,6 +1695,18 @@ def render_ppa_wheeling(eng: dict) -> None:
             with k4: _kpi("PAYBACK",      _pb_str, "simple")
             with k5: _kpi("YR-1 REVENUE", f"R {model['dev_rev_yr1']/1e6:.2f}M",
                           "PPA sales")
+            # LCOE / LCOS — levelised cost of generation / storage (item 6)
+            _l1, _l2, _l3 = st.columns(3)
+            with _l1: _kpi("LCOE · PV", f"R {model.get('lcoe_zar_kwh', 0):.2f}",
+                           "per kWh generated")
+            with _l2: _kpi("LCOS · BESS",
+                           f"R {model.get('lcos_zar_kwh', 0):.2f}"
+                           if model.get('lcos_zar_kwh') else "—",
+                           "per kWh dispatched")
+            with _l3: _kpi("PPA vs LCOE",
+                           f"{(model['dev_rev_yr1']/max(model.get('pv_gen_yr1',1),1)/max(model.get('lcoe_zar_kwh',1e-9),1e-9)):.2f}×"
+                           if model.get('lcoe_zar_kwh') else "—",
+                           "price / cost margin")
             _chart(model["dev_df"], "Net Cash Flow (ZAR)",
                    "Cumulative CF (ZAR)",
                    f"Developer — {int(p['contract_years'])}-Year Cash Flow")
