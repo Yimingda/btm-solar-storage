@@ -847,35 +847,45 @@ def _s3_system(prs, params: dict, pvgis_data: dict, company: str,
     # ── Right product panel (single-component mode only) ─────────────────────
     # PV+BESS: spec tables fill full width — no panel added here.
     # Single mode: 5.90"-wide showcase to the right of the spec table.
-    # BESS-only: embed ambient loop video; PV-only: fall back to static image.
+    # BESS-only → dark-background product lineup; PV-only → white product card;
+    # video used only as a fallback when no product image is on disk.
     if not _dual:
         _PNL_X = 7.12; _PNL_Y = 1.68; _PNL_W = 5.90; _PNL_H = 5.48
         _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
-        _bess_vid  = os.path.join(_ASSETS_DIR, "hw_ess_cell_grid_loop.mp4")
-        _use_vid   = (has_bess and not has_pv and os.path.exists(_bess_vid))
+        img_path, img_caption = (_am.system_product_image(has_pv, has_bess)
+                                 if _am is not None else (None, ""))
+        _dark_panel = (has_bess and not has_pv)   # BESS product shot is dark-bg
 
-        if _use_vid:
-            # Dark panel + autoplay video loop (Cell-to-Grid ambient)
-            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, "0D1A2A")
-            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)        # green accent
-            _embed_video(slide, _PNL_X, _PNL_Y + 0.05,
-                         _PNL_W, _PNL_H - 0.48, _bess_vid, "0D1A2A")
+        if img_path and os.path.exists(img_path):
+            _bg = "0D1A2A" if _dark_panel else _WHT
+            _cap_clr = "7A9EB5" if _dark_panel else _MGY
+            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, _bg,
+                  line=None if _dark_panel else _SEP)
+            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)   # green accent
+            # Aspect-preserving fit: width-only add → height auto; then fit to
+            # the available box and centre both ways (no stretch/distortion)
+            _box_x = _PNL_X + 0.35; _box_w = _PNL_W - 0.70
+            _box_y = _PNL_Y + 0.30; _box_h = _PNL_H - 0.86
+            pic = slide.shapes.add_picture(img_path, _in(_box_x), _in(_box_y),
+                                           width=_in(_box_w))
+            if pic.height > _in(_box_h):       # too tall → re-fit by height
+                pic.width  = int(pic.width * _in(_box_h) / pic.height)
+                pic.height = _in(_box_h)
+            pic.left = _in(_box_x + (_box_w - pic.width  / 914400) / 2)
+            pic.top  = _in(_box_y + (_box_h - pic.height / 914400) / 2)
             _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.32,
-                "Huawei LUNA2000 C&I BESS  ·  Cell-to-Grid Safety Technology",
-                7.5, color="7A9EB5", align="center")
-        elif _am is not None:
-            img_path, img_caption = _am.system_product_image(has_pv, has_bess)
-            # White card background with subtle border
-            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, _WHT, line=_SEP)
-            _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)
-            if img_path and os.path.exists(img_path):
-                slide.shapes.add_picture(
-                    img_path,
-                    _in(_PNL_X + 0.35), _in(_PNL_Y + 0.22),
-                    _in(_PNL_W - 0.70), _in(_PNL_H - 0.66),
-                )
-            _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.30,
-                img_caption, 8, color=_MGY, align="center")
+                img_caption, 8, color=_cap_clr, align="center")
+        else:
+            # Fallback: ambient loop video (only if product image missing)
+            _bess_vid = os.path.join(_ASSETS_DIR, "hw_ess_cell_grid_loop.mp4")
+            if has_bess and not has_pv and os.path.exists(_bess_vid):
+                _rect(slide, _PNL_X, _PNL_Y, _PNL_W, _PNL_H, "0D1A2A")
+                _rect(slide, _PNL_X, _PNL_Y, _PNL_W, 0.05, _HRD)
+                _embed_video(slide, _PNL_X, _PNL_Y + 0.05,
+                             _PNL_W, _PNL_H - 0.48, _bess_vid, "0D1A2A")
+                _tb(slide, _PNL_X, _PNL_Y + _PNL_H - 0.40, _PNL_W, 0.32,
+                    "Huawei LUNA2000 C&I BESS  ·  Cell-to-Grid Safety Technology",
+                    7.5, color="7A9EB5", align="center")
 
     # ── Bottom separator + data-source note ──────────────────────────────────
     # In single mode limit the separator/narrative to the spec table width only
@@ -1536,9 +1546,16 @@ def _s8_huawei_partner(prs, company: str, page: int = 8, total: int = 11):
     # Content starts at 0.78 so the header-bar subtitle (ends ~0.71) stays clear
     _rect(slide, 0.28, 0.78, 4.90, 6.44, _DNAV)          # dark navy panel bg
 
-    _grid_vid  = os.path.join(ASSETS, "hw_grid_forming_loop.mp4")
-    campus_img = os.path.join(ASSETS, "hw_sa_grid.jpg")
-    if os.path.exists(_grid_vid):
+    # Backdrop priority: FusionSolar 9.0 launch photo → grid-forming loop video
+    # → SA campus still → placeholder
+    _launch_img = _am.partner_backdrop() if _am is not None else None
+    _grid_vid   = os.path.join(ASSETS, "hw_grid_forming_loop.mp4")
+    campus_img  = os.path.join(ASSETS, "hw_sa_grid.jpg")
+    if _launch_img and os.path.exists(_launch_img):
+        # FusionSolar 9.0 European Launch event — partner-credibility backdrop
+        slide.shapes.add_picture(
+            _launch_img, _in(0.28), _in(0.78), _in(4.90), _in(2.78))
+    elif os.path.exists(_grid_vid):
         # Embed All-Scenario Grid Forming ambient loop in place of static photo
         _embed_video(slide, 0.28, 0.78, 4.90, 2.78, _grid_vid, "0D1118")
     elif os.path.exists(campus_img):

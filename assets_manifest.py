@@ -105,6 +105,12 @@ ASSETS: dict[str, dict] = {
         "type": "hero",
         "desc": "FusionSolar 9 Utility PV — dark-background hero photograph (PV slides)",
     },
+    "pv_layout": {
+        "file": "pv/PV Layout.png",
+        "tags": ["pv"],
+        "type": "hero",
+        "desc": "Aerial of a large-scale utility PV farm — PV site layout (Energy slide hero)",
+    },
 
     # ── BESS — product renders ────────────────────────────────────────────────
     "luna2000_gridforming": {
@@ -131,6 +137,24 @@ ASSETS: dict[str, dict] = {
         "type": "hero",
         "desc": "Grid-Forming ESS Stack — dark-background hero photograph",
     },
+    "bess_layout": {
+        "file": "bess/BESS_Layout.png",
+        "tags": ["bess"],
+        "type": "hero",
+        "desc": "Isometric render of a large BESS container farm + substation — BESS site layout",
+    },
+    "bess_products": {
+        "file": "bess/BESS_Products.png",
+        "tags": ["bess"],
+        "type": "product",
+        "desc": "Huawei BESS product lineup — container ESS + PCS cabinets (dark background)",
+    },
+    "bess_site_photo": {
+        "file": "bess/s9-main-right-img-pc.png",
+        "tags": ["bess"],
+        "type": "hero",
+        "desc": "Real BESS deployment site photo — containers, engineers, PV (Tariff dispatch inset)",
+    },
 
     # ── Common — brand ────────────────────────────────────────────────────────
     "fusionsolar_logo": {
@@ -138,6 +162,18 @@ ASSETS: dict[str, dict] = {
         "tags": ["pv", "bess"],
         "type": "brand",
         "desc": "FusionSolar Brand Logo (transparent background)",
+    },
+    "fusionsolar_logo_alt": {
+        "file": "c3c7b1989f31454495eac08f9fbff6b0.png",
+        "tags": ["pv", "bess"],
+        "type": "brand",
+        "desc": "FusionSolar red wordmark logo (alternate)",
+    },
+    "fs9_launch": {
+        "file": "hw_fs9_dark.jpg",
+        "tags": ["pv", "bess"],
+        "type": "brand",
+        "desc": "FusionSolar 9.0 European Launch event photo — partner-credibility backdrop",
     },
     "professional_services": {
         "file": "common/brand_professional_services.png",
@@ -203,7 +239,10 @@ def system_product_image(has_pv: bool, has_bess: bool) -> tuple[str | None, str]
             asset_path("sun2000_controller"),
             "Huawei SUN2000 String Inverter  ·  Huawei Digital Power",
         )
-    # BESS-only: LUNA2000 213KTL PCS — near-square product render, ideal for panel
+    # BESS-only: product lineup (container ESS + PCS cabinets) on dark background
+    _bp = asset_path("bess_products")
+    if _bp:
+        return (_bp, "Huawei LUNA2000 Container ESS + PCS  ·  Huawei Digital Power")
     return (
         asset_path("luna2000_pcs"),
         "Huawei LUNA2000 213KTL PCS  ·  Huawei Digital Power",
@@ -212,15 +251,29 @@ def system_product_image(has_pv: bool, has_bess: bool) -> tuple[str | None, str]
 
 def tariff_product_image() -> str | None:
     """
-    BESS product / cert image for the Tariff Opportunity slide dispatch block.
-    cert_safety (landscape ESS + certificate) fits well in the dispatch inset.
+    BESS image for the Tariff Opportunity slide dispatch block.
+    Real deployment site photo (containers + engineers) for the dispatch inset;
+    falls back to the cert_safety showcase if unavailable.
     """
-    return asset_path("cert_safety")
+    return asset_path("bess_site_photo") or asset_path("cert_safety")
 
 
 def energy_pv_hero() -> str | None:
     """
-    Hero photograph for the PV Energy Analysis slide — FusionSolar 9 utility lineup.
+    Hero photograph for the PV Energy Analysis slide — aerial utility PV farm.
     Displayed as a full-width cinematic strip below the slide header.
     """
-    return asset_path("hero_pv")
+    return asset_path("pv_layout") or asset_path("hero_pv")
+
+
+def partner_backdrop() -> str | None:
+    """
+    Backdrop for the Huawei Partner slide left panel — FusionSolar 9.0 launch
+    event photo (partner-credibility). Falls back to the SA grid campus photo.
+    """
+    return asset_path("fs9_launch")
+
+
+def bess_layout_image() -> str | None:
+    """Isometric BESS site-layout render (BESS-only System slide, optional use)."""
+    return asset_path("bess_layout")
