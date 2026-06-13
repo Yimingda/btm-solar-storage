@@ -2961,6 +2961,10 @@ if _scenario == "wheeling":
         "get_current_user":    get_current_user,
         "logout":              logout,
         "render_project_bar":  render_project_bar,
+        "is_pro":              is_pro,
+        "get_soh_by_year":     get_soh_by_year,
+        "fetch_forex_rate":    fetch_forex_rate,
+        "C_RATE_OPTIONS":      C_RATE_OPTIONS,
     })
     st.stop()
 

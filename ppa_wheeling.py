@@ -90,6 +90,7 @@ def _init_state(eng: dict) -> None:
         "whl_cost_escalation": 6.0,               # OPEX / insurance / wheeling CPI
         "whl_grid_escalation": float(ss.get("tariff_escalation", 8.76)),
         "whl_grid_tariff":     0.0,               # 0 → auto-fill from tariff table
+        "whl_service_fraction": 40.0,             # % CAPEX non-depreciable (12B)
     }
     for k, v in _defaults.items():
         ss.setdefault(k, v)
@@ -293,6 +294,7 @@ def run_ppa_models(p: dict) -> dict:
                       * float(p.get("bess_annual_cycles", 365))
                       * (p.get("bess_rte", 90) / 100.0))    # delivered kWh/yr
         bess_deg   = float(p.get("bess_degradation", 1.5)) / 100.0
+        bess_soh   = p.get("bess_soh")    # optional Huawei SOH curve (list, yr0..N)
         bess_opex1 = bess_kwh * float(p.get("bess_opex_per_kwh", 0.0) or 0.0)
         bess_capex = bess_kwh * float(p.get("bess_capex_per_kwh", 0.0) or 0.0)
         bess_prices = p.get("bess_prices") or {}
@@ -304,6 +306,7 @@ def run_ppa_models(p: dict) -> dict:
     else:
         bess_e1 = bess_capex = bess_price1 = bess_opex1 = 0.0
         bess_deg = 0.0
+        bess_soh = None
 
     capex     = p["pv_kwp"] * p["capex_per_kwp"] + bess_capex
     svc_frac  = p.get("service_fraction", 0.40)
@@ -322,7 +325,11 @@ def run_ppa_models(p: dict) -> dict:
         # energy (loss share); if developer bears, billing = delivered.
         pv_billed = pv_gen if p["loss_borne_by"] == "End-user" else pv_deliv
         # Battery energy (no network loss share applied; billed = delivered)
-        bess_deliv = bess_e1 * (1 - bess_deg) ** (y - 1)  # 0 unless asset mode
+        # Battery energy fade: Huawei SOH curve if supplied, else linear
+        if bess_soh and y < len(bess_soh):
+            bess_deliv = bess_e1 * float(bess_soh[y])
+        else:
+            bess_deliv = bess_e1 * (1 - bess_deg) ** (y - 1)
         gen        = pv_gen + bess_deliv
         delivered  = pv_deliv + bess_deliv
         billed     = pv_billed + bess_deliv
@@ -712,6 +719,7 @@ def _params_dict() -> dict:
         "cost_escalation": ss.whl_cost_escalation,
         "grid_escalation": ss.whl_grid_escalation,
         "grid_tariff":     ss.whl_grid_tariff,
+        "service_fraction": float(ss.get("whl_service_fraction", 40.0)) / 100.0,
     }
 
 
@@ -883,6 +891,86 @@ def _render_balancer(p: dict, model: dict, eng: dict) -> None:
         st.caption("Sweep scales all PV price axes together (battery held "
                    "fixed); marker = current blended PV price. Adjust any "
                    "slider to move the curves.")
+
+
+def _render_optimiser(p: dict, eng: dict) -> None:
+    """
+    Capacity optimisation: sweep PV capacity (and battery, in asset mode)
+    around the current sizing and find the configuration that maximises
+    developer NPV, while reporting the offtaker saving at each point.
+    """
+    import plotly.graph_objects as go
+    ss = st.session_state
+    st.markdown('<div class="section-header">🔍 Capacity Optimisation '
+                '— maximise Developer NPV</div>', unsafe_allow_html=True)
+    st.caption("Sweeps PV capacity (and battery in asset mode) over 60–150% "
+               "of the current sizing using the live PPA term sheet.")
+
+    cur_pv = float(p.get("pv_kwp", 4000) or 4000)
+    split_asset = bool(p.get("split_asset", False))
+    cur_bess = float(p.get("bess_kwh", 0) or 0)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        pv_lo = st.number_input("PV min (kWp)", 0.0, 1e6,
+                                value=round(cur_pv * 0.6, -1), step=100.0,
+                                key="whl_opt_pv_lo")
+    with c2:
+        pv_hi = st.number_input("PV max (kWp)", 0.0, 1e6,
+                                value=round(cur_pv * 1.5, -1), step=100.0,
+                                key="whl_opt_pv_hi")
+    with c3:
+        pv_n = int(st.number_input("PV steps", 2, 20, value=7, step=1,
+                                   key="whl_opt_pv_n"))
+    if not st.button("🚀 Run optimisation", key="whl_opt_run",
+                     use_container_width=True, type="primary"):
+        st.info("Set the sweep range and click **Run optimisation**.")
+        return
+
+    pv_vals = [pv_lo + i * (pv_hi - pv_lo) / max(pv_n - 1, 1) for i in range(pv_n)]
+    if split_asset and cur_bess > 0:
+        bess_vals = [cur_bess * f for f in (0.6, 0.8, 1.0, 1.2, 1.5)]
+    else:
+        bess_vals = [cur_bess]
+
+    rows, best = [], None
+    for pv in pv_vals:
+        for bs in bess_vals:
+            q = dict(p); q["pv_kwp"] = pv; q["bess_kwh"] = bs
+            m = run_ppa_models(q)
+            r = {"PV (kWp)": round(pv), "BESS (kWh)": round(bs),
+                 "CAPEX (R M)": round(m["capex"] / 1e6, 1),
+                 "Dev NPV (R M)": round(m["dev_npv"] / 1e6, 2),
+                 "Dev IRR (%)": m["dev_irr"],
+                 "Offtaker save (R M)": round(m["usr_cum_saving"] / 1e6, 1)}
+            rows.append(r)
+            if best is None or m["dev_npv"] > best["_npv"]:
+                best = {**r, "_npv": m["dev_npv"]}
+
+    if best:
+        b1, b2, b3, b4 = st.columns(4)
+        with b1: _kpi("BEST PV", f"{best['PV (kWp)']:,} kWp", "max NPV")
+        with b2: _kpi("BEST BESS", f"{best['BESS (kWh)']:,} kWh"
+                      if split_asset else "—", "max NPV")
+        with b3: _kpi("DEV NPV", f"R {best['Dev NPV (R M)']:.1f}M",
+                      f"IRR {best['Dev IRR (%)']:.1f}%")
+        with b4: _kpi("OFFTAKER", f"R {best['Offtaker save (R M)']:.1f}M",
+                      "cum. saving")
+    _df = __import__("pandas").DataFrame(rows)
+    _dark = not ss.get("_light_mode", False)
+    fig = go.Figure()
+    fig.add_scatter(x=_df["PV (kWp)"], y=_df["Dev NPV (R M)"],
+                    mode="lines+markers", name="Dev NPV (R M)",
+                    line=dict(color="#00E5A0", width=2.4))
+    fig.update_layout(height=320, paper_bgcolor="rgba(0,0,0,0)",
+                      plot_bgcolor="rgba(0,0,0,0)",
+                      font=dict(color="#E8ECF0" if _dark else "#1A202C",
+                                family="IBM Plex Mono"),
+                      xaxis=dict(title="PV capacity (kWp)"),
+                      yaxis=dict(title="Developer NPV (R M)"),
+                      margin=dict(l=10, r=10, t=20, b=10))
+    st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(_df, use_container_width=True, hide_index=True, height=320)
 
 
 def render_ppa_wheeling(eng: dict) -> None:
@@ -1114,10 +1202,15 @@ def render_ppa_wheeling(eng: dict) -> None:
                                 key="whl_bess_rte", step=1.0)
                 st.number_input("Depth of Discharge (%)", 10.0, 100.0,
                                 key="whl_bess_dod", step=1.0)
-                st.number_input("Capacity Fade (%/yr)", 0.0, 5.0,
-                                key="whl_bess_degradation", step=0.1,
-                                help="Annual battery energy decline over the "
-                                     "contract term")
+                st.checkbox("Use Huawei SOH/EoL curve (LUNA2000)",
+                            key="whl_bess_use_soh",
+                            help="Official SOH decay table + end-of-life year "
+                                 "instead of a flat linear fade")
+                if not ss.get("whl_bess_use_soh"):
+                    st.number_input("Capacity Fade (%/yr)", 0.0, 5.0,
+                                    key="whl_bess_degradation", step=0.1,
+                                    help="Annual battery energy decline over the "
+                                         "contract term")
                 st.number_input("Battery O&M (ZAR/kWh/yr)", 0.0, 500.0,
                                 key="whl_bess_opex_per_kwh", step=1.0,
                                 help="Added to developer O&M alongside PV")
@@ -1189,8 +1282,58 @@ def render_ppa_wheeling(eng: dict) -> None:
                          use_container_width=True):
                 ss.whl_grid_tariff = _blended_grid_tariff(eng)
                 st.rerun()
+            # Full TOU rate editor — winter (Jun–Aug) / summer, each period
+            with st.popover("✏️ Edit TOU rates (ZAR/kWh)",
+                            use_container_width=True):
+                # w_*/s_* are seeded globally by init_session_state → key-only
+                for _k in ("w_morning_peak", "w_evening_peak", "w_standard",
+                           "w_off_peak", "s_morning_peak", "s_evening_peak",
+                           "s_standard", "s_off_peak"):
+                    ss.setdefault(_k, 2.0)
+                st.caption("❄️ High Season (Jun–Aug)")
+                _ew1, _ew2 = st.columns(2)
+                with _ew1:
+                    st.number_input("Morning Peak (W)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="w_morning_peak")
+                    st.number_input("Standard (W)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="w_standard")
+                with _ew2:
+                    st.number_input("Evening Peak (W)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="w_evening_peak")
+                    st.number_input("Off-Peak (W)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="w_off_peak")
+                st.caption("☀️ Low Season (Sep–May)")
+                _es1, _es2 = st.columns(2)
+                with _es1:
+                    st.number_input("Morn Peak (S)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="s_morning_peak")
+                    st.number_input("Standard (S)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="s_standard")
+                with _es2:
+                    st.number_input("Eve Peak (S)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="s_evening_peak")
+                    st.number_input("Off-Peak (S)", 0.05, 20.0,
+                                    step=0.05, format="%.2f", key="s_off_peak")
+                if st.button("↻ Re-blend grid tariff", key="whl_blend_btn2",
+                             use_container_width=True):
+                    ss.whl_grid_tariff = _blended_grid_tariff(eng)
+                    st.rerun()
 
         with st.expander("🏦 Finance", expanded=False):
+            # Live USD/ZAR FX (3-tier fallback) + display
+            _fx1, _fx2 = st.columns([3, 2])
+            with _fx1:
+                ss.setdefault("forex_usd_zar", 18.5)
+                st.number_input("USD/ZAR Rate", 1.0, 100.0,
+                                step=0.1, format="%.2f", key="forex_usd_zar")
+            with _fx2:
+                if st.button("↻ Live FX", key="whl_fx_btn",
+                             use_container_width=True) and eng.get("fetch_forex_rate"):
+                    try:
+                        ss.forex_usd_zar = float(eng["fetch_forex_rate"]())
+                        st.rerun()
+                    except Exception as _e:
+                        st.warning(f"FX unavailable: {_e}")
             st.number_input("Grid Tariff Escalation (%/yr)", 0.0, 25.0,
                             key="whl_grid_escalation", step=0.25)
             st.number_input("Cost Escalation CPI (%/yr)", 0.0, 25.0,
@@ -1199,25 +1342,42 @@ def render_ppa_wheeling(eng: dict) -> None:
                             key="whl_discount_rate", step=0.5)
             st.number_input("Tax Rate (%)", 0.0, 50.0,
                             key="whl_tax_rate", step=1.0)
+            st.number_input("Service Fraction (non-depreciable %)", 0.0, 80.0,
+                            step=5.0, key="whl_service_fraction",
+                            help="Share of CAPEX = installation/services, "
+                                 "excluded from Section 12B depreciation")
 
     # ── Model run (cheap — every rerun) ──────────────────────
     p     = _params_dict()
     p["section_12b"]  = eng["SECTION_12B"]
     p["energy_split"] = energy_split(eng)
+    # Battery: Huawei official SOH/EoL curve (vs simple linear fade)
+    if (ss.get("whl_split_asset") and ss.get("whl_bess_use_soh")
+            and eng.get("get_soh_by_year")):
+        try:
+            _crv = _C_RATE_OPTIONS.get(ss.get("whl_bess_c_rate_label", ""), None)
+            p["bess_soh"] = eng["get_soh_by_year"](
+                float(ss.get("whl_bess_cycles", 365)), _crv)
+        except Exception:
+            p["bess_soh"] = None
     model = run_ppa_models(p)
     ss["_whl_model"] = model
 
     # ── Left: dual-perspective tabs ──────────────────────────
     with col_main:
-        tab_bal, tab_dev, tab_usr, tab_rpt = st.tabs(
+        tab_bal, tab_dev, tab_usr, tab_opt, tab_rpt = st.tabs(
             ["⚖️ Price Balancer", "🏗 Developer / IPP",
-             "🏭 End-user / Offtaker", "📁 Reports"])
+             "🏭 End-user / Offtaker", "🔍 Optimisation", "📁 Reports"])
 
         import plotly.graph_objects as go
 
         # ── Price Balancer tab ───────────────────────────────
         with tab_bal:
             _render_balancer(p, model, eng)
+
+        # ── Capacity Optimisation tab ────────────────────────
+        with tab_opt:
+            _render_optimiser(p, eng)
 
         def _chart(df, bar_col, line_col, title):
             fig = go.Figure()
@@ -1305,7 +1465,34 @@ def render_ppa_wheeling(eng: dict) -> None:
             _proj_safe = re.sub(r"[^\w\-]", "_", _proj).strip("_")
             _today = _dt.datetime.now().strftime("%Y%m%d")
 
-            for _persp, _tag in ((DEV, "Developer"), (USR, "EndUser")):
+            # ── Raw-data CSV export (available to all tiers) ─────────
+            st.markdown("**📥 Raw data export**")
+            _cc1, _cc2 = st.columns(2)
+            with _cc1:
+                st.download_button(
+                    "⬇ Developer cash flow (CSV)",
+                    data=model["dev_df"].to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"{_proj_safe}_PPA_Developer_{_today}.csv",
+                    mime="text/csv", use_container_width=True, key="whl_csv_dev")
+            with _cc2:
+                st.download_button(
+                    "⬇ Offtaker savings (CSV)",
+                    data=model["usr_df"].to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"{_proj_safe}_PPA_Offtaker_{_today}.csv",
+                    mime="text/csv", use_container_width=True, key="whl_csv_usr")
+            st.markdown("---")
+
+            # ── Formatted reports (Excel + PPTX) — Pro / Admin only ──
+            _isp = eng.get("is_pro")
+            _pro_ok = (_isp() if _isp else True)
+            if not _pro_ok:
+                st.markdown(
+                    '<div class="warning-box">🔒 <b>Pro / Admin feature</b> — '
+                    'formatted Excel & PowerPoint reports require a 🔵 Pro or '
+                    '🔴 Admin account. Raw CSV above is available to all tiers.'
+                    '</div>', unsafe_allow_html=True)
+            for _persp, _tag in (((DEV, "Developer"), (USR, "EndUser"))
+                                 if _pro_ok else ()):
                 st.markdown(f"##### {'🏗' if _persp == DEV else '🏭'} {_persp}")
                 b1, b2 = st.columns(2)
                 with b1:
