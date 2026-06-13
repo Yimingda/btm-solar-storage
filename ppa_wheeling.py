@@ -752,6 +752,33 @@ def _render_balancer(p: dict, model: dict, eng: dict) -> None:
                 _slider(key, lbl.replace("Battery · ", "").replace("Battery", "Dispatch"),
                         _default_price(base, s, "peak", is_bess=True))
 
+    # ── Price-structure matrix (reflects the active dimensions) ──────
+    es = p.get("energy_split") or {"pv": {("sum", "std"): 1.0},
+                                    "bess_season": {"win": 0.25, "sum": 0.75}}
+    _slbl = {"win": "Winter", "sum": "Summer", "all": "All-year"}
+    _plbl = {"peak": "Peak", "std": "Standard", "off": "Off-peak", "all": "All-day"}
+
+    def _pvf(s, pd):
+        seas = ["win", "sum"] if s == "all" else [s]
+        pers = ["peak", "std", "off"] if pd == "all" else [pd]
+        return sum(es["pv"].get((ss_, pp), 0.0) for ss_ in seas for pp in pers)
+
+    rows = [{"Axis": lbl, "Price (ZAR/kWh)": f"{float(ss.get(key, 0)):.2f}",
+             "PV energy share": f"{_pvf(s, pd)*100:.0f}%"}
+            for key, s, pd, lbl in pv_axes]
+    for key, s, lbl in bess_axes:
+        bf = 1.0 if s == "all" else es.get("bess_season", {}).get(s, 0.5)
+        rows.append({"Axis": lbl, "Price (ZAR/kWh)": f"{float(ss.get(key, 0)):.2f}",
+                     "PV energy share": f"(batt {bf*100:.0f}%)"})
+    with st.expander("📋 Active price matrix", expanded=False):
+        st.dataframe(__import__("pandas").DataFrame(rows),
+                     use_container_width=True, hide_index=True)
+        st.caption("One row per active price axis = "
+                   f"{'season×' if split_season else ''}"
+                   f"{'TOU×' if split_tou else ''}"
+                   f"{'asset' if split_asset else 'flat'} structure. "
+                   "Shares are the fraction of annual PV generation each axis prices.")
+
     # ── Live verdict KPIs: developer ↔ offtaker ──────────────────────
     dev_irr  = model["dev_irr"]
     dev_npv  = model["dev_npv"] / 1e6
@@ -874,27 +901,106 @@ def render_ppa_wheeling(eng: dict) -> None:
     with col_prm:
         _scroll = st.container(height=860, border=False)
     with _scroll:
+        # ── Site Location (interactive map, shared lat/lon with BTM) ──────
+        with st.expander("📍 Site Location", expanded=True):
+            ss.setdefault("lat", -26.1)
+            ss.setdefault("lon", 28.0)
+            ss.setdefault("tilt", 26.0)
+            ss.setdefault("azimuth", 180.0)
+            if eng.get("MAP_AVAILABLE"):
+                try:
+                    import folium
+                    from streamlit_folium import st_folium
+                    _m = folium.Map(
+                        location=[ss.lat, ss.lon], zoom_start=7,
+                        tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+                        attr="Google Satellite")
+                    folium.Marker(
+                        [ss.lat, ss.lon],
+                        popup=f"📍 {ss.lat:.4f}, {ss.lon:.4f}",
+                        icon=folium.Icon(color="red", icon="map-pin",
+                                         prefix="fa")).add_to(_m)
+                    _md = st_folium(_m, width=None, height=200, key="whl_site_map")
+                    if _md and _md.get("last_clicked"):
+                        _la = _md["last_clicked"]["lat"]; _lo = _md["last_clicked"]["lng"]
+                        if (abs(_la - ss.lat) > 1e-5 or abs(_lo - ss.lon) > 1e-5):
+                            ss.lat, ss.lon = _la, _lo
+                            ss["_whl_lat_in"] = _la; ss["_whl_lon_in"] = _lo
+                            ss.tilt = round(abs(_la), 1)
+                            ss.azimuth = 180.0 if _la < 0 else 0.0
+                            st.rerun()
+                except Exception as _e:
+                    st.info(f"Map unavailable: {_e}")
+            else:
+                st.info("Install folium + streamlit-folium to enable the map")
+            _lc, _oc = st.columns(2)
+            with _lc:
+                _nla = st.number_input("Latitude", -90.0, 90.0,
+                                       value=float(ss.lat), format="%.4f",
+                                       key="_whl_lat_in")
+            with _oc:
+                _nlo = st.number_input("Longitude", -180.0, 180.0,
+                                       value=float(ss.lon), format="%.4f",
+                                       key="_whl_lon_in")
+            if abs(_nla - ss.lat) > 1e-5:
+                ss.lat = _nla; ss.tilt = round(abs(_nla), 1)
+                ss.azimuth = 180.0 if _nla < 0 else 0.0
+            if abs(_nlo - ss.lon) > 1e-5:
+                ss.lon = _nlo
+
         with st.expander("☀️ PV Plant & Generation", expanded=True):
             st.number_input("PV Capacity (kWp)", 0.0, 1e6,
                             key="whl_pv_kwp", step=100.0)
+            # Generation source: PVGIS model vs uploaded 8760-h profile
+            _src = st.radio(
+                "Generation source",
+                ["PVGIS model (lat/lon/tilt/azimuth)",
+                 "Upload 8760-h profile"],
+                key="whl_pv_src", label_visibility="collapsed")
+            _csv = _src.startswith("Upload")
+            if _csv and eng.get("parse_load_csv"):
+                _up = st.file_uploader("PV generation 8760-h (kW)",
+                                       type=["csv", "txt", "xlsx", "xls"],
+                                       key="whl_pv_upload",
+                                       label_visibility="collapsed")
+                if _up is not None:
+                    _arr, _msg = eng["parse_load_csv"](_up)
+                    if _arr is not None and ss.whl_pv_kwp > 0:
+                        ss.whl_spec_yield = round(float(_arr.sum()) / ss.whl_pv_kwp, 1)
+                        st.success(f"Annual {_arr.sum()/1e3:,.0f} MWh → "
+                                   f"yield {ss.whl_spec_yield:.0f} kWh/kWp")
+                    elif _arr is not None:
+                        st.warning("Set PV capacity first.")
+                    else:
+                        st.error(_msg)
+            else:
+                ss.setdefault("pv_loss", 14.0)
+                st.number_input("System Loss (%)", 0.0, 50.0,
+                                step=0.5, key="pv_loss")
+                _t1, _t2 = st.columns(2)
+                with _t1:
+                    st.number_input("Tilt (°)", 0.0, 90.0,
+                                    step=1.0, key="tilt")
+                with _t2:
+                    st.number_input("Azimuth (°)", -180.0, 180.0,
+                                    step=5.0, key="azimuth")
+                if st.button("↻ Fetch yield from PVGIS", key="whl_pvgis_btn",
+                             use_container_width=True):
+                    try:
+                        pvg = eng["get_pvgis_data"](
+                            ss.lat, ss.lon, ss.whl_pv_kwp,
+                            ss.get("pv_loss", 14.0), ss.get("tilt", 26.0),
+                            ss.get("azimuth", 180.0))
+                        _akwh = float(pvg.get("annual_kwh", 0) or 0)
+                        if _akwh > 0 and ss.whl_pv_kwp > 0:
+                            ss.whl_spec_yield = round(_akwh / ss.whl_pv_kwp, 1)
+                            st.rerun()
+                        else:
+                            st.warning("PVGIS returned no data — kept manual yield.")
+                    except Exception as _e:
+                        st.warning(f"PVGIS unavailable: {_e}")
             st.number_input("Specific Yield Yr-1 (kWh/kWp)", 500.0, 3000.0,
                             key="whl_spec_yield", step=10.0)
-            if st.button("↻ Fetch yield from PVGIS", key="whl_pvgis_btn",
-                         use_container_width=True,
-                         help="Uses BTM site location (lat/lon, tilt, azimuth)"):
-                try:
-                    pvg = eng["get_pvgis_data"](
-                        ss.get("lat", -26.1), ss.get("lon", 28.0),
-                        ss.whl_pv_kwp, ss.get("pv_loss", 14.0),
-                        ss.get("tilt", 26.0), ss.get("azimuth", 180.0))
-                    _akwh = float(pvg.get("annual_kwh", 0) or 0)
-                    if _akwh > 0 and ss.whl_pv_kwp > 0:
-                        ss.whl_spec_yield = round(_akwh / ss.whl_pv_kwp, 1)
-                        st.rerun()
-                    else:
-                        st.warning("PVGIS returned no data — kept manual yield.")
-                except Exception as _e:
-                    st.warning(f"PVGIS unavailable: {_e}")
             st.number_input("PV Degradation (%/yr)", 0.0, 3.0,
                             key="whl_pv_degradation", step=0.1)
             st.markdown(
@@ -962,16 +1068,40 @@ def render_ppa_wheeling(eng: dict) -> None:
             st.number_input("Insurance (% CAPEX/yr)", 0.0, 5.0,
                             key="whl_insurance_pct", step=0.1)
 
-        with st.expander("🏦 Finance & Grid Baseline", expanded=False):
+        with st.expander("💡 Grid Tariff (baseline)", expanded=False):
+            _tdb = eng.get("TARIFF_DB") or {}
+            if _tdb:
+                _modes = list(_tdb.keys())
+                _cur = ss.get("tariff_mode", _modes[0])
+                if _cur not in _modes:
+                    _cur = _modes[0]
+                _sel = st.selectbox("Eskom / Municipal Tariff Mode", _modes,
+                                    index=_modes.index(_cur),
+                                    key="whl_tariff_mode_sel",
+                                    help="The grid tariff the wheeled PPA energy "
+                                         "displaces — also drives the TOU split.")
+                if _sel != ss.get("_whl_prev_tariff_mode"):
+                    ss.tariff_mode = _sel
+                    _rates = _tdb.get(_sel)
+                    if _sel not in ("Custom (manual)",) and _rates:
+                        w_pk, w_std, w_op, s_pk, s_std, s_op = _rates
+                        ss.w_morning_peak = ss.w_evening_peak = w_pk
+                        ss.w_standard = w_std; ss.w_off_peak = w_op
+                        ss.s_morning_peak = ss.s_evening_peak = s_pk
+                        ss.s_standard = s_std; ss.s_off_peak = s_op
+                    ss._whl_prev_tariff_mode = _sel
+                    ss.whl_grid_tariff = _blended_grid_tariff(eng)
+                    st.rerun()
             st.number_input("Grid Reference Tariff (ZAR/kWh)", 0.0, 20.0,
                             key="whl_grid_tariff", step=0.05, format="%.4f",
                             help="Blended daylight grid rate the wheeled energy "
-                                 "displaces — auto-seeded from the BTM Megaflex "
-                                 "tariff table")
+                                 "displaces — auto-seeded from the tariff table")
             if st.button("↻ Re-blend from tariff table", key="whl_blend_btn",
                          use_container_width=True):
                 ss.whl_grid_tariff = _blended_grid_tariff(eng)
                 st.rerun()
+
+        with st.expander("🏦 Finance", expanded=False):
             st.number_input("Grid Tariff Escalation (%/yr)", 0.0, 25.0,
                             key="whl_grid_escalation", step=0.25)
             st.number_input("Cost Escalation CPI (%/yr)", 0.0, 25.0,
