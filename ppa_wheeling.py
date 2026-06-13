@@ -665,7 +665,9 @@ def _collect_bucket_prices(ss) -> tuple[dict, dict]:
     defaults for any bucket not yet set. Returns (pv_prices, bess_prices)
     keyed by (season,period) / season for run_ppa_models.
     """
-    base = float(ss.get("whl_ppa_price", 1.20) or 1.20)
+    base = float(ss.get("whl_ppa_price", 1.20) or 0.0)
+    if base <= 0:                      # never seed axes to 0
+        base = float(ss.get("whl_grid_tariff", 1.20) or 1.20) or 1.20
     pv_axes, bess_axes = price_buckets(
         bool(ss.get("whl_split_season", False)),
         bool(ss.get("whl_split_tou", False)),
@@ -725,10 +727,10 @@ def _params_dict() -> dict:
 
 def _render_balancer(p: dict, model: dict, eng: dict) -> None:
     """
-    Interactive PPA-price balancer: one slider per price axis of the active
-    pricing model. Dragging recomputes (on release) the developer return and
-    the offtaker saving live, and plots the full price→outcome trade-off with
-    a marker at the current price so the win-win band is visible.
+    PPA-price balancer / trade-off console. Per-axis PPA prices are edited in
+    the right parameter panel (single source of truth); this tab shows the
+    current price chips, the active price-structure matrix, the live developer
+    ↔ offtaker verdict, and a price→outcome sweep marking the win-win band.
     """
     import plotly.graph_objects as go
     ss = st.session_state
@@ -747,31 +749,32 @@ def _render_balancer(p: dict, model: dict, eng: dict) -> None:
         f'<div class="section-header">⚖️ PPA Price Balancer — '
         f'{n_axes} price {"axis" if n_axes == 1 else "axes"} '
         f'({_dim_txt})</div>', unsafe_allow_html=True)
-    st.caption(f"Grid reference tariff R {grid:.2f}/kWh · toggle dimensions in "
-               "the right panel · drag a slider and release to recompute.")
+    st.caption(f"Grid reference tariff R {grid:.2f}/kWh · set the price of each "
+               "axis in the **right parameter panel** (PPA Terms); this tab "
+               "shows the live trade-off.")
 
     _smax = round(max(grid * 1.6, 3.0), 1)
     base  = float(ss.get("whl_ppa_price", 1.20) or 1.20)
+    if base <= 0:
+        base = grid or 1.20
 
-    def _slider(key, lbl, seed):
-        if key not in ss:
-            ss[key] = seed
-        ss[key] = min(max(float(ss[key]), 0.20), _smax)
-        st.slider(f"{lbl} (ZAR/kWh)", 0.20, _smax, step=0.05, key=key)
-
-    # ── PV price axes (grouped season × period) ──────────────────────
-    st.markdown("**☀️ PV energy price**")
-    for c, (key, s, pd, lbl) in zip(st.columns(len(pv_axes)), pv_axes):
-        with c:
-            _slider(key, lbl.replace("PV · ", "").replace("PV", "Flat"),
-                    _default_price(base, s, pd))
-    # ── Battery price axes (season only) ─────────────────────────────
-    if bess_axes:
-        st.markdown("**🔋 Battery dispatch price**")
-        for c, (key, s, lbl) in zip(st.columns(len(bess_axes)), bess_axes):
-            with c:
-                _slider(key, lbl.replace("Battery · ", "").replace("Battery", "Dispatch"),
-                        _default_price(base, s, "peak", is_bess=True))
+    # ── Editable PPA prices live in the parameter panel (single source of
+    # truth, canonical whl_p_* keys). A slider here would duplicate those
+    # widget keys → Streamlit error. Show the current values as compact
+    # read-only chips so the balancer still reads as a price console.
+    def _chip(lbl, val):
+        return (f"<span style='display:inline-block;margin:2px 6px 2px 0;"
+                f"padding:3px 9px;border:1px solid var(--border);border-radius:4px;"
+                f"font-family:IBM Plex Mono,monospace;font-size:0.78rem;"
+                f"color:var(--text-main)'>{lbl} "
+                f"<b style='color:#00E5A0'>R{val:.2f}</b></span>")
+    _chips = "".join(
+        _chip(lbl.replace("PV · ", "").replace("PV", "Flat"),
+              float(ss.get(key, base))) for key, s, pd, lbl in pv_axes)
+    _chips += "".join(
+        _chip("🔋 " + lbl.replace("Battery · ", "").replace("Battery", "Battery"),
+              float(ss.get(key, base))) for key, s, lbl in bess_axes)
+    st.markdown(_chips, unsafe_allow_html=True)
 
     # ── Price-structure matrix (reflects the active dimensions) ──────
     es = p.get("energy_split") or {"pv": {("sum", "std"): 1.0},
@@ -1163,16 +1166,37 @@ def render_ppa_wheeling(eng: dict) -> None:
             st.checkbox("Distinguish TOU (peak / standard / off-peak)",
                         key="whl_split_tou")
             st.checkbox("Distinguish PV / battery price", key="whl_split_asset")
-            _ns = (2 if ss.get("whl_split_season") else 1)
-            _nt = (3 if ss.get("whl_split_tou") else 1)
-            _na = _ns * _nt + (_ns if ss.get("whl_split_asset") else 0)
-            st.caption(f"⚖️ {_na} price "
-                       f"{'axis' if _na == 1 else 'axes'} — drag on the "
-                       "**Price Balancer** tab to set each price.")
+            _split_se = bool(ss.get("whl_split_season"))
+            _split_to = bool(ss.get("whl_split_tou"))
+            _split_as = bool(ss.get("whl_split_asset"))
+            _pv_ax, _bess_ax = price_buckets(_split_se, _split_to, _split_as)
+            _n_ax = len(_pv_ax) + len(_bess_ax)
+            # Base price seeds new axes — never 0 (else all axes seed to 0)
+            _base = float(ss.get("whl_ppa_price", 1.20) or 0.0)
+            if _base <= 0:
+                _base = float(ss.get("whl_grid_tariff", 1.20) or 1.20) or 1.20
             st.number_input("Base PPA Price (ZAR/kWh)", 0.0, 20.0,
                             key="whl_ppa_price", step=0.01, format="%.4f",
-                            help="Seeds new price axes when you toggle a "
-                                 "dimension; also the price when all toggles off.")
+                            help="Reference price; seeds each axis below when "
+                                 "you first enable a dimension.")
+            if _n_ax == 1:
+                st.caption("⚖️ Single flat price (above). Toggle a dimension "
+                           "to split into multiple PPA prices.")
+            else:
+                st.markdown(f"**⚖️ {_n_ax} PPA price axes** "
+                            "(also draggable on the Price Balancer):")
+                # ☀️ PV axes — set each price right here in the parameter panel
+                for _k, _s, _pd, _lbl in _pv_ax:
+                    ss.setdefault(_k, _default_price(_base, _s, _pd))
+                    st.number_input(f"☀️ {_lbl.replace('PV · ', '').replace('PV', 'PV (flat)')}"
+                                    "  ZAR/kWh", 0.0, 20.0,
+                                    key=_k, step=0.05, format="%.4f")
+                # 🔋 Battery axes (asset dimension)
+                for _k, _s, _lbl in _bess_ax:
+                    ss.setdefault(_k, _default_price(_base, _s, "peak", is_bess=True))
+                    st.number_input(f"🔋 {_lbl.replace('Battery · ', '').replace('Battery', 'Battery')}"
+                                    "  ZAR/kWh", 0.0, 20.0,
+                                    key=_k, step=0.05, format="%.4f")
             st.number_input("PPA Escalation (%/yr)", 0.0, 25.0,
                             key="whl_ppa_escalation", step=0.25)
             st.number_input("Contract Term (years)", 1, 25,
