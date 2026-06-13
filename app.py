@@ -2952,6 +2952,9 @@ if _scenario == "wheeling":
         "SECTION_12B":         SECTION_12B,
         "ANALYSIS_YEARS":      ANALYSIS_YEARS,
         "fmw":                 _fmw,
+        "TARIFF_DB":           TARIFF_DB,
+        "MAP_AVAILABLE":       MAP_AVAILABLE,
+        "parse_load_csv":      parse_load_csv,
     })
     st.stop()
 
@@ -4025,6 +4028,30 @@ with col_content:
                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                        use_container_width=True)
 
+            # ── Shared report branding — heads BOTH Excel & PowerPoint ──
+            st.markdown("---")
+            st.markdown(
+                '<div class="section-header">🏷 Report Branding — applies to '
+                'Excel + PowerPoint exports below</div>',
+                unsafe_allow_html=True,
+            )
+            _rb1, _rb2 = st.columns(2)
+            with _rb1:
+                st.text_input(
+                    "EPC / Consultant",
+                    value=st.session_state.get("_pptx_consultant", ""),
+                    placeholder="e.g. Lanxi Engineering",
+                    key="_pptx_consultant")
+            with _rb2:
+                st.text_input(
+                    "Client Name",
+                    value=st.session_state.get("_pptx_client_name", ""),
+                    placeholder="e.g. Lanxi Mining Company",
+                    help='Appears on cover: "Confidential · Only For: {Client Name}"',
+                    key="_pptx_client_name")
+            st.caption("🏭 OEM: **Huawei Technologies SA PTY LTD** "
+                       "(fixed — Huawei partner requirement)")
+
             # ── Excel / Professional Excel Report ──
             st.markdown("---")
             st.markdown(
@@ -4098,26 +4125,7 @@ with col_content:
                 &nbsp;|&nbsp; White professional template · McKinsey-style narrative per slide
             </div>""", unsafe_allow_html=True)
 
-            # Report branding inputs
-            _rpt_col1, _rpt_col2 = st.columns(2)
-            with _rpt_col1:
-                st.text_input(
-                    "EPC / Consultant",
-                    value=st.session_state.get("_pptx_consultant", ""),
-                    placeholder="e.g. Lanxi Engineering",
-                    key="_pptx_consultant",
-                )
-            with _rpt_col2:
-                st.text_input(
-                    "Client Name",
-                    value=st.session_state.get("_pptx_client_name", ""),
-                    placeholder="e.g. Lanxi Mining Company",
-                    help='Appears on cover: "Confidential · Only For: {Client Name}"',
-                    key="_pptx_client_name",
-                )
-            # OEM is hardcoded per Huawei partner requirement
-            st.caption("🏭 OEM: **Huawei Technologies SA PTY LTD** (fixed — Huawei partner requirement)")
-
+            # EPC / Client / OEM set in the shared Report Branding block above
             _pp_btn_col, _pp_dl_col = st.columns([2, 3])
             with _pp_btn_col:
                 _gen_pptx_btn = st.button(
