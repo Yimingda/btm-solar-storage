@@ -72,14 +72,45 @@ def get_params_to_save() -> dict:
     return params
 
 
+def _current_scenario() -> str:
+    """Active scenario: 'btm' or 'wheeling'. Projects are namespaced by this so
+    the two modes keep entirely separate project lists / folders."""
+    return st.session_state.get("_scenario", "btm") or "btm"
+
+
+def _snap_scenario(snap: dict) -> str:
+    """Scenario a saved snapshot belongs to (tagged in results_json).
+    Untagged legacy rows default to 'btm'."""
+    return ((snap.get("results_json") or {}).get("_scenario") or "btm")
+
+
+def _scoped_snapshots(user_id: str) -> list:
+    """Snapshots for the current user filtered to the active scenario."""
+    cur = _current_scenario()
+    return [s for s in get_snapshots(user_id) if _snap_scenario(s) == cur]
+
+
 def get_results_summary() -> dict:
-    """Extract lightweight results summary for project list display."""
+    """Extract lightweight results summary for project list display.
+    Always tagged with the active scenario so saved projects are namespaced."""
+    _scen = _current_scenario()
+    if _scen == "wheeling":
+        # Wheeling stores its model under _whl_model (not the BTM `results`)
+        _wm = st.session_state.get("_whl_model") or {}
+        return {
+            "_scenario": "wheeling",
+            "npv":     round(_wm.get("dev_npv", 0) or 0, 0),
+            "irr":     round(_wm.get("dev_irr", 0) or 0, 2),
+            "payback": round(_wm.get("dev_payback", 0) or 0, 2),
+        }
     res = st.session_state.get("results")
     if not res:
-        return {}
+        # Pre-run — keep the scenario tag even with no results yet
+        return {"_scenario": _scen}
     _lcoe = res.get("lcoe") or {}   # None when no PV — use `or {}` not default arg
     _lcos = res.get("lcos") or {}   # None when no BESS
     return {
+        "_scenario":           _scen,
         "npv":                 round(res.get("npv", 0), 0),
         "irr":                 round(res.get("irr", 0), 2),
         "payback":             round(res.get("payback", 0) or 0, 2),
@@ -159,7 +190,7 @@ def render_snapshot_panel() -> None:
     limit   = user.get("snapshot_limit", 3)
     tier    = user.get("tier", "free")
 
-    snapshots = get_snapshots(user_id)
+    snapshots = _scoped_snapshots(user_id)
     count     = len(snapshots)
 
     _tier_icon = {"free": "🆓", "pro": "🔵", "admin": "🔴"}.get(tier, "🆓")
@@ -239,7 +270,7 @@ _NEW_FOLDER_SENTINEL = "＋ New folder…"
 
 def _get_existing_folders(user_id: str) -> list[str]:
     """Return sorted list of existing folder names (client_names), General last."""
-    snaps = get_snapshots(user_id)
+    snaps = _scoped_snapshots(user_id)
     names = sorted(set(
         s["client_name"].strip()
         for s in snaps
@@ -841,7 +872,7 @@ def render_project_bar() -> None:
     tier      = user.get("tier", "free")
     limit_str = "∞" if limit >= 999999 else str(limit)
 
-    snapshots = get_snapshots(user_id)
+    snapshots = _scoped_snapshots(user_id)
     count     = len(snapshots)
 
     # ── DnD bridge: hidden text input for JS → Python communication ───────────
