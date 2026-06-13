@@ -58,14 +58,13 @@ def _init_state(eng: dict) -> None:
         "whl_ppa_price":       1.20,              # ZAR/kWh — single-price mode
         "whl_ppa_escalation":  6.0,               # %/yr
         "whl_contract_years":  20,
-        # PPA pricing model + per-mode prices (ZAR/kWh)
-        "whl_pricing_model":   "Single price",    # Single price | TOU 3-period | By asset PV+Battery
-        "whl_ppa_price_peak":     1.80,           # TOU: evening/morning peak
-        "whl_ppa_price_standard": 1.20,           # TOU: standard
-        "whl_ppa_price_offpeak":  0.70,           # TOU: off-peak
-        "whl_ppa_price_pv":       1.10,           # Asset-split: PV energy
-        "whl_ppa_price_bess":     2.20,           # Asset-split: battery-dispatched
-        # Battery (only used by the PV+Battery asset-split pricing model)
+        # PPA pricing structure — three independent dimension toggles.
+        # Each active combination gets its own price slider on the balancer
+        # (keys created lazily as whl_p_pv_<season>_<period> / whl_p_bess_<season>).
+        "whl_split_season":    False,             # distinguish winter / summer
+        "whl_split_tou":       False,             # distinguish peak/std/off-peak
+        "whl_split_asset":     False,             # distinguish PV / battery price
+        # Battery leg (only used when the PV/battery asset dimension is on)
         "whl_bess_kwh":          float(ss.get("bess_kwh", 0.0) or 0.0),
         "whl_bess_cycles":       365.0,           # equivalent full cycles / yr
         "whl_bess_rte":          90.0,            # round-trip efficiency %
@@ -109,37 +108,97 @@ def _blended_grid_tariff(eng: dict) -> float:
         return 2.50
 
 
-def tou_generation_split(eng: dict) -> dict:
+_WINTER_MONTHS = (6, 7, 8)        # Eskom high season Jun–Aug = "winter"
+
+
+def energy_split(eng: dict) -> dict:
     """
-    Fraction of annual PV generation falling in each TOU period
-    (peak / standard / off_peak).  Builds an 8760-h Gaussian daylight PV
-    profile and classifies each weekday hour via the BTM tariff engine, so
-    the split honours the active tariff_mode's peak windows.  PV is daylight
-    only → off-peak (night) share ≈ 0; bulk lands in standard + peak shoulders.
-    Returns {"peak":f, "standard":f, "off_peak":f} summing to 1.0.
+    PV generation fractions over (season, TOU-period) buckets, plus the
+    battery season split. Season = Eskom high season (Jun–Aug = winter).
+    Builds an 8760-h Gaussian daylight PV profile and classifies each weekday
+    hour via the BTM tariff engine, so the split honours the active
+    tariff_mode's peak windows. PV is daylight only → off-peak share ≈ 0.
+
+    Returns {
+      "pv":          {("win"|"sum", "peak"|"std"|"off"): fraction},  # Σ = 1.0
+      "bess_season": {"win": f, "sum": f},                           # Σ = 1.0
+    }
     """
+    days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     try:
         import numpy as _np
         hours = _np.arange(24)
-        w = _np.exp(-0.5 * ((hours - 12) / 2.5) ** 2)   # daylight bell, same as BTM
+        w = _np.exp(-0.5 * ((hours - 12) / 2.5) ** 2)   # daylight bell (as BTM)
         w[(hours < 6) | (hours > 18)] = 0.0
         if w.sum() <= 0:
             raise ValueError
         w /= w.sum()
-        days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-        buckets = {"peak": 0.0, "standard": 0.0, "off_peak": 0.0}
+        pv = {}
         for m in range(1, 13):
+            season = "win" if m in _WINTER_MONTHS else "sum"
             for h in range(24):
                 _, period = eng["get_tariff_for_hour"](h, m, "weekday")
-                key = ("peak" if "peak" in str(period) and "off" not in str(period)
-                       else "off_peak" if "off" in str(period)
-                       else "standard")
-                buckets[key] += w[h] * days[m - 1]
-        tot = sum(buckets.values()) or 1.0
-        return {k: v / tot for k, v in buckets.items()}
+                pk = ("peak" if "peak" in str(period) and "off" not in str(period)
+                      else "off" if "off" in str(period) else "std")
+                pv[(season, pk)] = pv.get((season, pk), 0.0) + w[h] * days[m - 1]
+        tot = sum(pv.values()) or 1.0
+        pv = {k: v / tot for k, v in pv.items()}
     except Exception:
-        # Fallback: typical SA daylight PV split (no off-peak generation)
-        return {"peak": 0.18, "standard": 0.82, "off_peak": 0.0}
+        # Fallback: daylight PV split, no off-peak, ~25% winter (Jun–Aug)
+        pv = {("win", "std"): 0.205, ("win", "peak"): 0.045,
+              ("sum", "std"): 0.615, ("sum", "peak"): 0.135}
+    win_days = sum(days[m - 1] for m in _WINTER_MONTHS)
+    return {"pv": pv,
+            "bess_season": {"win": win_days / 365.0,
+                            "sum": 1.0 - win_days / 365.0}}
+
+
+def price_buckets(split_season: bool, split_tou: bool, split_asset: bool):
+    """
+    Enumerate the active price axes for the given dimension toggles.
+    Pure (no streamlit) — used by the param panel, the balancer sliders and
+    the term-sheet builder so all three agree on keys.
+
+    Returns (pv_axes, bess_axes):
+      pv_axes  : list of (state_key, season_code, period_code, label)
+      bess_axes: list of (state_key, season_code, label)   [empty if no asset]
+    Battery is NOT split by TOU (it dispatches into peak); it only splits by
+    season when the season toggle is on.
+    """
+    seasons = ([("win", "Winter"), ("sum", "Summer")] if split_season
+               else [("all", "All-year")])
+    periods = ([("peak", "Peak"), ("std", "Standard"), ("off", "Off-peak")]
+               if split_tou else [("all", "All-day")])
+    pv_axes = [
+        (f"whl_p_pv_{s}_{pd}", s, pd,
+         "PV" + (f" · {sl}" if s != "all" else "")
+              + (f" · {pl}" if pd != "all" else ""))
+        for (s, sl) in seasons for (pd, pl) in periods
+    ]
+    bess_axes = []
+    if split_asset:
+        bess_axes = [
+            (f"whl_p_bess_{s}", s,
+             "Battery" + (f" · {sl}" if s != "all" else " · dispatch"))
+            for (s, sl) in seasons
+        ]
+    return pv_axes, bess_axes
+
+
+def _default_price(base: float, season: str, period: str,
+                   is_bess: bool = False) -> float:
+    """Sensible seed price for a bucket: peak×1.4 / off×0.6, winter×1.15,
+    battery dispatch premium ×1.8."""
+    f = 1.0
+    if season == "win":
+        f *= 1.15
+    if period == "peak":
+        f *= 1.40
+    elif period == "off":
+        f *= 0.60
+    if is_bess:
+        f *= 1.80
+    return round(base * f, 2)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -179,11 +238,13 @@ def run_ppa_models(p: dict) -> dict:
             loss_borne_by, discount_rate, tax_rate, cost_escalation,
             grid_escalation, grid_tariff, section_12b, service_fraction
 
-    Pricing model (optional — defaults to single-price, identical to before):
-      pricing_model : "Single price" | "TOU 3-period" | "By asset PV+Battery"
-      tou_split     : {"peak","standard","off_peak"} generation fractions
-      ppa_price_peak/standard/offpeak : TOU prices (ZAR/kWh)
-      ppa_price_pv / ppa_price_bess   : asset-split prices (ZAR/kWh)
+    Pricing structure (optional — defaults to single flat price, identical
+    to before).  Three independent dimension toggles combine into a price
+    matrix; PV price axes = (2 if season)·(3 if TOU), battery = (2 if season):
+      split_season / split_tou / split_asset : bool dimension toggles
+      pv_prices   : {(season,period): ZAR/kWh}  season∈{win,sum,all} period∈{peak,std,off,all}
+      bess_prices : {season: ZAR/kWh}           (asset only)
+      energy_split: {"pv":{(season,period):frac}, "bess_season":{win,sum}}
       bess_kwh, bess_cycles, bess_rte, bess_dod, bess_capex_per_kwh : battery leg
     """
     yrs   = int(p["contract_years"])
@@ -196,31 +257,43 @@ def run_ppa_models(p: dict) -> dict:
     disc  = p["discount_rate"] / 100.0
     tax   = p["tax_rate"] / 100.0
 
-    # ── Pricing model ─────────────────────────────────────────────────
-    _pm      = str(p.get("pricing_model", "Single price"))
-    is_tou   = _pm.startswith("TOU")
-    is_asset = _pm.startswith("By asset")
-    tou      = p.get("tou_split") or {"peak": 0.0, "standard": 1.0, "off_peak": 0.0}
-    # Effective year-1 blended PV PPA price by model
-    if is_tou:
-        pv_price1 = (tou["peak"]     * p.get("ppa_price_peak", p["ppa_price"])
-                     + tou["standard"] * p.get("ppa_price_standard", p["ppa_price"])
-                     + tou["off_peak"] * p.get("ppa_price_offpeak", p["ppa_price"]))
-    elif is_asset:
-        pv_price1 = p.get("ppa_price_pv", p["ppa_price"])
-    else:
-        pv_price1 = p["ppa_price"]
-    bess_price1 = p.get("ppa_price_bess", 0.0)
+    # ── Pricing structure: toggles → blended year-1 PV / battery price ──
+    split_season = bool(p.get("split_season", False))
+    split_tou    = bool(p.get("split_tou", False))
+    split_asset  = bool(p.get("split_asset", False))
+    es           = p.get("energy_split") or {
+        "pv": {("sum", "std"): 0.75, ("win", "std"): 0.25},
+        "bess_season": {"win": 0.25, "sum": 0.75}}
+    pv_fine   = es["pv"]
+    pv_prices = p.get("pv_prices") or {}
+    flat      = float(p.get("ppa_price", 1.20))
 
-    # ── Battery leg (asset-split model only) ──────────────────────────
-    if is_asset:
-        bess_kwh  = float(p.get("bess_kwh", 0.0) or 0.0)
-        bess_e1   = (bess_kwh * (p.get("bess_dod", 90) / 100.0)
-                     * float(p.get("bess_cycles", 365))
-                     * (p.get("bess_rte", 90) / 100.0))     # delivered kWh/yr
+    skeys = ["win", "sum"] if split_season else ["all"]
+    pkeys = ["peak", "std", "off"] if split_tou else ["all"]
+
+    def _pv_frac(s, pd):
+        seasons = ["win", "sum"] if s == "all" else [s]
+        periods = ["peak", "std", "off"] if pd == "all" else [pd]
+        return sum(pv_fine.get((ss, pp), 0.0) for ss in seasons for pp in periods)
+
+    pv_price1 = sum((pv_prices.get((s, pd), flat)) * _pv_frac(s, pd)
+                    for s in skeys for pd in pkeys)   # blended ZAR/kWh, Σfrac=1
+
+    # ── Battery leg (asset dimension only) ─────────────────────────────
+    if split_asset:
+        bess_kwh   = float(p.get("bess_kwh", 0.0) or 0.0)
+        bess_e1    = (bess_kwh * (p.get("bess_dod", 90) / 100.0)
+                      * float(p.get("bess_cycles", 365))
+                      * (p.get("bess_rte", 90) / 100.0))    # delivered kWh/yr
         bess_capex = bess_kwh * float(p.get("bess_capex_per_kwh", 0.0) or 0.0)
+        bess_prices = p.get("bess_prices") or {}
+        bseason     = es.get("bess_season", {"win": 0.25, "sum": 0.75})
+        _bdef       = float(p.get("ppa_price_bess", flat * 1.8))
+        bess_price1 = sum((bess_prices.get(s, _bdef))
+                          * (1.0 if s == "all" else bseason.get(s, 0.5))
+                          for s in skeys)
     else:
-        bess_e1, bess_capex = 0.0, 0.0
+        bess_e1, bess_capex, bess_price1 = 0.0, 0.0, 0.0
 
     capex     = p["pv_kwp"] * p["capex_per_kwp"] + bess_capex
     svc_frac  = p.get("service_fraction", 0.40)
@@ -568,6 +641,29 @@ def _kpi(label: str, value: str, sub: str = "") -> None:
         unsafe_allow_html=True)
 
 
+def _collect_bucket_prices(ss) -> tuple[dict, dict]:
+    """
+    Read the active price-bucket values from session state, seeding sensible
+    defaults for any bucket not yet set. Returns (pv_prices, bess_prices)
+    keyed by (season,period) / season for run_ppa_models.
+    """
+    base = float(ss.get("whl_ppa_price", 1.20) or 1.20)
+    pv_axes, bess_axes = price_buckets(
+        bool(ss.get("whl_split_season", False)),
+        bool(ss.get("whl_split_tou", False)),
+        bool(ss.get("whl_split_asset", False)))
+    pv_prices, bess_prices = {}, {}
+    for key, s, pd, _lbl in pv_axes:
+        if key not in ss:
+            ss[key] = _default_price(base, s, pd)
+        pv_prices[(s, pd)] = float(ss[key])
+    for key, s, _lbl in bess_axes:
+        if key not in ss:
+            ss[key] = _default_price(base, s, "peak", is_bess=True)
+        bess_prices[s] = float(ss[key])
+    return pv_prices, bess_prices
+
+
 def _params_dict() -> dict:
     ss = st.session_state
     return {
@@ -580,14 +676,13 @@ def _params_dict() -> dict:
         "ppa_price":       ss.whl_ppa_price,
         "ppa_escalation":  ss.whl_ppa_escalation,
         "contract_years":  ss.whl_contract_years,
-        # Pricing model + per-mode prices
-        "pricing_model":      ss.get("whl_pricing_model", "Single price"),
-        "ppa_price_peak":     ss.get("whl_ppa_price_peak", ss.whl_ppa_price),
-        "ppa_price_standard": ss.get("whl_ppa_price_standard", ss.whl_ppa_price),
-        "ppa_price_offpeak":  ss.get("whl_ppa_price_offpeak", ss.whl_ppa_price),
-        "ppa_price_pv":       ss.get("whl_ppa_price_pv", ss.whl_ppa_price),
-        "ppa_price_bess":     ss.get("whl_ppa_price_bess", 0.0),
-        # Battery leg (asset-split model)
+        # Pricing structure — dimension toggles + per-bucket price matrix
+        "split_season": bool(ss.get("whl_split_season", False)),
+        "split_tou":    bool(ss.get("whl_split_tou", False)),
+        "split_asset":  bool(ss.get("whl_split_asset", False)),
+        "pv_prices":    _collect_bucket_prices(ss)[0],
+        "bess_prices":  _collect_bucket_prices(ss)[1],
+        # Battery leg (asset dimension)
         "bess_kwh":            ss.get("whl_bess_kwh", 0.0),
         "bess_cycles":         ss.get("whl_bess_cycles", 365.0),
         "bess_rte":            ss.get("whl_bess_rte", 90.0),
@@ -617,41 +712,45 @@ def _render_balancer(p: dict, model: dict, eng: dict) -> None:
     import plotly.graph_objects as go
     ss = st.session_state
 
-    _pm = str(ss.get("whl_pricing_model", "Single price"))
-    is_tou   = _pm.startswith("TOU")
-    is_asset = _pm.startswith("By asset")
+    split_season = bool(ss.get("whl_split_season", False))
+    split_tou    = bool(ss.get("whl_split_tou", False))
+    split_asset  = bool(ss.get("whl_split_asset", False))
+    pv_axes, bess_axes = price_buckets(split_season, split_tou, split_asset)
+    n_axes = len(pv_axes) + len(bess_axes)
 
-    # Slider axes for the active model → (state key, label)
-    if is_tou:
-        axes = [("whl_ppa_price_peak", "Peak"),
-                ("whl_ppa_price_standard", "Standard"),
-                ("whl_ppa_price_offpeak", "Off-peak")]
-        primary = "whl_ppa_price_peak"
-    elif is_asset:
-        axes = [("whl_ppa_price_pv", "PV energy"),
-                ("whl_ppa_price_bess", "Battery dispatch")]
-        primary = "whl_ppa_price_pv"
-    else:
-        axes = [("whl_ppa_price", "PPA price")]
-        primary = "whl_ppa_price"
-
+    _dims = [d for d, on in (("season", split_season), ("TOU", split_tou),
+                             ("PV/battery", split_asset)) if on]
+    _dim_txt = " × ".join(_dims) if _dims else "single flat price"
     grid = float(p.get("grid_tariff", 1.5)) or 1.5
     st.markdown(
         f'<div class="section-header">⚖️ PPA Price Balancer — '
-        f'{len(axes)} {"axis" if len(axes)==1 else "axes"} '
-        f'({_pm})</div>', unsafe_allow_html=True)
-    st.caption(f"Grid reference tariff R {grid:.2f}/kWh · drag a slider and "
-               "release to recompute both perspectives.")
+        f'{n_axes} price {"axis" if n_axes == 1 else "axes"} '
+        f'({_dim_txt})</div>', unsafe_allow_html=True)
+    st.caption(f"Grid reference tariff R {grid:.2f}/kWh · toggle dimensions in "
+               "the right panel · drag a slider and release to recompute.")
 
-    # ── Sliders (one per price axis) ─────────────────────────────────
     _smax = round(max(grid * 1.6, 3.0), 1)
-    scols = st.columns(len(axes))
-    for (key, lbl), c in zip(axes, scols):
-        # Clamp any pre-seeded value into the slider range, then bind by key
-        # only (no `value` arg — key is already seeded in session state).
-        ss[key] = min(max(float(ss.get(key, 1.20)), 0.20), _smax)
+    base  = float(ss.get("whl_ppa_price", 1.20) or 1.20)
+
+    def _slider(key, lbl, seed):
+        if key not in ss:
+            ss[key] = seed
+        ss[key] = min(max(float(ss[key]), 0.20), _smax)
+        st.slider(f"{lbl} (ZAR/kWh)", 0.20, _smax, step=0.05, key=key)
+
+    # ── PV price axes (grouped season × period) ──────────────────────
+    st.markdown("**☀️ PV energy price**")
+    for c, (key, s, pd, lbl) in zip(st.columns(len(pv_axes)), pv_axes):
         with c:
-            st.slider(f"{lbl} (ZAR/kWh)", 0.20, _smax, step=0.05, key=key)
+            _slider(key, lbl.replace("PV · ", "").replace("PV", "Flat"),
+                    _default_price(base, s, pd))
+    # ── Battery price axes (season only) ─────────────────────────────
+    if bess_axes:
+        st.markdown("**🔋 Battery dispatch price**")
+        for c, (key, s, lbl) in zip(st.columns(len(bess_axes)), bess_axes):
+            with c:
+                _slider(key, lbl.replace("Battery · ", "").replace("Battery", "Dispatch"),
+                        _default_price(base, s, "peak", is_bess=True))
 
     # ── Live verdict KPIs: developer ↔ offtaker ──────────────────────
     dev_irr  = model["dev_irr"]
@@ -691,16 +790,26 @@ def _render_balancer(p: dict, model: dict, eng: dict) -> None:
         f'font-family:IBM Plex Mono,monospace;font-size:0.85rem">{_vt}</div>',
         unsafe_allow_html=True)
 
-    # ── Trade-off sweep: vary the primary price axis, hold others ─────
-    base_p = dict(p)
-    cur = float(ss.get(primary, 1.20))
+    # ── Trade-off sweep: scale all PV bucket prices, x = blended PV price ──
+    es = p.get("energy_split") or {"pv": {("sum", "std"): 1.0}}
+    pv_fine = es["pv"]
+    skeys = ["win", "sum"] if split_season else ["all"]
+    pkeys = ["peak", "std", "off"] if split_tou else ["all"]
+
+    def _frac(s, pd):
+        seas = ["win", "sum"] if s == "all" else [s]
+        pers = ["peak", "std", "off"] if pd == "all" else [pd]
+        return sum(pv_fine.get((ss_, pp), 0.0) for ss_ in seas for pp in pers)
+
+    pv_blend = sum(p["pv_prices"].get((s, pd), base) * _frac(s, pd)
+                   for s in skeys for pd in pkeys) or base
+
     xs = [round(0.20 + i * (_smax - 0.20) / 40, 3) for i in range(41)]
     dev_y, usr_y = [], []
-    # map primary state key → model-param key
-    _pk = {"whl_ppa_price": "ppa_price", "whl_ppa_price_peak": "ppa_price_peak",
-           "whl_ppa_price_pv": "ppa_price_pv"}[primary]
     for xv in xs:
-        q = dict(base_p); q[_pk] = xv
+        k = xv / max(pv_blend, 1e-6)
+        q = dict(p)
+        q["pv_prices"] = {b: pr * k for b, pr in p["pv_prices"].items()}
         m = run_ppa_models(q)
         dev_y.append(m["dev_irr"])
         usr_y.append(m["usr_cum_saving"] / 1e6)
@@ -714,24 +823,26 @@ def _render_balancer(p: dict, model: dict, eng: dict) -> None:
     fig.add_hline(y=p["discount_rate"], line=dict(color="#F6C90E", dash="dash"),
                   annotation_text=f"Hurdle {p['discount_rate']:.0f}%",
                   annotation_font_color="#F6C90E")
-    fig.add_vline(x=cur, line=dict(color="#FF6B35", width=2),
-                  annotation_text=f"R {cur:.2f}", annotation_font_color="#FF6B35")
+    fig.add_vline(x=pv_blend, line=dict(color="#FF6B35", width=2),
+                  annotation_text=f"R {pv_blend:.2f}",
+                  annotation_font_color="#FF6B35")
     fig.add_vline(x=grid, line=dict(color="#9CA3AF", dash="dot"),
                   annotation_text="grid", annotation_font_color="#9CA3AF")
     fig.update_layout(
         height=360, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#E8ECF0" if _dark else "#1A202C",
                   family="IBM Plex Mono"),
-        xaxis=dict(title=f"{axes[0][1] if len(axes)>1 else 'PPA'} price (ZAR/kWh)"),
+        xaxis=dict(title="Blended PV PPA price (ZAR/kWh)"),
         yaxis=dict(title="Developer IRR (%)", side="left"),
         yaxis2=dict(title="Offtaker cum. saving (R M)", overlaying="y",
                     side="right"),
         legend=dict(orientation="h", y=-0.22),
         margin=dict(l=10, r=10, t=20, b=10))
     st.plotly_chart(fig, use_container_width=True)
-    if len(axes) > 1:
-        st.caption(f"Sweep varies the **{axes[0][1]}** axis; other axes held at "
-                   "their slider values. Adjust any slider to move the curves.")
+    if n_axes > 1:
+        st.caption("Sweep scales all PV price axes together (battery held "
+                   "fixed); marker = current blended PV price. Adjust any "
+                   "slider to move the curves.")
 
 
 def render_ppa_wheeling(eng: dict) -> None:
@@ -792,25 +903,26 @@ def render_ppa_wheeling(eng: dict) -> None:
                 unsafe_allow_html=True)
 
         with st.expander("📜 PPA Terms (shared)", expanded=True):
-            st.selectbox(
-                "PPA Pricing Model",
-                ["Single price",
-                 "TOU 3-period (peak / standard / off-peak)",
-                 "By asset (PV + Battery)"],
-                key="whl_pricing_model",
-                help="Sets how the PPA price is structured — the ⚖️ Price "
-                     "Balancer tab shows one slider per price axis of this model.")
-            _pm_sel = str(ss.get("whl_pricing_model", "Single price"))
-            _n_axes = {"Single": 1, "TOU": 3, "By asset": 2}.get(
-                _pm_sel.split(" ")[0] if not _pm_sel.startswith("By") else "By asset", 1)
-            st.caption(f"⚖️ {_n_axes} price "
-                       f"{'axis' if _n_axes == 1 else 'axes'} — drag on the "
-                       "**Price Balancer** tab to set PPA price(s).")
+            st.markdown("**PPA price structure** — combine any of:")
+            st.checkbox("Distinguish winter / summer", key="whl_split_season")
+            st.checkbox("Distinguish TOU (peak / standard / off-peak)",
+                        key="whl_split_tou")
+            st.checkbox("Distinguish PV / battery price", key="whl_split_asset")
+            _ns = (2 if ss.get("whl_split_season") else 1)
+            _nt = (3 if ss.get("whl_split_tou") else 1)
+            _na = _ns * _nt + (_ns if ss.get("whl_split_asset") else 0)
+            st.caption(f"⚖️ {_na} price "
+                       f"{'axis' if _na == 1 else 'axes'} — drag on the "
+                       "**Price Balancer** tab to set each price.")
+            st.number_input("Base PPA Price (ZAR/kWh)", 0.0, 20.0,
+                            key="whl_ppa_price", step=0.01, format="%.4f",
+                            help="Seeds new price axes when you toggle a "
+                                 "dimension; also the price when all toggles off.")
             st.number_input("PPA Escalation (%/yr)", 0.0, 25.0,
                             key="whl_ppa_escalation", step=0.25)
             st.number_input("Contract Term (years)", 1, 25,
                             key="whl_contract_years", step=1)
-            if _pm_sel.startswith("By asset"):
+            if ss.get("whl_split_asset"):
                 st.markdown("**🔋 Battery leg**")
                 st.number_input("Battery Capacity (kWh)", 0.0, 1e6,
                                 key="whl_bess_kwh", step=100.0)
@@ -871,8 +983,8 @@ def render_ppa_wheeling(eng: dict) -> None:
 
     # ── Model run (cheap — every rerun) ──────────────────────
     p     = _params_dict()
-    p["section_12b"] = eng["SECTION_12B"]
-    p["tou_split"]   = tou_generation_split(eng)
+    p["section_12b"]  = eng["SECTION_12B"]
+    p["energy_split"] = energy_split(eng)
     model = run_ppa_models(p)
     ss["_whl_model"] = model
 
