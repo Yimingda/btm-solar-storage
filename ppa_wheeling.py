@@ -207,7 +207,7 @@ def energy_split(eng: dict, pvgis_data: dict | None = None) -> dict:
     return {"pv": pv, "bess_season": bess}
 
 
-def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
+def run_wheeling_dispatch(p: dict, eng: dict, record_hourly: bool = True) -> dict:
     """
     8760-hour physical dispatch for the wheeling PPA — same modelling basis as
     BTM (hourly PV from PVGIS monthly × Gaussian daylight; weekday / Saturday /
@@ -243,6 +243,7 @@ def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
     pv_buk, bs_buk = {}, {}
     pv_tot = bess_tot = cyc_used = 0.0
     c_bound_days = 0
+    _rec = []                                   # 8760 hourly log rows
     for m in range(1, 13):
         season = "win" if m in _WINTER_MONTHS else "sum"
         m_gen  = monthly[m - 1] if use_m else annual_pv * days[m - 1] / 365.0
@@ -252,7 +253,7 @@ def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
                 dtp = dtf(_dt2.date(2025, m, d + 1)) if dtf else "weekday"
             except Exception:
                 dtp = "weekday"
-            peak_h = []
+            peak_h, _hpk, _hpv = [], [], []
             for hh in range(24):
                 _, period = eng["get_tariff_for_hour"](hh, m, dtp)
                 pk = ("peak" if "peak" in str(period) and "off" not in str(period)
@@ -260,10 +261,12 @@ def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
                 e = daily * float(w[hh])
                 pv_buk[(season, pk)] = pv_buk.get((season, pk), 0.0) + e
                 pv_tot += e
+                _hpk.append(pk); _hpv.append(e)
                 if pk == "peak":
                     peak_h.append(hh)
             # Battery daily discharge — C-rate × peak hours, capped by usable
             # capacity and the remaining annual cycle budget.
+            day_deliv = 0.0
             if asset and bess_kwh > 0 and peak_h and cyc_used < cyc_budget:
                 _power_cap = bess_kw * len(peak_h)
                 day_dis = min(usable, _power_cap)
@@ -271,12 +274,28 @@ def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
                     c_bound_days += 1
                 if usable > 0 and cyc_used + day_dis / usable > cyc_budget:
                     day_dis = max(0.0, cyc_budget - cyc_used) * usable
-                deliv = day_dis * rte
-                if peak_h:
-                    bs_buk[(season, "peak")] = (bs_buk.get((season, "peak"), 0.0)
-                                                + deliv)
-                bess_tot += deliv
+                day_deliv = day_dis * rte
+                bs_buk[(season, "peak")] = (bs_buk.get((season, "peak"), 0.0)
+                                            + day_deliv)
+                bess_tot += day_deliv
                 cyc_used += (day_dis / usable) if usable > 0 else 0.0
+            # Hourly log: PV per hour, battery discharge spread over peak hours,
+            # charge spread over the cheapest (off-peak) hours.
+            if not record_hourly:
+                continue
+            _npk = len(peak_h)
+            _off_h = [h for h in range(24) if _hpk[h] == "off"] or list(range(0, 6))
+            for hh in range(24):
+                dis = (day_deliv / _npk) if (_npk and hh in peak_h) else 0.0
+                chg = ((day_deliv / rte) / len(_off_h)
+                       if (day_deliv and hh in _off_h) else 0.0)
+                _rec.append({
+                    "month": m, "day": d + 1, "hour": hh, "day_type": dtp,
+                    "period": _hpk[hh], "pv_kWh": round(_hpv[hh], 3),
+                    "bess_charge_kWh": round(chg, 3),
+                    "bess_discharge_kWh": round(dis, 3),
+                    "delivered_kWh": round(_hpv[hh] + dis, 3),
+                })
 
     pvs = sum(pv_buk.values()) or 1.0
     pv_split = {k: v / pvs for k, v in pv_buk.items()}
@@ -284,11 +303,16 @@ def run_wheeling_dispatch(p: dict, eng: dict) -> dict:
     bt = sum(bs_buk.values()) or 1.0
     bess_season = ({"win": bw / bt, "sum": 1.0 - bw / bt} if bt > 1e-9
                    else {"win": 0.25, "sum": 0.75})
+    hourly_df = pd.DataFrame(_rec)
+    monthly_df = (hourly_df.groupby("month")[["pv_kWh", "bess_charge_kWh",
+                  "bess_discharge_kWh", "delivered_kWh"]].sum().reset_index()
+                  if len(hourly_df) else pd.DataFrame())
     return {
         "pv_split": pv_split, "bess_season": bess_season,
         "pv_delivered_kwh": pv_tot, "bess_delivered_kwh": bess_tot,
         "annual_cycles": round(cyc_used, 1),
         "c_rate_bound": c_bound_days > 0,
+        "hourly_df": hourly_df, "monthly_df": monthly_df,
     }
 
 
@@ -573,6 +597,13 @@ def run_ppa_models(p: dict) -> dict:
         "lcos_zar_kwh": lcos,
         "pv_gen_yr1": round(pv_gen1_, 0),
         "bess_dispatch_yr1": round(bess_e1, 0),
+        # Lifetime delivered energy + carbon avoided (item 4/5).
+        # SA grid emission factor ≈ 0.95 tCO2 / MWh (Eskom).
+        "lifetime_delivered_mwh": round(
+            sum(r["Delivered (kWh)"] for r in usr_rows) / 1e3, 0),
+        "co2_avoided_tons": round(
+            sum(r["Delivered (kWh)"] for r in usr_rows) / 1e3 * 0.95, 0),
+        "delivered_mwh_yr1": round(u1["Delivered (kWh)"] / 1e3, 0),
     }
 
 
@@ -1120,7 +1151,7 @@ def _render_optimiser(p: dict, eng: dict) -> None:
         for bs in bess_vals:
             q = dict(p); q["pv_kwp"] = pv; q["bess_kwh"] = bs
             if _use_disp:
-                _d = run_wheeling_dispatch(q, eng)
+                _d = run_wheeling_dispatch(q, eng, record_hourly=False)
                 q["energy_split"] = {"pv": _d["pv_split"],
                                      "bess_season": _d["bess_season"]}
                 if q.get("split_asset"):
@@ -1162,6 +1193,125 @@ def _render_optimiser(p: dict, eng: dict) -> None:
                       margin=dict(l=10, r=10, t=20, b=10))
     st.plotly_chart(fig, use_container_width=True)
     st.dataframe(_df, use_container_width=True, hide_index=True, height=320)
+
+
+def _render_model_tab(model: dict, p: dict) -> None:
+    """20-Year Financial Model tab (item 8) — both perspectives + totals."""
+    import pandas as _pd
+    yrs = int(p["contract_years"])
+    st.markdown('<div class="section-header">📋 20-Year Financial Model</div>',
+                unsafe_allow_html=True)
+    _t1, _t2 = st.tabs(["🏗 Developer cash flow", "🏭 Offtaker savings"])
+    for _tab, _df, _ncf, _cum in (
+            (_t1, model["dev_df"], "Net Cash Flow (ZAR)", "Cumulative CF (ZAR)"),
+            (_t2, model["usr_df"], "Net Saving (ZAR)", "Cumulative Saving (ZAR)")):
+        with _tab:
+            _tot = {c: (_df[c].sum() if _df[c].dtype.kind in "if" else "")
+                    for c in _df.columns}
+            _tot[_df.columns[0]] = "TOTAL"
+            _show = _pd.concat([_df, _pd.DataFrame([_tot])], ignore_index=True)
+            st.dataframe(_show, use_container_width=True, hide_index=True,
+                         height=560)
+            st.caption(f"{yrs}-year nominal cash flows · last row = column totals "
+                       "· editable formula-driven version in the Excel export.")
+
+
+def _render_hourly(disp: dict | None, model: dict, eng: dict) -> None:
+    """Hourly Dispatch tab (items 1/2/3): 8760 log + CSV, monthly summary,
+    typical-day curve with date selector."""
+    import plotly.graph_objects as go
+    ss = st.session_state
+    st.markdown('<div class="section-header">⏱ 8760-Hour Dispatch</div>',
+                unsafe_allow_html=True)
+    if not disp or disp.get("hourly_df") is None or len(disp["hourly_df"]) == 0:
+        st.info("Run the **▶ Run 8760 Dispatch** button above to generate the "
+                "hour-by-hour PV + battery dispatch (C-rate limited, full "
+                "weekday/weekend/holiday TOU calendar).")
+        return
+    hdf = disp["hourly_df"]; mdf = disp["monthly_df"]
+    _dark = not ss.get("_light_mode", False)
+    _font = dict(color="#E8ECF0" if _dark else "#1A202C", family="IBM Plex Mono")
+    _mn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+           "Oct", "Nov", "Dec"]
+
+    # ── Monthly summary (item 2) ─────────────────────────────────────
+    st.markdown("**📅 Monthly summary**")
+    fm = go.Figure()
+    fm.add_bar(x=[_mn[int(m)-1] for m in mdf["month"]], y=mdf["pv_kWh"]/1e3,
+               name="PV gen", marker_color="#F6C90E")
+    if mdf["bess_discharge_kWh"].sum() > 0:
+        fm.add_bar(x=[_mn[int(m)-1] for m in mdf["month"]],
+                   y=mdf["bess_discharge_kWh"]/1e3, name="BESS discharge",
+                   marker_color="#00E5A0")
+    fm.update_layout(barmode="stack", height=300, paper_bgcolor="rgba(0,0,0,0)",
+                     plot_bgcolor="rgba(0,0,0,0)", font=_font,
+                     yaxis=dict(title="MWh / month"),
+                     legend=dict(orientation="h", y=-0.2),
+                     margin=dict(l=10, r=10, t=10, b=10))
+    st.plotly_chart(fm, use_container_width=True)
+
+    # ── Typical-day curve with date selector (item 3) ────────────────
+    st.markdown("**📈 Daily dispatch profile**")
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        _m = st.selectbox("Month", list(range(1, 13)),
+                          format_func=lambda x: _mn[x-1], index=6, key="whl_hr_m")
+    _md = hdf[hdf["month"] == _m]
+    _days = sorted(_md["day"].unique())
+    with _c2:
+        _d = st.selectbox("Day", _days, index=min(14, len(_days)-1),
+                          key="whl_hr_d")
+    dd = _md[_md["day"] == _d].sort_values("hour")
+    if len(dd):
+        _dtp = dd["day_type"].iloc[0]
+        fd = go.Figure()
+        fd.add_bar(x=dd["hour"], y=dd["pv_kWh"], name="PV", marker_color="#F6C90E")
+        if dd["bess_discharge_kWh"].sum() > 0:
+            fd.add_bar(x=dd["hour"], y=dd["bess_discharge_kWh"],
+                       name="BESS discharge", marker_color="#00E5A0")
+            fd.add_bar(x=dd["hour"], y=-dd["bess_charge_kWh"],
+                       name="BESS charge", marker_color="#4ECDC4")
+        fd.add_scatter(x=dd["hour"], y=dd["delivered_kWh"], name="Delivered",
+                       line=dict(color="#FF6B35", width=2))
+        fd.update_layout(barmode="relative", height=330,
+                         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                         font=_font, title=f"{_mn[_m-1]} {_d} ({_dtp})",
+                         xaxis=dict(title="Hour", tickmode="linear", dtick=2),
+                         yaxis=dict(title="kWh/h"),
+                         legend=dict(orientation="h", y=-0.25),
+                         margin=dict(l=10, r=10, t=40, b=10))
+        st.plotly_chart(fd, use_container_width=True)
+
+    # ── 8760 log + CSV (item 1) ──────────────────────────────────────
+    st.markdown("**📋 8760-hour log**")
+    st.download_button("⬇ 8760_Wheeling_Dispatch.csv",
+                       data=hdf.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="8760_Wheeling_Dispatch.csv", mime="text/csv",
+                       use_container_width=True, key="whl_hr_csv")
+    st.dataframe(hdf.head(168), use_container_width=True, hide_index=True,
+                 height=320)
+    st.caption("First 168 rows (week 1) shown; full 8760 rows in the CSV.")
+
+
+def _render_admin(eng: dict) -> None:
+    """Admin tab (item 9) — admin-only diagnostics for the wheeling scenario."""
+    ss = st.session_state
+    st.markdown('<div class="section-header">🔴 Admin — Wheeling diagnostics</div>',
+                unsafe_allow_html=True)
+    _u = (eng.get("get_current_user") or (lambda: None))() or {}
+    a1, a2, a3 = st.columns(3)
+    with a1: _kpi("USER", _u.get("full_name") or _u.get("email", "—"),
+                  _u.get("tier", "—"))
+    with a2: _kpi("DISPATCH", "cached" if ss.get("_whl_dispatch") else "not run",
+                  "8760 engine")
+    with a3: _kpi("PVGIS", ss.get("whl_pvgis_status", "—")[:18], "data source")
+    st.caption("Project storage is namespaced to the wheeling scenario; user "
+               "tiers and global admin actions are managed in the BTM Admin tab.")
+    with st.expander("Session diagnostics (whl_* keys)", expanded=False):
+        _d = {k: v for k, v in ss.items()
+              if isinstance(k, str) and k.startswith("whl_")
+              and isinstance(v, (int, float, str, bool))}
+        st.json(_d)
 
 
 def render_ppa_wheeling(eng: dict) -> None:
@@ -1650,9 +1800,16 @@ def render_ppa_wheeling(eng: dict) -> None:
                     'C-rate-limited battery + full weekday/weekend/holiday '
                     'TOU accuracy.</div>', unsafe_allow_html=True)
 
-        tab_bal, tab_dev, tab_usr, tab_opt, tab_rpt = st.tabs(
-            ["⚖️ Price Balancer", "🏗 Developer / IPP",
-             "🏭 End-user / Offtaker", "🔍 Optimisation", "📁 Reports"])
+        _u_now = (eng.get("get_current_user") or (lambda: None))() or {}
+        _is_admin = _u_now.get("tier") == "admin"
+        _labels = ["⚖️ Price Balancer", "🏗 Developer / IPP",
+                   "🏭 End-user / Offtaker", "📋 20-Year Model",
+                   "⏱ Hourly Dispatch", "🔍 Optimisation", "📁 Reports"]
+        if _is_admin:
+            _labels.append("🔴 Admin")
+        _tabs = st.tabs(_labels)
+        tab_bal, tab_dev, tab_usr, tab_mdl, tab_hr, tab_opt, tab_rpt = _tabs[:7]
+        tab_adm = _tabs[7] if _is_admin else None
 
         import plotly.graph_objects as go
 
@@ -1660,9 +1817,22 @@ def render_ppa_wheeling(eng: dict) -> None:
         with tab_bal:
             _render_balancer(p, model, eng)
 
+        # ── 20-Year Financial Model tab (item 8) ─────────────
+        with tab_mdl:
+            _render_model_tab(model, p)
+
+        # ── Hourly Dispatch tab (item 1/2/3) ─────────────────
+        with tab_hr:
+            _render_hourly(_disp if _disp_valid else None, model, eng)
+
         # ── Capacity Optimisation tab ────────────────────────
         with tab_opt:
             _render_optimiser(p, eng)
+
+        # ── Admin tab (item 9) ───────────────────────────────
+        if tab_adm is not None:
+            with tab_adm:
+                _render_admin(eng)
 
         def _chart(df, bar_col, line_col, title):
             fig = go.Figure()
@@ -1732,6 +1902,17 @@ def render_ppa_wheeling(eng: dict) -> None:
                           f"@ {p['discount_rate']:.1f}%")
             with j4: _kpi("YR-1 SAVING RATE",
                           f"{model['usr_discount_pct']:.1f}%", "of avoided cost")
+            # Energy displaced + carbon avoided (item 4/5)
+            _e1, _e2, _e3 = st.columns(3)
+            with _e1: _kpi("YR-1 ENERGY",
+                           f"{model.get('delivered_mwh_yr1', 0):,.0f} MWh",
+                           "wheeled / avoided")
+            with _e2: _kpi(f"{int(p['contract_years'])}-YR ENERGY",
+                           f"{model.get('lifetime_delivered_mwh', 0)/1e3:,.1f} GWh",
+                           "grid purchases displaced")
+            with _e3: _kpi("CO₂ AVOIDED",
+                           f"{model.get('co2_avoided_tons', 0)/1e3:,.1f} kt",
+                           "@ 0.95 t/MWh SA grid")
             _chart(model["usr_df"], "Net Saving (ZAR)",
                    "Cumulative Saving (ZAR)",
                    f"End-user — {int(p['contract_years'])}-Year Cumulative Savings")
