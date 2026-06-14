@@ -197,7 +197,13 @@ def render_scenario_selector() -> None:
             )
             st.markdown(f"""
 <div class="sc-card wheeling">
-  <div class="sc-badge wheeling">SCENARIO 2</div>
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <div class="sc-badge wheeling">SCENARIO 2</div>
+    <div style="background:#F59E0B;color:#1A1A1A;font-family:IBM Plex Mono,monospace;
+                font-size:0.62rem;font-weight:700;letter-spacing:0.06em;
+                padding:2px 8px;border-radius:4px;white-space:nowrap">
+      🚧 BETA · 调试中</div>
+  </div>
   <div class="sc-icon">⚡</div>
   <div class="sc-title">Wheeling</div>
   <div class="sc-sub">Grid-Wheeled Renewable Power Trading</div>
@@ -206,12 +212,14 @@ def render_scenario_selector() -> None:
 
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
             if st.button(
-                "▶ Enter Wheeling Model",
+                "▶ Enter Wheeling Model  (Beta)",
                 key="sc_btn_whl",
                 use_container_width=True,
             ):
                 st.session_state["_scenario"] = "wheeling"
                 st.rerun()
+            st.caption("🚧 Wheeling is in active development (Beta) — figures are "
+                       "for evaluation and may change.")
 
         # ── Footer: logout ──────────────────────────────────────────────────
         st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
