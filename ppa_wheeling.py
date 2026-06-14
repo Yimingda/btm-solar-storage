@@ -613,9 +613,10 @@ def run_ppa_models(p: dict) -> dict:
 
 def generate_ppa_excel(perspective: str, p: dict, model: dict,
                        project_name: str = "", client_name: str = "",
-                       consultant_name: str = "") -> bytes:
-    """3-sheet report (Cover · Cash-flow/Savings · Parameters) styled to
-    match the BTM professional Excel report."""
+                       consultant_name: str = "", dispatch: dict | None = None) -> bytes:
+    """Professional Excel report styled to match BTM. Sheets: Cover ·
+    Cash-flow/Savings (formula-driven) · Parameters, plus Monthly Summary
+    and 8760 Raw Data when an 8760 dispatch result is supplied."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
@@ -841,6 +842,40 @@ def generate_ppa_excel(perspective: str, p: dict, model: dict,
         un.font = _font(sz=9, italic=True, color="666666")
         un.fill = _fill(C_ALT); un.alignment = _align(); un.border = _bdr()
         ws3.row_dimensions[r].height = 17
+
+    # ── Sheet 4/5: Monthly Summary + 8760 Raw Data (item 7) ──
+    if dispatch and dispatch.get("monthly_df") is not None \
+            and len(dispatch.get("monthly_df", [])) > 0:
+        _mn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+               "Oct", "Nov", "Dec"]
+        mdf = dispatch["monthly_df"]
+        ws4 = wb.create_sheet("Monthly Summary")
+        _mcols = ["Month", "PV (kWh)", "BESS Charge (kWh)",
+                  "BESS Discharge (kWh)", "Delivered (kWh)"]
+        for ci, h in enumerate(_mcols, 1):
+            c = ws4.cell(row=1, column=ci, value=h)
+            c.font = Font("Calibri", 9, bold=True, color="FFFFFF")
+            c.fill = _fill(C_NAVY); c.alignment = _align("center", wrap=True)
+            c.border = _bdr()
+            ws4.column_dimensions[get_column_letter(ci)].width = 18
+        for ri, rec in enumerate(mdf.itertuples(index=False), 2):
+            ws4.cell(row=ri, column=1, value=_mn[int(rec[0]) - 1])
+            for ci in range(1, 5):
+                cc = ws4.cell(row=ri, column=ci + 1, value=round(float(rec[ci]), 0))
+                cc.number_format = "#,##0"; cc.border = _bdr()
+                cc.fill = _fill(C_ALT if ri % 2 == 0 else "FFFFFF")
+        hdf = dispatch.get("hourly_df")
+        if hdf is not None and len(hdf) > 0:
+            ws5 = wb.create_sheet("8760 Raw Data")
+            for ci, h in enumerate(list(hdf.columns), 1):
+                c = ws5.cell(row=1, column=ci, value=h)
+                c.font = Font("Calibri", 8, bold=True, color="FFFFFF")
+                c.fill = _fill(C_NAVY); c.border = _bdr()
+                ws5.column_dimensions[get_column_letter(ci)].width = 13
+            ws5.freeze_panes = "A2"
+            for ri, rec in enumerate(hdf.itertuples(index=False), 2):
+                for ci, v in enumerate(rec, 1):
+                    ws5.cell(row=ri, column=ci, value=v)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -1979,7 +2014,9 @@ def render_ppa_wheeling(eng: dict) -> None:
                             _persp, p, model,
                             project_name=_proj,
                             client_name=ss.get("_pptx_client_name", ""),
-                            consultant_name=ss.get("_pptx_consultant", ""))
+                            consultant_name=ss.get("_pptx_consultant", ""),
+                            dispatch=(ss.get("_whl_dispatch")
+                                      if ss.get("_whl_dispatch_key") else None))
                         st.download_button(
                             f"⬇ Excel — {_tag} Report", data=_xb,
                             file_name=f"{_proj_safe}_PPA_{_tag}_{_today}.xlsx",

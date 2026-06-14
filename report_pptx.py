@@ -1989,7 +1989,7 @@ def generate_ppa_pptx(perspective: str, p: dict, model: dict,
     is_dev  = perspective.startswith("Developer")
     df      = (model["dev_df"] if is_dev else model["usr_df"])
     company = consultant_name or "Energy Consulting"
-    total   = 5
+    total   = 7
 
     prs = Presentation()
     prs.slide_width, prs.slide_height = _in(13.33), _in(7.5)
@@ -2055,7 +2055,70 @@ def generate_ppa_pptx(perspective: str, p: dict, model: dict,
                "ensuring the two report editions reconcile exactly.")
     _footer(slide, company, 2, total)
 
-    # ── 3 · Cash-flow / savings chart ────────────────────────────────────────
+    # ── 3 · System & levelised cost ──────────────────────────────────────────
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _has_bess = (model.get("bess_dispatch_yr1", 0) or 0) > 0
+    _header_bar(slide, "Levelised cost sits well below the contracted PPA price",
+                "Generation economics · LCOE / LCOS on the BTM annualised basis")
+    _lk = [("LCOE · PV", f"R {model.get('lcoe_zar_kwh', 0):.2f}", "per kWh generated"),
+           ("LCOS · BESS",
+            f"R {model.get('lcos_zar_kwh', 0):.2f}" if _has_bess else "—",
+            "per kWh dispatched"),
+           ("YR-1 PV", f"{model.get('pv_gen_yr1', 0)/1e3:,.0f} MWh", "generation"),
+           ("CO₂ AVOIDED", f"{model.get('co2_avoided_tons', 0)/1e3:,.1f} kt",
+            "lifetime, 0.95 t/MWh")]
+    for i, (lbl, val, sub) in enumerate(_lk):
+        _kpi_block(slide, 0.40 + i * 3.18, 1.05, lbl, val, sub, w=3.00)
+    _section_hdr(slide, 0.40, 2.75, 12.5, 0.34, "SYSTEM CONFIGURATION")
+    _specs = [("Solar PV capacity", f"{p['pv_kwp']:,.0f} kWp"),
+              ("Specific yield (Yr-1)", f"{p['spec_yield']:,.0f} kWh/kWp"),
+              ("PV degradation", f"{p['pv_degradation']:.1f}% / yr")]
+    if _has_bess:
+        _specs += [("Battery capacity", f"{p.get('bess_kwh', 0):,.0f} kWh"),
+                   ("Yr-1 dispatch", f"{model.get('bess_dispatch_yr1', 0)/1e3:,.0f} MWh"),
+                   ("Round-trip efficiency", f"{p.get('bess_rte', 90):.0f}%")]
+    for i, (k, v) in enumerate(_specs):
+        _yy = 3.25 + (i % 3) * 0.62
+        _xx = 0.40 + (i // 3) * 6.30
+        _rect(slide, _xx, _yy, 6.05, 0.54, _LRD)
+        _tb(slide, _xx + 0.16, _yy + 0.13, 3.4, 0.30, k, 10, color=_MGY)
+        _tb(slide, _xx + 3.4, _yy + 0.13, 2.4, 0.30, v, 11, bold=True,
+            color=_DGY, align="right")
+    _narrative(slide, 0.40, 5.35, 12.5, 0.95,
+               f"At R {model.get('lcoe_zar_kwh', 0):.2f}/kWh, the levelised cost of "
+               "generation is a fraction of the contracted PPA price — the margin "
+               "between the two is the developer's gross spread, while the offtaker "
+               "still pays below the escalating grid tariff. "
+               f"Over {yrs} years the plant displaces "
+               f"{model.get('lifetime_delivered_mwh', 0)/1e3:,.1f} GWh of grid "
+               f"purchases, avoiding ≈{model.get('co2_avoided_tons', 0)/1e3:,.1f} "
+               "kilotonnes of CO₂ on the SA grid emission factor.")
+    _footer(slide, company, 3, total)
+
+    # ── 4 · Tariff opportunity (PPA vs grid escalation) ──────────────────────
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _g0 = p['grid_tariff']; _p_esc = p['ppa_escalation']; _g_esc = p['grid_escalation']
+    _ppa0 = model['dev_rev_yr1'] / max(model.get('pv_gen_yr1', 1), 1) if is_dev else _g0
+    _header_bar(slide, "Grid tariff escalation outpaces the contracted PPA",
+                f"PPA +{_p_esc:.1f}%/yr vs grid +{_g_esc:.2f}%/yr — the spread "
+                "compounds for the full term")
+    _yrs_chart = list(range(1, yrs + 1))
+    _grid_line = [_g0 * (1 + _g_esc / 100) ** (y - 1) for y in _yrs_chart]
+    _ppa_line = [_ppa0 * (1 + _p_esc / 100) ** (y - 1) for y in _yrs_chart]
+    _png = _png_ppa_chart(_yrs_chart, _ppa_line, _grid_line,
+                          "PPA price (ZAR/kWh)", "Grid tariff (ZAR/kWh)")
+    if _png:
+        slide.shapes.add_picture(io.BytesIO(_png), _in(0.40), _in(1.05),
+                                 _in(12.5), _in(4.85))
+    _narrative(slide, 0.40, 6.20, 12.5, 0.80,
+               f"The grid reference tariff starts at R {_g0:.2f}/kWh and escalates "
+               f"{_g_esc:.2f}%/yr; the PPA starts at R {_ppa0:.2f}/kWh and escalates "
+               f"only {_p_esc:.1f}%/yr. By Year {yrs} the grid rate reaches "
+               f"R {_grid_line[-1]:.2f}/kWh vs the PPA's R {_ppa_line[-1]:.2f}/kWh — "
+               "a widening discount that underwrites the offtaker's savings.")
+    _footer(slide, company, 4, total)
+
+    # ── 5 · Cash-flow / savings chart ────────────────────────────────────────
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     if is_dev:
         _header_bar(slide, f"{yrs}-year developer cash-flow profile",
@@ -2080,7 +2143,7 @@ def generate_ppa_pptx(perspective: str, p: dict, model: dict,
                 "Savings widen over time whenever the grid tariff escalation "
                 "outpaces the contracted PPA escalation — the spread compounds "
                 "annually in the offtaker's favour."))
-    _footer(slide, company, 3, total)
+    _footer(slide, company, 5, total)
 
     # ── 4 · 20-yr table ──────────────────────────────────────────────────────
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -2118,7 +2181,7 @@ def generate_ppa_pptx(perspective: str, p: dict, model: dict,
             pr.runs[0].font.color.rgb = _rgb(
                 _NEG if (isinstance(v, (int, float)) and v < 0 and ci > 0)
                 else _DGY)
-    _footer(slide, company, 4, total)
+    _footer(slide, company, 6, total)
 
     # ── 5 · Assumptions & disclaimer ─────────────────────────────────────────
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -2154,7 +2217,7 @@ def generate_ppa_pptx(perspective: str, p: dict, model: dict,
         "access are subject to the relevant utility / municipal use-of-system "
         "agreement and NERSA rules. Verify all inputs before contract signature.",
         8.5, color=_MGY)
-    _footer(slide, company, 5, total)
+    _footer(slide, company, 7, total)
 
     buf = io.BytesIO()
     prs.save(buf)
